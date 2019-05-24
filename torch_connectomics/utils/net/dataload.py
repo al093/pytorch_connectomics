@@ -20,7 +20,7 @@ def get_input(args, model_io_size, mode='train'):
     """Prepare dataloader for training and inference.
     """
     print('Task: ', TASK_MAP[args.task])
-    assert mode in ['train', 'test']
+    assert mode in ['train', 'test', 'validation']
 
     if mode=='test':
         pad_size = model_io_size // 2
@@ -31,15 +31,24 @@ def get_input(args, model_io_size, mode='train'):
     volume_shape = []
 
     dir_name = args.train.split('@')
-    img_name = args.img_name.split('@')
+
+    if mode=='validation':
+        img_name = args.val_img_name.split('@')
+    else:
+        img_name = args.img_name.split('@')
+
     img_name = [dir_name[0] + x for x in img_name]
-    if mode=='train':
+
+    if mode=='validation':
+        seg_name = args.val_seg_name.split('@')
+        seg_name = [dir_name[0] + x for x in seg_name]
+    elif mode=='train':
         seg_name = args.seg_name.split('@')
         seg_name = [dir_name[0] + x for x in seg_name]
     
     # 1. load data
     model_input = [None]*len(img_name)
-    if mode=='train':
+    if mode=='train' or mode=='validation':
         assert len(img_name)==len(seg_name)
         model_label = [None]*len(seg_name)
 
@@ -52,7 +61,7 @@ def get_input(args, model_io_size, mode='train'):
         volume_shape.append(model_input[i].shape)
         model_input[i] = model_input[i].astype(np.float32)
 
-        if mode=='train':
+        if mode=='train' or mode=='validation':
             model_label[i] = np.array(h5py.File(seg_name[i], 'r')['main'])
             model_label[i] = model_label[i].astype(np.float32)
             print("label shape: ", model_label[i].shape)
@@ -61,7 +70,7 @@ def get_input(args, model_io_size, mode='train'):
                                                      (pad_size[2],pad_size[2])), 'reflect')
             assert model_input[i].shape == model_label[i].shape
 
-    if mode=='train':
+    if mode=='train' or mode=='validation':
         # setup augmentor
         augmentor = Compose([Rotate(p=1.0),
                              Rescale(p=0.5),
@@ -77,10 +86,10 @@ def get_input(args, model_io_size, mode='train'):
         augmentor = None
 
     print('data augmentation: ', augmentor is not None)
-    SHUFFLE = (mode=='train')
+    SHUFFLE = (mode=='train' or mode=='validation')
     print('batch size: ', args.batch_size)
 
-    if mode=='train':
+    if mode=='train' or mode=='validation':
         if augmentor is None:
             sample_input_size = model_io_size
         else:

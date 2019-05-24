@@ -32,7 +32,7 @@ def visualize(volume, label, output, iteration, writer):
     writer.add_image('Label', label_show, iteration)
     writer.add_image('Output', output_show, iteration)
 
-def visualize_aff(volume, label, output, iteration, writer):
+def visualize_aff(volume, label, output, iteration, writer, mode='Train'):
     volume, label, output = prepare_data(volume, label, output)
 
     sz = volume.size() # z,c,y,x
@@ -46,4 +46,4 @@ def visualize_aff(volume, label, output, iteration, writer):
     canvas_merge = torch.cat(canvas, 0)
     canvas_show = vutils.make_grid(canvas_merge, nrow=8, normalize=True, scale_each=True)
 
-    writer.add_image('Affinity', canvas_show, iteration)
+    writer.add_image(mode + ' Affinity', canvas_show, iteration)

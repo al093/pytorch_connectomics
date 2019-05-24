@@ -8,9 +8,11 @@ from torch_connectomics.model.loss import *
 from torch_connectomics.utils.net import *
 from torch_connectomics.utils.vis import visualize, visualize_aff
 
-def train(args, train_loader, model, device, criterion, 
+def train(args, train_loader, val_loader, model, device, criterion,
           optimizer, scheduler, logger, writer, regularization=None):
     record = AverageMeter()
+    val_record = AverageMeter()
+
     model.train()
 
     for iteration, (_, volume, label, class_weight, _) in enumerate(train_loader):
@@ -23,6 +25,7 @@ def train(args, train_loader, model, device, criterion,
             loss = criterion(output, label, class_weight) + regularization(output)
         else:
             loss = criterion(output, label, class_weight)
+
         record.update(loss, args.batch_size) 
 
         # compute gradient and do Adam step
@@ -33,16 +36,45 @@ def train(args, train_loader, model, device, criterion,
         logger.write("[Volume %d] train_loss=%0.4f lr=%.5f\n" % (iteration, \
                 loss.item(), optimizer.param_groups[0]['lr']))
 
-        if iteration % 10 == 0 and iteration >= 1:
-            writer.add_scalar('Loss', record.avg, iteration)
-            print('[Iteration %d] train_loss=%0.4f lr=%.6f' % (iteration, \
-                  record.avg, optimizer.param_groups[0]['lr']))
-            scheduler.step(record.avg)
-            record.reset()
+        print('[Iteration %d] train_loss=%0.4f lr=%.6f' % (iteration, \
+                                                         record.avg, optimizer.param_groups[0]['lr']))
+        writer.add_scalars('Loss', {'Train': record.avg}, iteration)
+
+        if iteration % 40 == 0 and iteration >= 1:
+
             if args.task == 0:
-                visualize_aff(volume, label, output, iteration, writer)
+                visualize_aff(volume, label, output, iteration, writer, mode='Train')
             elif args.task == 1:
                 visualize(volume, label, output, iteration, writer)
+
+            for _, (_, volume, label, class_weight, _) in enumerate(val_loader):
+                with torch.no_grad():
+                    volume, label = volume.to(device), label.to(device)
+                    class_weight = class_weight.to(device)
+                    model.eval()
+                    output = model(volume)
+
+                    if regularization is not None:
+                        val_loss = criterion(output, label, class_weight) + regularization(output)
+                    else:
+                        val_loss = criterion(output, label, class_weight)
+
+                    val_record.update(val_loss, args.batch_size)
+
+                    writer.add_scalars('Loss', {'Val': val_record.avg}, iteration)
+                    print('[Iteration %d] val_loss=%0.4f lr=%.6f' % (iteration, \
+                          val_record.avg, optimizer.param_groups[0]['lr']))
+
+                    scheduler.step(record.avg)
+                    record.reset()
+
+                    if args.task == 0:
+                        visualize_aff(volume, label, output, iteration, writer, mode='Validation')
+                    elif args.task == 1:
+                        visualize(volume, label, output, iteration, writer)
+
+                model.train()
+                break
             #print('weight factor: ', weight_factor) # debug
             # debug
             # if iteration < 50:
@@ -70,6 +102,8 @@ def main():
     print('1. setup data')
     train_loader = get_input(args, model_io_size, 'train')
 
+    val_loader = get_input(args, model_io_size, 'validation')
+
     print('2.0 setup model')
     model = setup_model(args, device)
             
@@ -86,7 +120,7 @@ def main():
     
 
     print('4. start training')
-    train(args, train_loader, model, device, criterion, optimizer, scheduler, logger, writer)
+    train(args, train_loader, val_loader, model, device, criterion, optimizer, scheduler, logger, writer)
   
     print('5. finish training')
     logger.close()

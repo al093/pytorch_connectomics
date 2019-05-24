@@ -43,6 +43,14 @@ def get_args(mode='train'):
         parser.add_argument('-ln','--seg-name',  default='seg-groundtruth2-malis.h5',
                             help='Ground-truth label path')
 
+        #Added input args for validation set
+        parser.add_argument('-vln', '--val-seg-name', default='seg-groundtruth2-malis.h5',
+                            help='Validation Ground-truth label path')
+
+        parser.add_argument('-vdn', '--val-img-name', default='im_uint8.h5',
+                            help='Validation Image data path')
+
+
         parser.add_argument('-ft','--finetune', type=bool, default=False,
                             help='Fine-tune on previous model [Default: False]')
 
