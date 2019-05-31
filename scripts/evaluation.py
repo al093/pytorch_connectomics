@@ -4,11 +4,12 @@ import numpy as np
 import time
 import imageio
 import argparse
+import csv
 
 from torch_connectomics.utils.seg.seg_dist import DilateData
 from torch_connectomics.utils.seg.seg_util import relabel
 from torch_connectomics.utils.seg.io_util import writeh5, readh5
-from torch_connectomics.utils.seg.seg_eval import adapted_rand
+from torch_connectomics.utils.seg.adaptedRandPartwise import adapted_rand_partwise
 
 from skimage.morphology import dilation,erosion
 
@@ -58,7 +59,7 @@ if args.mode == 0:
                                 T_dust=T_dust, T_merge=T_merge,T_aff_relative=T_aff_rel)[0][0]
     et = time.time()
     out = relabel(out)
-    sn = '%s_%f_%f_%d_%f_%d_%f_%d.h5'%(args.mode,T_aff[0],T_aff[1],T_thres[0],T_aff[2],T_dust,T_merge,T_aff_rel) 
+    sn = '%s_%f_%f_%d_%f_%d_%f_%d'%(args.mode,T_aff[0],T_aff[1],T_thres[0],T_aff[2],T_dust,T_merge,T_aff_rel)
 
 elif args.mode == 1:
     # waterz
@@ -72,7 +73,7 @@ elif args.mode == 1:
     et = time.time()
     out = relabel(out)
     print(out.shape)
-    sn = '%s_%f_%f_%f_%s.h5'%(args.mode,low,high,T_thres[0],mf) 
+    sn = '%s_%f_%f_%f_%s'%(args.mode,low,high,T_thres[0],mf)
     
 elif args.mode == 2:
     # 2D zwatershed + waterz
@@ -109,7 +110,8 @@ else:
 print('time: %.1f s'%((et-st)))
 # do evaluation
 
-score = adapted_rand(out.astype(np.uint32), seg)
+score, improvements, fscoreNew, precisionNew, recallNew, corres_seg = adapted_rand_partwise(out.astype(np.uint32), seg)
+
 print('Adaptive rand: ', score) 
     # 0: 0.22
     # 1: 0.098
@@ -119,4 +121,8 @@ if args.save:
     result_dir = os.path.dirname(args.pd) + '/'
     if not os.path.exists(result_dir):
         os.makedirs(result_dir)
-    writeh5( result_dir + sn, 'main', out)
+    w = csv.writer(open(result_dir + sn + '_scores.csv', "w"))
+    w.writerow(['GT ID', 'Possible delta', 'Overlapping Output ID', 'New F Score', 'New Precision', 'New Recall'])
+    for key, val in sorted(improvements.items(), key = lambda kv:(kv[1], kv[0]), reverse=True):
+        w.writerow([key, val, corres_seg[key], fscoreNew[key], precisionNew[key], recallNew[key]])
+    writeh5( result_dir + sn + '.h5', 'main', out)
