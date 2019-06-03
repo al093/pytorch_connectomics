@@ -98,6 +98,38 @@ def adapted_rand_partwise(seg, gt):
 
     return are, areImprovement, fScore_new, precision, recall, corr_seg
 
+def calculate_segmentwise_score(i, a, b, c, seg, gt, are, n_labels_A):
+        print('\nComputing improvement score for gt segment {} / {}'.format(i, n_labels_A-1))
+        zero_col = sparse.csr_matrix((n_labels_A - 1, 1), dtype=a.dtype)
+        a_new = sparse.lil_matrix(sparse.hstack((a, zero_col)))
+        b_new = sparse.lil_matrix(sparse.hstack((b, zero_col)))
+        c_new = c
+        a_new[i-1, :] = 0
+        b_new[i-1, :] = 0
+        c_new[i-1, 0] = 0
+        d_new = b_new.multiply(b_new)
+
+        new_seg_count = sparse.csr_matrix.sum(a[i-1, :])
+        a_new[i-1, -1] = new_seg_count
+        b_new[i-1, -1] = new_seg_count
+
+        a_i = np.array(a_new.sum(1))
+        b_i = np.array(b_new.sum(0))
+
+        sumA = np.sum(a_i * a_i)
+        sumB = np.sum(b_i * b_i) + (np.sum(c_new) / n)
+        sumAB = np.sum(d_new) + (np.sum(c_new) / n)
+
+        precision = sumAB / sumB
+        recall = sumAB / sumA
+
+        fScore_new = 1.0 - (2.0 * precision[i] * recall[i] / (precision[i] + recall[i]))
+        areImprovement = are - fScore_new[i]
+
+        #find corresponding segments for gt and output
+        corr_seg = find_corresponding(seg, gt)
+
+        return areImprovement, fScore_new, precision, recall, corr_seg
 
 def find_corresponding(seg, gt):
     segA = np.ravel(gt)

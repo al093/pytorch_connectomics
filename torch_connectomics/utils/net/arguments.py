@@ -64,5 +64,9 @@ def get_args(mode='train'):
         parser.add_argument('--iteration-save', type=int, default=100,
                             help='Number of iteration to save')
 
+    if mode == 'test':
+        parser.add_argument('-ta', '--test-augmentation',  type=bool, default=False,
+                            help='Perform Data Augmentation during inference')
+
     args = parser.parse_args()
     return args

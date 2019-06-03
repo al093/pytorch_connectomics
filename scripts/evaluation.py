@@ -10,6 +10,7 @@ from torch_connectomics.utils.seg.seg_dist import DilateData
 from torch_connectomics.utils.seg.seg_util import relabel
 from torch_connectomics.utils.seg.io_util import writeh5, readh5
 from torch_connectomics.utils.seg.adaptedRandPartwise import adapted_rand_partwise
+from torch_connectomics.utils.seg.seg_eval import adapted_rand
 
 from skimage.morphology import dilation,erosion
 
@@ -18,7 +19,11 @@ def get_args():
     parser.add_argument('-gt',  default='/home/gt_seg/', help='path to groundtruth segmentation')
     parser.add_argument('-pd',  default='/home/pd_aff/', help='path to predicted affinity graph')
     parser.add_argument('--mode', type=int, default=1, help='segmentation method')
-    parser.add_argument('--save', type=bool, default=False, help='save segmentation')
+    parser.add_argument('--save', action='store_true', help='Save segmented output')
+    parser.set_defaults(save=False)
+    parser.add_argument('--segmentwise', action='store_true', help='Calculated Detailed segmentwise evaluation')
+    parser.set_defaults(save=False)
+
     args = parser.parse_args()
     return args
 
@@ -80,7 +85,7 @@ elif args.mode == 2:
     import waterz
     import zwatershed
     print('waterz:', waterz.__version__)
-    print('zwatershed:', zwatershed.__version__)
+    #print('zwatershed:', zwatershed.__version__)
     st = time.time()
     T_thres = [150]
     T_aff=[0.05,0.8,0.2]
@@ -110,7 +115,10 @@ else:
 print('time: %.1f s'%((et-st)))
 # do evaluation
 
-score, improvements, fscoreNew, precisionNew, recallNew, corres_seg = adapted_rand_partwise(out.astype(np.uint32), seg)
+if args.segmentwise:
+    score, improvements, fscoreNew, precisionNew, recallNew, corres_seg = adapted_rand_partwise(out.astype(np.uint32), seg)
+else:
+    score = adapted_rand(out.astype(np.uint32), seg)
 
 print('Adaptive rand: ', score) 
     # 0: 0.22
@@ -121,8 +129,9 @@ if args.save:
     result_dir = os.path.dirname(args.pd) + '/'
     if not os.path.exists(result_dir):
         os.makedirs(result_dir)
-    w = csv.writer(open(result_dir + sn + '_scores.csv', "w"))
-    w.writerow(['GT ID', 'Possible delta', 'Overlapping Output ID', 'New F Score', 'New Precision', 'New Recall'])
-    for key, val in sorted(improvements.items(), key = lambda kv:(kv[1], kv[0]), reverse=True):
-        w.writerow([key, val, corres_seg[key], fscoreNew[key], precisionNew[key], recallNew[key]])
-    writeh5( result_dir + sn + '.h5', 'main', out)
+    if args.segmentwise:
+        w = csv.writer(open(result_dir + sn + '_scores.csv', "w"))
+        w.writerow(['GT ID', 'Possible delta', 'Overlapping Output ID', 'New F Score', 'New Precision', 'New Recall'])
+        for key, val in sorted(improvements.items(), key = lambda kv:(kv[1], kv[0]), reverse=True):
+            w.writerow([key, val, corres_seg[key], fscoreNew[key], precisionNew[key], recallNew[key]])
+    writeh5(result_dir + sn + '.h5', 'main', out)
