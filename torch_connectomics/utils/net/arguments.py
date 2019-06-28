@@ -1,5 +1,11 @@
 import argparse
 
+class LoadFromFile (argparse.Action):
+    def __call__ (self, parser, namespace, values, option_string = None):
+        with values as f:
+            print(f)
+            parser.parse_args(f.read().split(), namespace)
+
 def get_args(mode='train'):
     assert mode in ['train', 'test']
     if mode == 'train':
@@ -67,6 +73,8 @@ def get_args(mode='train'):
     if mode == 'test':
         parser.add_argument('-ta', '--test-augmentation',  type=bool, default=False,
                             help='Perform Data Augmentation during inference')
+
+    parser.add_argument('--argsFile', type=open, action=LoadFromFile)
 
     args = parser.parse_args()
     return args
