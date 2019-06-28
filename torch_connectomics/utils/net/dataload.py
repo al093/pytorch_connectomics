@@ -30,21 +30,17 @@ def get_input(args, model_io_size, mode='train'):
 
     volume_shape = []
 
-    dir_name = args.train.split('@')
 
     if mode=='validation':
         img_name = args.val_img_name.split('@')
     else:
         img_name = args.img_name.split('@')
 
-    img_name = [dir_name[0] + x for x in img_name]
 
     if mode=='validation':
         seg_name = args.val_seg_name.split('@')
-        seg_name = [dir_name[0] + x for x in seg_name]
     elif mode=='train':
         seg_name = args.seg_name.split('@')
-        seg_name = [dir_name[0] + x for x in seg_name]
     
     # 1. load data
     model_input = [None]*len(img_name)
@@ -54,19 +50,34 @@ def get_input(args, model_io_size, mode='train'):
 
     for i in range(len(img_name)):
         model_input[i] = np.array(h5py.File(img_name[i], 'r')['main'])/255.0
-        model_input[i] = np.pad(model_input[i], ((pad_size[0],pad_size[0]), 
-                                                 (pad_size[1],pad_size[1]), 
+
+        if mode=='train' or mode=='validation':
+            model_label[i] = np.array(h5py.File(seg_name[i], 'r')['main'])
+
+            print(img_name[i])
+            print(seg_name[i])
+
+            # crop input to match with labels
+            label_sz = np.array(model_label[i].shape)
+            input_sz = np.array(model_input[i].shape)
+            diff = input_sz - label_sz
+            if (np.any(diff > 0)):
+                diff = diff // 2
+                model_input[i] = model_input[i][diff[0]:diff[0] + label_sz[0], diff[1]:diff[1] + label_sz[1],
+                                 diff[2]:diff[2] + label_sz[2]]
+
+        model_input[i] = np.pad(model_input[i], ((pad_size[0],pad_size[0]),
+                                                 (pad_size[1],pad_size[1]),
                                                  (pad_size[2],pad_size[2])), 'reflect')
         print("volume shape: ", model_input[i].shape)
         volume_shape.append(model_input[i].shape)
         model_input[i] = model_input[i].astype(np.float32)
 
         if mode=='train' or mode=='validation':
-            model_label[i] = np.array(h5py.File(seg_name[i], 'r')['main'])
             model_label[i] = model_label[i].astype(np.float32)
             print("label shape: ", model_label[i].shape)
-            model_label[i] = np.pad(model_label[i], ((pad_size[0],pad_size[0]), 
-                                                     (pad_size[1],pad_size[1]), 
+            model_label[i] = np.pad(model_label[i], ((pad_size[0],pad_size[0]),
+                                                     (pad_size[1],pad_size[1]),
                                                      (pad_size[2],pad_size[2])), 'reflect')
             assert model_input[i].shape == model_label[i].shape
 
