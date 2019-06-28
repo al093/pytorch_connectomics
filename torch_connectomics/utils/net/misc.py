@@ -54,7 +54,7 @@ def get_logger(args):
     logger = open(log_name+'.txt','w') # unbuffered, write instantly
 
     # tensorboardX
-    writer = SummaryWriter('runs/'+log_name)
+    writer = SummaryWriter(args.output + '/runs/' + date + '_' + time)
     return logger, writer
 
 def setup_model(args, device, exact=True, size_match=True):

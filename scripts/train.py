@@ -15,6 +15,8 @@ def train(args, train_loader, val_loader, model, device, criterion,
 
     model.train()
 
+    val_loader_itr = iter(val_loader)
+
     for iteration, (_, volume, label, class_weight, _) in enumerate(train_loader):
 
         volume, label = volume.to(device), label.to(device)
@@ -33,21 +35,30 @@ def train(args, train_loader, val_loader, model, device, criterion,
         loss.backward()
         optimizer.step()
 
-        logger.write("[Volume %d] train_loss=%0.4f lr=%.5f\n" % (iteration, \
-                loss.item(), optimizer.param_groups[0]['lr']))
+        logger.write("[Volume %d] train_loss=%0.4f lr=%.5f\n" % (iteration,
+                                                                 loss.item(), optimizer.param_groups[0]['lr']))
 
-        print('[Iteration %d] train_loss=%0.4f lr=%.6f' % (iteration, \
-                                                         record.avg, optimizer.param_groups[0]['lr']))
-        writer.add_scalars('Loss', {'Train': record.avg}, iteration)
+        print('[Iteration %d] train_loss=%0.4f lr=%.6f' % (iteration,
+                                                           loss.item(), optimizer.param_groups[0]['lr']))
 
-        if iteration % 40 == 0 and iteration >= 1:
+        writer.add_scalars('Loss', {'Train': loss.item()}, iteration)
+
+        if iteration % 100 == 0 and iteration >= 1:
+            val_record.reset()
 
             if args.task == 0:
                 visualize_aff(volume, label, output, iteration, writer, mode='Train')
             elif args.task == 1:
                 visualize(volume, label, output, iteration, writer)
 
-            for _, (_, volume, label, class_weight, _) in enumerate(val_loader):
+            #for better coverage of validation dataset running multiple batches of val
+            for _ in range(5):
+                try:
+                    (_, volume, label, class_weight, _) = next(val_loader_itr)
+                except StopIteration:
+                    val_loader_itr = iter(val_loader)
+                    (_, volume, label, class_weight, _) = next(val_loader_itr)
+
                 with torch.no_grad():
                     volume, label = volume.to(device), label.to(device)
                     class_weight = class_weight.to(device)
@@ -61,20 +72,20 @@ def train(args, train_loader, val_loader, model, device, criterion,
 
                     val_record.update(val_loss, args.batch_size)
 
-                    writer.add_scalars('Loss', {'Val': val_record.avg}, iteration)
-                    print('[Iteration %d] val_loss=%0.4f lr=%.6f' % (iteration, \
-                          val_record.avg, optimizer.param_groups[0]['lr']))
+            writer.add_scalars('Loss', {'Val': val_loss.item()}, iteration)
+            print('[Iteration %d] val_loss=%0.4f lr=%.6f' % (iteration,
+                  val_loss.item(), optimizer.param_groups[0]['lr']))
 
-                    scheduler.step(record.avg)
-                    record.reset()
+            scheduler.step(record.avg)
+            record.reset()
 
-                    if args.task == 0:
-                        visualize_aff(volume, label, output, iteration, writer, mode='Validation')
-                    elif args.task == 1:
-                        visualize(volume, label, output, iteration, writer)
+            if args.task == 0:
+                visualize_aff(volume, label, output, iteration, writer, mode='Validation')
+            elif args.task == 1:
+                visualize(volume, label, output, iteration, writer)
 
                 model.train()
-                break
+
             #print('weight factor: ', weight_factor) # debug
             # debug
             # if iteration < 50:
