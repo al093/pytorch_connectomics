@@ -9,7 +9,7 @@ import csv
 from torch_connectomics.utils.seg.seg_dist import DilateData
 from torch_connectomics.utils.seg.seg_util import relabel
 from torch_connectomics.utils.seg.io_util import writeh5, readh5
-from torch_connectomics.utils.seg.adaptedRandPartwise import adapted_rand_partwise
+from torch_connectomics.utils.seg.adaptedRandPartwise import *
 from torch_connectomics.utils.seg.seg_eval import adapted_rand
 
 from skimage.morphology import dilation,erosion
@@ -50,7 +50,7 @@ else:
 
 print('shape of gt segmenation:', seg.shape)
 
-if args.mode == 0: 
+if args.mode == 0:
     # 3D zwatershed
     import zwatershed as zwatershed
     #print('zwatershed:', zwatershed.__version__)
@@ -79,7 +79,7 @@ elif args.mode == 1:
     out = relabel(out)
     print(out.shape)
     sn = '%s_%f_%f_%f_%s'%(args.mode,low,high,T_thres[0],mf)
-    
+
 elif args.mode == 2:
     # 2D zwatershed + waterz
     import waterz
@@ -116,7 +116,17 @@ print('time: %.1f s'%((et-st)))
 # do evaluation
 
 if args.segmentwise:
-    score, improvements, fscoreNew, precisionNew, recallNew, corres_seg = adapted_rand_partwise(out.astype(np.uint32), seg)
+    score, improvements, fscoreNew, precisionNew, recallNew, delta_precision, delta_recall, corres_seg = adapted_rand_partwise(out.astype(np.uint32), seg)
+    #create groupwise improvement scores
+    top50 = [None]*50
+    idx = 0
+    for key, val in sorted(improvements.items(), key=lambda kv: (kv[1], kv[0]), reverse=True):
+        if idx is 50:
+            break
+        top50[idx] = key
+        idx += 1
+    groups = [1, 5, 10, 20, 50]
+    g_are_improvements, g_are = adapted_rand_groupwise(out.astype(np.uint32), seg, top50, groups)
 else:
     score = adapted_rand(out.astype(np.uint32), seg)
 
@@ -131,7 +141,14 @@ if args.save:
         os.makedirs(result_dir)
     if args.segmentwise:
         w = csv.writer(open(result_dir + sn + '_scores.csv', "w"))
-        w.writerow(['GT ID', 'Possible delta', 'Overlapping Output ID', 'New F Score', 'New Precision', 'New Recall'])
+        w.writerow(['GT ID', 'Possible delta', 'Overlapping Output ID', 'New F Score', 'New Precision', 'New Recall',
+                    'Delta Precision', 'Delta Recall'])
         for key, val in sorted(improvements.items(), key = lambda kv:(kv[1], kv[0]), reverse=True):
-            w.writerow([key, val, corres_seg[key], fscoreNew[key], precisionNew[key], recallNew[key]])
+            w.writerow([key, val, corres_seg[key], fscoreNew[key], precisionNew[key], recallNew[key],
+                        delta_precision[key], delta_recall[key]])
+
+        w = csv.writer(open(result_dir + sn + '_scores_group.csv', "w"))
+        w.writerow(['Top', 'Segments', 'A-RAND delta', 'Final A-RAND Score'])
+        for i in range(len(groups)):
+            w.writerow([groups[i], top50[:groups[i]], g_are_improvements[i], g_are[i]])
     writeh5(result_dir + sn + '.h5', 'main', out)
