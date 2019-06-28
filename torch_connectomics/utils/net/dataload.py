@@ -117,8 +117,8 @@ def get_input(args, model_io_size, mode='train'):
                                   sample_label_size=sample_input_size, augmentor=augmentor, mode = 'train')
 
         img_loader =  torch.utils.data.DataLoader(
-                dataset, batch_size=args.batch_size, shuffle=SHUFFLE, collate_fn = collate_fn,
-                num_workers=args.num_cpu, pin_memory=True)
+              dataset, batch_size=args.batch_size, shuffle=SHUFFLE, collate_fn = collate_fn,
+              num_workers=args.num_cpu, pin_memory=True)
         return img_loader
 
     else:
