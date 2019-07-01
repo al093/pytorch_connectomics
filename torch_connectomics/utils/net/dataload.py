@@ -30,12 +30,10 @@ def get_input(args, model_io_size, mode='train'):
 
     volume_shape = []
 
-
     if mode=='validation':
         img_name = args.val_img_name.split('@')
     else:
         img_name = args.img_name.split('@')
-
 
     if mode=='validation':
         seg_name = args.val_seg_name.split('@')
@@ -53,6 +51,7 @@ def get_input(args, model_io_size, mode='train'):
 
         if mode=='train' or mode=='validation':
             model_label[i] = np.array(h5py.File(seg_name[i], 'r')['main'])
+            model_label[i] = shrink_range_uint32(model_label[i])
 
             print(img_name[i])
             print(seg_name[i])
@@ -139,3 +138,35 @@ def get_input(args, model_io_size, mode='train'):
                 dataset, batch_size=args.batch_size, shuffle=SHUFFLE, collate_fn = collate_fn_test,
                 num_workers=args.num_cpu, pin_memory=True)                  
         return img_loader, volume_shape, pad_size
+
+def crop_cremi(image, label, path):
+    filename = os.path.basename(path)
+    basepath = os.path.dirname(path)
+    filename = filename.replace('im_', 'crop_')
+    filename = filename.replace('_200.h5', '.txt')
+    crop_filepath = basepath + '/../align/' + filename
+    try:
+        with open(crop_filepath, 'r') as file:
+            coords = file.read()
+            coords = coords.split(',')
+            coords = [int(i) for i in coords]
+            image = image[coords[4]:coords[5], coords[2]:coords[3], coords[0]:coords[1]]
+            label = label[coords[4]:coords[5], coords[2]:coords[3], coords[0]:coords[1]]
+            return image, label
+
+    except IOError:
+        print('Could not read file: ' + crop_filepath)
+        return None, None
+
+def shrink_range_uint32(seg):
+    maxid = np.max(seg)
+    minid = np.min(seg)
+
+    assert minid > -1, 'Labels have value less than zero, not supported yet'
+    assert maxid < np.iinfo(np.uint32).max - 1, 'The max input cannot be represented by uint32'
+    labels = np.zeros(maxid.astype(np.uint32) + 1, dtype=np.uint32)
+
+    ids = (np.unique(seg)).astype(np.uint32)
+    labels[ids] = np.arange(ids.shape[0], dtype=np.uint32)
+
+    return labels[seg]

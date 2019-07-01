@@ -58,7 +58,7 @@ class AffinityDataset(BaseDataset):
                 augmented = self.augmentor(data, random_state=seed)
                 out_input, out_label = augmented['image'], augmented['label']
                 out_input = out_input.astype(np.float32)
-                out_label = out_label.astype(np.int16)
+                out_label = out_label.astype(np.uint32)
                 #print(out_input.shape, out_label.shape) #debug
                 #print(out_input.dtype, out_label.dtype) #debug
 
