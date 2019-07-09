@@ -1,6 +1,7 @@
 import os,sys
 import numpy as np
 import h5py
+import scipy
 
 import torch
 import torch.nn as nn
@@ -49,7 +50,13 @@ def get_input(args, model_io_size, mode='train'):
     for i in range(len(img_name)):
         model_input[i] = np.array(h5py.File(img_name[i], 'r')['main'])/255.0
 
-        if mode=='train' or mode=='validation':
+        print(mode)
+        if mode == 'test' and args.scale_input != 1:
+            print('Original volume size: ', model_input[i].shape)
+            model_input[i] = scipy.ndimage.zoom(model_input[i], float(args.scale_input))
+            print('Final volume size: ', model_input[i].shape)
+
+        if mode == 'train' or mode == 'validation':
             model_label[i] = np.array(h5py.File(seg_name[i], 'r')['main'])
             model_label[i] = shrink_range_uint32(model_label[i])
 

@@ -73,6 +73,8 @@ def get_args(mode='train'):
     if mode == 'test':
         parser.add_argument('-ta', '--test-augmentation',  type=bool, default=False,
                             help='Perform Data Augmentation during inference')
+        parser.add_argument('--scale-input', type=float, default='1.0',
+                            help='Scale factor for entire input volume')
 
     parser.add_argument('--argsFile', type=open, action=LoadFromFile)
 
