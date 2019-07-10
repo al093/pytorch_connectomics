@@ -16,7 +16,7 @@ from skimage.morphology import dilation,erosion
 
 def get_args():
     parser = argparse.ArgumentParser(description='Specifications for segmentation.')
-    parser.add_argument('-gt',  default='/home/gt_seg/', help='path to groundtruth segmentation')
+    parser.add_argument('-gt',  default=None, help='path to groundtruth segmentation')
     parser.add_argument('-pd',  default='/home/pd_aff/', help='path to predicted affinity graph')
     parser.add_argument('--mode', type=int, default=1, help='segmentation method')
     parser.add_argument('--save', action='store_true', help='Save segmented output')
@@ -40,15 +40,16 @@ print('shape of affinity graph:', aff.shape)
 # ground truth
 
 #D0='/n/coxfs01/zudilin/research/mitoNet/data/file/snemi/label/'
-D_seg = args.gt
-suffix = D_seg.strip().split('.')[-1]
-assert suffix in ['tif', 'h5']
-if suffix == 'tif':
-    seg = imageio.volread(D_seg).astype(np.uint32)
-else:
-    seg = readh5(D_seg).astype(np.uint32)
+if args.gt is not None:
+    D_seg = args.gt
+    suffix = D_seg.strip().split('.')[-1]
+    assert suffix in ['tif', 'h5']
+    if suffix == 'tif':
+        seg = imageio.volread(D_seg).astype(np.uint32)
+    else:
+        seg = readh5(D_seg).astype(np.uint32)
 
-print('shape of gt segmenation:', seg.shape)
+    print('shape of gt segmentation:', seg.shape)
 
 if args.mode == 0:
     # 3D zwatershed
@@ -115,31 +116,32 @@ else:
 print('time: %.1f s'%((et-st)))
 # do evaluation
 
-if args.segmentwise:
-    score, improvements, fscoreNew, precisionNew, recallNew, delta_precision, delta_recall, corres_seg = adapted_rand_partwise(out.astype(np.uint32), seg)
-    #create groupwise improvement scores
-    top50 = [None]*50
-    idx = 0
-    for key, val in sorted(improvements.items(), key=lambda kv: (kv[1], kv[0]), reverse=True):
-        if idx is 50:
-            break
-        top50[idx] = key
-        idx += 1
-    groups = [1, 5, 10, 20, 50]
-    g_are_improvements, g_are = adapted_rand_groupwise(out.astype(np.uint32), seg, top50, groups)
-else:
-    score = adapted_rand(out.astype(np.uint32), seg)
+if args.gt is not None:
+    if args.segmentwise:
+        score, improvements, fscoreNew, precisionNew, recallNew, delta_precision, delta_recall, corres_seg = adapted_rand_partwise(out.astype(np.uint32), seg)
+        #create groupwise improvement scores
+        top50 = [None]*50
+        idx = 0
+        for key, val in sorted(improvements.items(), key=lambda kv: (kv[1], kv[0]), reverse=True):
+            if idx is 50:
+                break
+            top50[idx] = key
+            idx += 1
+        groups = [1, 5, 10, 20, 50]
+        g_are_improvements, g_are = adapted_rand_groupwise(out.astype(np.uint32), seg, top50, groups)
+    else:
+        score = adapted_rand(out.astype(np.uint32), seg)
 
-print('Adaptive rand: ', score) 
-    # 0: 0.22
-    # 1: 0.098
-    # 2: 0.137
+    print('Adaptive rand: ', score)
+
 # do save
 if args.save:
     result_dir = os.path.dirname(args.pd) + '/'
     if not os.path.exists(result_dir):
         os.makedirs(result_dir)
-    if args.segmentwise:
+    writeh5(result_dir + sn + '.h5', 'main', out)
+
+    if args.gt is not None and args.segmentwise:
         w = csv.writer(open(result_dir + sn + '_scores.csv', "w"))
         w.writerow(['GT ID', 'Possible delta', 'Overlapping Output ID', 'New F Score', 'New Precision', 'New Recall',
                     'Delta Precision', 'Delta Recall'])
@@ -151,4 +153,3 @@ if args.save:
         w.writerow(['Top', 'Segments', 'A-RAND delta', 'Final A-RAND Score'])
         for i in range(len(groups)):
             w.writerow([groups[i], top50[:groups[i]], g_are_improvements[i], g_are[i]])
-    writeh5(result_dir + sn + '.h5', 'main', out)
