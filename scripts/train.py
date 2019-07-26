@@ -15,10 +15,11 @@ def train(args, train_loader, val_loader, model, device, criterion,
 
     model.train()
 
-    val_loader_itr = iter(val_loader)
+    if val_loader is not None:
+        val_loader_itr = iter(val_loader)
 
     for iteration, (_, volume, label, class_weight, _) in enumerate(train_loader):
-
+        sys.stdout.flush()
         volume, label = volume.to(device), label.to(device)
         class_weight = class_weight.to(device)
         output = model(volume)
@@ -44,45 +45,46 @@ def train(args, train_loader, val_loader, model, device, criterion,
         writer.add_scalars('Loss', {'Train': loss.item()}, iteration)
 
         if iteration % 100 == 0 and iteration >= 1:
-            val_record.reset()
-
             if args.task == 0:
                 visualize_aff(volume, label, output, iteration, writer, mode='Train')
-            elif args.task == 1:
+            elif args.task == 1 or args.task == 3:
                 visualize(volume, label, output, iteration, writer)
-
-            #for better coverage of validation dataset running multiple batches of val
-            for _ in range(5):
-                try:
-                    (_, volume, label, class_weight, _) = next(val_loader_itr)
-                except StopIteration:
-                    val_loader_itr = iter(val_loader)
-                    (_, volume, label, class_weight, _) = next(val_loader_itr)
-
-                with torch.no_grad():
-                    volume, label = volume.to(device), label.to(device)
-                    class_weight = class_weight.to(device)
-                    model.eval()
-                    output = model(volume)
-
-                    if regularization is not None:
-                        val_loss = criterion(output, label, class_weight) + regularization(output)
-                    else:
-                        val_loss = criterion(output, label, class_weight)
-
-                    val_record.update(val_loss, args.batch_size)
-
-            writer.add_scalars('Loss', {'Val': val_loss.item()}, iteration)
-            print('[Iteration %d] val_loss=%0.4f lr=%.6f' % (iteration,
-                  val_loss.item(), optimizer.param_groups[0]['lr']))
 
             scheduler.step(record.avg)
             record.reset()
 
-            if args.task == 0:
-                visualize_aff(volume, label, output, iteration, writer, mode='Validation')
-            elif args.task == 1:
-                visualize(volume, label, output, iteration, writer)
+            if val_loader is not None:
+                model.eval()
+                val_record.reset()
+
+                #for better coverage of validation dataset running multiple batches of val
+                for _ in range(5):
+                    try:
+                        (_, volume, label, class_weight, _) = next(val_loader_itr)
+                    except StopIteration:
+                        val_loader_itr = iter(val_loader)
+                        (_, volume, label, class_weight, _) = next(val_loader_itr)
+
+                    with torch.no_grad():
+                        volume, label = volume.to(device), label.to(device)
+                        class_weight = class_weight.to(device)
+                        output = model(volume)
+
+                        if regularization is not None:
+                            val_loss = criterion(output, label, class_weight) + regularization(output)
+                        else:
+                            val_loss = criterion(output, label, class_weight)
+
+                        val_record.update(val_loss, args.batch_size)
+
+                writer.add_scalars('Loss', {'Val': val_loss.item()}, iteration)
+                print('[Iteration %d] val_loss=%0.4f lr=%.6f' % (iteration,
+                      val_loss.item(), optimizer.param_groups[0]['lr']))
+
+                if args.task == 0:
+                    visualize_aff(volume, label, output, iteration, writer, mode='Validation')
+                elif args.task == 1 or args.task == 3:
+                    visualize(volume, label, output, iteration, writer)
 
                 model.train()
 
@@ -97,7 +99,7 @@ def train(args, train_loader, val_loader, model, device, criterion,
 
         #Save model
         if iteration % args.iteration_save == 0 or iteration >= args.iteration_total:
-            torch.save(model.state_dict(), args.output+('/volume_%d.pth' % (iteration)))
+            torch.save(model.state_dict(), args.output+('/modelBinnedSampling_%d.pth' % (iteration)))
 
         # Terminate
         if iteration >= args.iteration_total:
@@ -113,7 +115,7 @@ def main():
     print('1. setup data')
     train_loader = get_input(args, model_io_size, 'train')
 
-    val_loader = get_input(args, model_io_size, 'validation')
+    # val_loader = get_input(args, model_io_size, 'validation')
 
     print('2.0 setup model')
     model = setup_model(args, device)
@@ -131,7 +133,7 @@ def main():
     
 
     print('4. start training')
-    train(args, train_loader, val_loader, model, device, criterion, optimizer, scheduler, logger, writer)
+    train(args, train_loader, None, model, device, criterion, optimizer, scheduler, logger, writer)
   
     print('5. finish training')
     logger.close()
