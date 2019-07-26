@@ -10,6 +10,7 @@ from .rescale import Rescale
 from .misalign import MisAlignment
 from .missing_section import MissingSection
 from .missing_parts import MissingParts
+from .swapz import SwapZ
 
 __all__ = ['Compose',
            'DataAugment', 
@@ -20,4 +21,5 @@ __all__ = ['Compose',
            'MisAlignment',
            'MissingSection',
            'MissingParts',
-           'Flip']
+           'Flip',
+           'SwapZ']
