@@ -12,9 +12,10 @@ def prepare_data(volume, label, output):
             return volume, label, output
     elif len(volume.size()) == 5: # 3D Inputs
         if(volume.shape[0] > min_batch): #show slices from different batches
-            volume = volume[:min_batch, :, :int(N/min_batch), :, :].permute(0, 2, 1, 3, 4).contiguous().view(-1, volume.shape[1], volume.shape[3], volume.shape[4])
-            label = label[:min_batch, :, :int(N/min_batch), :, :].permute(0, 2, 1, 3, 4).contiguous().view(-1, label.shape[1], label.shape[3], label.shape[4])
-            output = output[:min_batch, :, :int(N/min_batch), :, :].permute(0, 2, 1, 3, 4).contiguous().view(-1, output.shape[1], output.shape[3], output.shape[4])
+            mid_slice_number = volume.shape[2] // 2
+            volume = volume[:min_batch, :, mid_slice_number:mid_slice_number+int(N/min_batch), :, :].permute(0, 2, 1, 3, 4).contiguous().view(-1, volume.shape[1], volume.shape[3], volume.shape[4])
+            label = label[:min_batch,   :, mid_slice_number:mid_slice_number+int(N/min_batch), :, :].permute(0, 2, 1, 3, 4).contiguous().view(-1, label.shape[1], label.shape[3], label.shape[4])
+            output = output[:min_batch, :, mid_slice_number:mid_slice_number+int(N/min_batch), :, :].permute(0, 2, 1, 3, 4).contiguous().view(-1, output.shape[1], output.shape[3], output.shape[4])
         else:
             volume, label, output = volume[0].permute(1,0,2,3), label[0].permute(1,0,2,3), output[0].permute(1,0,2,3)
 
