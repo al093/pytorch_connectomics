@@ -37,7 +37,7 @@ def init(args):
     if not os.path.isdir(sn):
         os.makedirs(sn)
     # I/O size in (z,y,x), no specified channel number
-    model_io_size = np.array([int(x) for x in args.model_input.split(',')])
+    model_io_size = np.array([x for x in args.model_input.split(',')], dtype=np.uint32)
 
     # select training machine
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

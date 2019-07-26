@@ -45,6 +45,10 @@ def get_args(mode='train'):
     parser.add_argument('-b','--batch-size', type=int,  default=1,
                         help='Batch size')
 
+    #extra options(task specific)
+    parser.add_argument('-sp', '--seed-points', type=str, default=None,
+                        help='File path for seed points which need to be trained or tested on')
+
     if mode == 'train':
         parser.add_argument('-ln','--seg-name',  default='seg-groundtruth2-malis.h5',
                             help='Ground-truth label path')

@@ -8,13 +8,14 @@ import torch.nn as nn
 import torch.utils.data
 import torchvision.utils as vutils
 
-from torch_connectomics.data.dataset import AffinityDataset, SynapseDataset, MitoDataset
+from torch_connectomics.data.dataset import AffinityDataset, SynapseDataset, MitoDataset, MaskDataset
 from torch_connectomics.data.utils import collate_fn, collate_fn_test
 from torch_connectomics.data.augmentation import *
 
 TASK_MAP = {0: 'neuron segmentation',
             1: 'synapse detection',
-            2: 'mitochondria segmentation'}
+            2: 'mitochondria segmentation',
+            3: 'mask prediction'}
  
 
 def get_input(args, model_io_size, mode='train'):
@@ -22,12 +23,6 @@ def get_input(args, model_io_size, mode='train'):
     """
     print('Task: ', TASK_MAP[args.task])
     assert mode in ['train', 'test', 'validation']
-
-    if mode=='test':
-        pad_size = model_io_size // 2
-    else:
-        #pad_size = (0,0,0)
-        pad_size = model_io_size // 2
 
     volume_shape = []
 
@@ -40,16 +35,50 @@ def get_input(args, model_io_size, mode='train'):
         seg_name = args.val_seg_name.split('@')
     elif mode=='train':
         seg_name = args.seg_name.split('@')
-    
+
+    if args.seed_points is not None:
+        seed_points_files = args.seed_points.split('@')
+
     # 1. load data
     model_input = [None]*len(img_name)
+    s_points = [None] * len(seg_name)
     if mode=='train' or mode=='validation':
         assert len(img_name)==len(seg_name)
         model_label = [None]*len(seg_name)
 
-    for i in range(len(img_name)):
-        model_input[i] = np.array(h5py.File(img_name[i], 'r')['main'])/255.0
+    if mode=='train' or mode=='validation':
+        # setup augmentor
+        augmentor = Compose([Rotate(p=1.0),
+                             Rescale(p=0.5),
+                             Flip(p=1.0),
+                             Elastic(alpha=12.0, p=0.75),
+                             Grayscale(p=0.75),
+                             MissingParts(p=0.9),
+                             MissingSection(p=0.5),
+                             MisAlignment(p=1.0, displacement=16),
+                             SwapZ(p=0.5)
+                             ],
+                             input_size = model_io_size)
+        # augmentor = None # debug
+    else:
+        augmentor = None
 
+    print('data augmentation: ', augmentor is not None)
+    SHUFFLE = (mode=='train' or mode=='validation')
+    print('batch size: ', args.batch_size)
+
+    if mode == 'test':
+        pad_size = model_io_size//2
+    else:
+        # pad_size = (0,0,0)
+        pad_size = augmentor.sample_size//2
+    pad_size = pad_size.astype(np.int64)
+
+    for i in range(len(img_name)):
+        bs = [474, 1342, 97]
+        be = [953, 2925, 959]
+        model_input[i] = np.array((h5py.File(img_name[i], 'r')['main'])[bs[0]:be[0], bs[1]:be[1], bs[2]:be[2]])/255.0
+        print('Input Data size: ', model_input[i].shape)
         print(mode)
         if mode == 'test' and args.scale_input != 1:
             print('Original volume size: ', model_input[i].shape)
@@ -57,8 +86,20 @@ def get_input(args, model_io_size, mode='train'):
             print('Final volume size: ', model_input[i].shape)
 
         if mode == 'train' or mode == 'validation':
-            model_label[i] = np.array(h5py.File(seg_name[i], 'r')['main'])
-            model_label[i] = shrink_range_uint32(model_label[i])
+            model_label[i] = np.array((h5py.File(seg_name[i], 'r')['main'])[bs[0]:be[0], bs[1]:be[1], bs[2]:be[2]])
+            # model_label[i] = shrink_range_uint32(model_label[i])
+            if args.seed_points is not None:
+                s_points[i] = load_list_from_h5(seed_points_files[i])
+                for idx in range(len(s_points[i])):
+                    b = s_points[i][idx]
+                    b = b[b[:, 0] < be[0], :]
+                    b = b[b[:, 1] < be[1], :]
+                    b = b[b[:, 2] < be[2], :]
+                    b = b - np.array([bs[0], bs[1], bs[2]], dtype=np.uint32)
+                    b = b[b[:, 0] >= 0, :]
+                    b = b[b[:, 1] >= 0, :]
+                    b = b[b[:, 2] >= 0, :]
+                    s_points[i][idx] = b
 
             print(img_name[i])
             print(seg_name[i])
@@ -80,31 +121,24 @@ def get_input(args, model_io_size, mode='train'):
         model_input[i] = model_input[i].astype(np.float32)
 
         if mode=='train' or mode=='validation':
+            model_label[i] = np.pad(model_label[i], ((pad_size[0], pad_size[0]),
+                                                           (pad_size[1], pad_size[1]),
+                                                           (pad_size[2], pad_size[2])), 'reflect')
             model_label[i] = model_label[i].astype(np.float32)
+
             print("label shape: ", model_label[i].shape)
-            model_label[i] = np.pad(model_label[i], ((pad_size[0],pad_size[0]),
-                                                     (pad_size[1],pad_size[1]),
-                                                     (pad_size[2],pad_size[2])), 'reflect')
             assert model_input[i].shape == model_label[i].shape
 
-    if mode=='train' or mode=='validation':
-        # setup augmentor
-        augmentor = Compose([Rotate(p=1.0),
-                             Rescale(p=0.5),
-                             Flip(p=1.0),
-                             Elastic(alpha=12.0, p=0.75),
-                             Grayscale(p=0.75),
-                             MissingParts(p=0.9),
-                             MissingSection(p=0.5),
-                             MisAlignment(p=1.0, displacement=16)], 
-                             input_size = model_io_size)
-        # augmentor = None # debug
-    else:
-        augmentor = None
 
-    print('data augmentation: ', augmentor is not None)
-    SHUFFLE = (mode=='train' or mode=='validation')
-    print('batch size: ', args.batch_size)
+    if mode=='test' and args.task == 3:
+        #seeds = np.vstack((np.array([[x, 227, 665] for x in range(582, 661+1)], dtype=np.uint32),
+        #                    np.array([[x, 195, 634] for x in range(664, 685+1)], dtype=np.uint32),
+        #                    np.array([[x, 204, 711] for x in range(589, 632+1)], dtype=np.uint32),
+        #                    np.array([[x, 152, 555] for x in range(653, 668+1)], dtype=np.uint32),
+        #                    np.array([[x, 202, 484] for x in range(640, 660+1)], dtype=np.uint32),
+        #                    np.array([[x, 213, 425] for x in range(659, 670+1)], dtype=np.uint32)))
+        seeds = np.array([[628, 215, 639], [660, 224, 385]], dtype=np.uint32)
+        s_points = [seeds]
 
     if mode=='train' or mode=='validation':
         if augmentor is None:
@@ -121,7 +155,11 @@ def get_input(args, model_io_size, mode='train'):
         elif args.task == 2: # mitochondira segmentation
             dataset = MitoDataset(volume=model_input, label=model_label, sample_input_size=sample_input_size,
                                   sample_label_size=sample_input_size, augmentor=augmentor, mode = 'train')
-
+        elif args.task == 3: # affininty prediction
+            dataset = MaskDataset(volume=model_input, label=model_label, sample_input_size=sample_input_size,
+                                  sample_label_size=sample_input_size, augmentor=augmentor, mode = 'train',
+                                  seed_points=s_points, pad_size=pad_size.astype(np.uint32))
+                                      
         img_loader =  torch.utils.data.DataLoader(
               dataset, batch_size=args.batch_size, shuffle=SHUFFLE, collate_fn = collate_fn,
               num_workers=args.num_cpu, pin_memory=True)
@@ -140,6 +178,11 @@ def get_input(args, model_io_size, mode='train'):
             dataset = MitoDataset(volume=model_input, label=None, sample_input_size=model_io_size, \
                                   sample_label_size=None, sample_stride=model_io_size // 2, \
                                   augmentor=None, mode='test')
+        elif args.task == 3:
+            dataset = MaskDataset(volume=model_input, label=None, sample_input_size=model_io_size, \
+                                  sample_label_size=None, sample_stride=model_io_size // 2, \
+                                  augmentor=None, mode='test', seed_points=s_points,
+                                  pad_size=pad_size.astype(np.uint32))
 
         img_loader =  torch.utils.data.DataLoader(
                 dataset, batch_size=args.batch_size, shuffle=SHUFFLE, collate_fn = collate_fn_test,
@@ -175,5 +218,14 @@ def shrink_range_uint32(seg):
 
     ids = (np.unique(seg)).astype(np.uint32)
     labels[ids] = np.arange(ids.shape[0], dtype=np.uint32)
-
+    print(labels)
+    print(seg.shape)
     return labels[seg]
+
+def load_list_from_h5(h5_path):
+    print()
+    h_list = []
+    h_file = h5py.File(h5_path, 'r')
+    for key in list(h_file):
+        h_list.append(np.asarray(h_file[key]))
+    return h_list
