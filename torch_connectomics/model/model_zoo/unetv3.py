@@ -83,6 +83,7 @@ class unetv3(nn.Module):
         # pooling & upsample
         self.down = nn.MaxPool3d(kernel_size=(1,2,2), stride=(1,2,2))
         self.up = nn.Upsample(scale_factor=(1,2,2), mode='trilinear', align_corners=False)
+        self.dropout = nn.Dropout3d(p=0.25)
 
         # conv + upsample
         self.conv1 = conv3d_bn_elu(filters[1], filters[0], kernel_size=(1,1,1), padding=(0,0,0))
@@ -102,22 +103,27 @@ class unetv3(nn.Module):
         x = self.down(z2)
         z3 = self.layer3_E(x)
         x = self.down(z3)
+        x = self.dropout(x)
         z4 = self.layer4_E(x)
         x = self.down(z4)
 
+        x = self.dropout(x)
         x = self.center(x)
 
         # decoding path
         x = self.up(self.conv4(x))
         x = x + z4
+        x = self.dropout(x)
         x = self.layer4_D(x)
 
         x = self.up(self.conv3(x))
         x = x + z3
+        x = self.dropout(x)
         x = self.layer3_D(x)
 
         x = self.up(self.conv2(x))
         x = x + z2
+        x = self.dropout(x)
         x = self.layer2_D(x)
 
         x = self.up(self.conv1(x))
