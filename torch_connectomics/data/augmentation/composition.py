@@ -6,6 +6,7 @@ import numpy as np
 
 from skimage.morphology import dilation,erosion
 from skimage.filters import gaussian
+from torch_connectomics.data.augmentation import swapz
 
 class Compose(object):
     """Compose transforms
@@ -29,9 +30,18 @@ class Compose(object):
         self.keep_non_smoothed = keep_non_smoothed
 
     def set_sample_params(self):
+        sym_sz_needed = False
         for _, t in enumerate(self.transforms):
             self.sample_size = np.ceil(self.sample_size * t.sample_params['ratio']).astype(int)
             self.sample_size = self.sample_size + (2 * np.array(t.sample_params['add']))
+            # check if z swapping is used
+            if isinstance(t, swapz.SwapZ):
+                sym_sz_needed = True
+
+        if sym_sz_needed is True:
+            max_edge_size = np.max(self.sample_size)
+            self.sample_size = np.array([max_edge_size, max_edge_size, max_edge_size])
+
         print('Sample size required for the augmentor:', self.sample_size)
 
     def smooth_edge(self, data):
