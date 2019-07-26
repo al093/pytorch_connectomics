@@ -1,0 +1,7 @@
+--dn /n/pfister_lab2/Lab/vcg_connectomics/JWR15/data_8x8x3um/vol1/im_df.h5@/n/pfister_lab2/Lab/vcg_connectomics/JWR15/data_8x8x3um/vol2/im_df.h5@/n/pfister_lab2/Lab/vcg_connectomics/JWR15/data_8x8x3um/vol3/im_df.h5@/n/pfister_lab2/Lab/vcg_connectomics/cremi/image/im_A_v2_200.h5@/n/pfister_lab2/Lab/vcg_connectomics/cremi/image/im_B_v2_200.h5@/n/pfister_lab2/Lab/alok/snemi/train_image.h5@/n/pfister_lab2/Lab/alok/snemi/val_image.h5
+
+--ln /n/pfister_lab2/Lab/vcg_connectomics/JWR15/data_8x8x3um/vol1/seg_gt_v2_separatedLabels.h5@/n/pfister_lab2/Lab/vcg_connectomics/JWR15/data_8x8x3um/vol2/seg_gt_v2_separatedLabels.h5@/n/pfister_lab2/Lab/vcg_connectomics/JWR15/data_8x8x3um/vol3/seg_gt_separatedLabels.h5@/n/pfister_lab2/Lab/vcg_connectomics/cremi/gt-seg/seg_A_v2_200_separatedLabels.h5@/n/pfister_lab2/Lab/vcg_connectomics/cremi/gt-seg/seg_B_v2_200_separatedLabels.h5@/n/pfister_lab2/Lab/alok/snemi/train_labels.h5@/n/pfister_lab2/Lab/alok/snemi/val_labels.h5
+
+--vdn /n/pfister_lab2/Lab/vcg_connectomics/JWR15/data_8x8x3um/vol4/im_df.h5@/n/pfister_lab2/Lab/vcg_connectomics/cremi/image/im_C_v2_200.h5@/n/pfister_lab2/Lab/alok/snemi/test_image.h5
+
+--vln /n/pfister_lab2/Lab/vcg_connectomics/JWR15/data_8x8x3um/vol4/seg_gt_separatedLabels.h5@/n/pfister_lab2/Lab/vcg_connectomics/cremi/gt-seg/seg_C_v2_200_separatedLabels.h5@/n/pfister_lab2/Lab/alok/snemi/test_labels.h5

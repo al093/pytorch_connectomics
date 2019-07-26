@@ -1,0 +1,4 @@
+-dn /n/pfister_lab2/Lab/alok/snemi/train_image.h5
+-ln /n/pfister_lab2/Lab/alok/snemi/train_labels.h5
+-vdn /n/pfister_lab2/Lab/alok/snemi/val_image.h5
+-vln /n/pfister_lab2/Lab/alok/snemi/val_labels.h5

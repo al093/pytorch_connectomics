@@ -1,0 +1,4 @@
+-dn /n/pfister_lab2/Lab/vcg_connectomics/JWR15/data_8x8x3um/vol6/im_df.h5
+-ln /n/pfister_lab2/Lab/vcg_connectomics/JWR15/data_8x8x3um/vol6/mito_gt.h5
+-vdn /n/pfister_lab2/Lab/vcg_connectomics/JWR15/data_8x8x3um/vol5/im_df.h5
+-vln /n/pfister_lab2/Lab/vcg_connectomics/JWR15/data_8x8x3um/vol5/mito_gt.h5

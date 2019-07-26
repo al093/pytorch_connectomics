@@ -1,0 +1,3 @@
+-dn /n/pfister_lab2/Lab/alok/JWR15/im_64nm_y2_iso.h5
+-ln /n/pfister_lab2/Lab/alok/JWR15/segmentations/64nm/cell_68_iso.h5
+-sp /n/pfister_lab2/Lab/alok/JWR15/segmentations/64nm/binned_seed_points.h5
