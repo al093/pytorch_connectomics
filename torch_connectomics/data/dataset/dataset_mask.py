@@ -1,17 +1,12 @@
 from __future__ import print_function, division
 import numpy as np
-import random
 
 import torch
 import torch.utils.data
 
-from torch_connectomics.utils.seg.aff_util import seg_to_affgraph, affinitize
-from torch_connectomics.utils.seg.seg_util import mknhood3d, widen_border1, widen_border2
+from .misc import crop_volume, rebalance_binary_class
 
-from .dataset import BaseDataset
-from .misc import crop_volume, rebalance_binary_class, count_volume
-
-class MaskDataset(BaseDataset):
+class MaskDataset(torch.utils.data.Dataset):
     """PyTorch ddataset class for affinity graph prediction.
 
     Args:
@@ -33,43 +28,29 @@ class MaskDataset(BaseDataset):
                  seed_points=None,
                  pad_size=None):
 
-        super(MaskDataset, self).__init__(volume,
-                                            label,
-                                            sample_input_size,
-                                            sample_label_size,
-                                            sample_stride,
-                                            augmentor,
-                                            mode)
-        self.seed_points = seed_points
-        self.seed_points_offset = pad_size - (sample_input_size//2)
         if mode == 'test':
-            self.sample_num = np.array([x.shape[0]*x.shape[1] for x in self.seed_points])
-            self.sample_num_a = np.sum(self.sample_num)
-            self.sample_num_c = np.cumsum([0] + list(self.sample_num))
+            for x in seed_points:
+                assert len(x) == 1
+
+        self.mode = mode
+        self.input = volume
+        self.label = label
+        self.augmentor = augmentor  # data augmentation
+
+        # samples, channels, depths, rows, cols
+        self.input_size = [np.array(x.shape) for x in self.input]  # volume size, could be multi-volume input
+        self.sample_input_size = np.array(sample_input_size)  # model input size
+        self.sample_label_size = np.array(sample_label_size)  # model label size
+
+        self.seed_points = seed_points
+        self.half_input_sz = (sample_input_size//2)
+        self.seed_points_offset = pad_size - self.half_input_sz
+        self.sample_num = np.array([(np.sum([y.shape[0] for y in x])) for x in self.seed_points])
+        self.sample_num_a = np.sum(self.sample_num)
+        self.sample_num_c = np.cumsum([0] + list(self.sample_num))
 
     def __len__(self):  # number of seed points
         return self.sample_num_a
-
-    def get_pos_seed(self, vol_size, seed):
-        pos = [0, 0, 0, 0]
-        # pick a dataset
-        did = self.get_pos_dataset(seed.randint(self.sample_num_a))
-        pos[0] = did
-
-        # pick a mask bin
-        size_bin = np.random.randint(len(self.seed_points[did]))
-        # pick a index
-        idx = np.random.randint(self.seed_points[did][size_bin].shape[0])
-        # pick a position
-        pos[1:] = self.seed_points[did][size_bin][idx] + self.seed_points_offset
-        return pos
-
-    def get_pos_test(self, index):
-        did = self.get_pos_dataset(index)
-        idx = index - self.sample_num_c[did]
-        pos = self.seed_points[did][idx]
-        pos = pos + self.seed_points_offset
-        return np.concatenate(([did], pos))
 
     def __getitem__(self, index):
         vol_size = self.sample_input_size
@@ -85,14 +66,6 @@ class MaskDataset(BaseDataset):
             out_label = crop_volume(self.label[pos[0]], vol_size, pos[1:])
             out_input = crop_volume(self.input[pos[0]], vol_size, pos[1:])
 
-            if out_label.shape[1] == 0 or out_label.shape[2] == 0:
-                import pdb;
-                pdb.set_trace()
-            # #debug
-            # if out_label[49, 107, 107] != 1:
-            #     import pdb; pdb.set_trace()
-            #     print(pos[1:] + np.array([49, 107, 107], dtype=np.uint32))
-
             # 3. augmentation
             if self.augmentor is not None:  # augmentation
                 data = {'image':out_input, 'label':out_label}
@@ -107,17 +80,8 @@ class MaskDataset(BaseDataset):
             pos = self.get_pos_test(index)
             out_input = crop_volume(self.input[pos[0]], vol_size, pos[1:])
             out_label = None if self.label is None else crop_volume(self.label[pos[0]], vol_size, pos[1:])
-            
-        # Turn segmentation label into affinity in Pytorch Tensor
+
         if out_label is not None:
-            # # check for invalid region (-1)
-            # seg_bad = np.array([-1]).astype(out_label.dtype)[0]
-            # valid_mask = out_label!=seg_bad
-            # out_label[out_label==seg_bad] = 0
-            # out_label = widen_border1(out_label, 1)
-            # #out_label = widen_border2(out_label, 1)
-            # # replicate-pad the aff boundary
-            # out_label = seg_to_affgraph(out_label, mknhood3d(1), pad='replicate').astype(np.float32)
             out_label = torch.from_numpy(out_label.copy().astype(np.float32))
             out_label = out_label.unsqueeze(0)
 
@@ -133,3 +97,32 @@ class MaskDataset(BaseDataset):
 
         else:
             return pos, out_input
+
+    def get_pos_dataset(self, index):
+        return np.argmax(index < self.sample_num_c) - 1  # which dataset
+
+    def get_pos_seed(self, vol_size, seed):
+        pos = [0, 0, 0, 0]
+        # pick a dataset
+        did = self.get_pos_dataset(seed.randint(self.sample_num_a))
+        pos[0] = did
+        # pick a mask bin
+        size_bin = np.random.randint(len(self.seed_points[did]))
+        # pick a index
+        idx = np.random.randint(self.seed_points[did][size_bin].shape[0])
+        # pick a position
+        pos[1:] = self.seed_points[did][size_bin][idx] + self.seed_points_offset
+        return pos
+
+    def get_pos_test(self, index):
+        did = self.get_pos_dataset(index)
+        idx = index - self.sample_num_c[did]
+        pos = self.seed_points[did][0][idx]
+        pos = pos + self.seed_points_offset
+        return np.concatenate(([did], pos))
+
+    def get_vol(self, pos):
+        out_input = crop_volume(self.input[pos[0]], self.sample_input_size, pos[1:])
+        out_input = torch.from_numpy(out_input.copy())
+        out_input = out_input.unsqueeze(0)
+        return out_input
