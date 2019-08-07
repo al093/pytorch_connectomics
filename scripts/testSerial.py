@@ -64,7 +64,7 @@ def test(args, test_loader, model, device, model_io_size, volume_shape, pad_size
                                      output_raw[idx].reshape(sz))
                     prediction_points.append(st[1:] - test_loader.dataset.seed_points_offset)  # appending center points wrt the unpadded volume
 
-                    if itr_max < 0:
+                    if True:
                         out_mask = torch.from_numpy(binary_erosion(out_mask, sel_cpu).astype(np.float32)).to(device)
                         out_mask = out_mask.unsqueeze(0).unsqueeze(0)
                         edge = (F.conv3d(out_mask, sel, padding=1))[0, 0]
