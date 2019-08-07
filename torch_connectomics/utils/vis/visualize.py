@@ -3,7 +3,7 @@ import torchvision.utils as vutils
 
 N = 15 # default maximum number of sections to show
 min_batch = 3
-def prepare_data(volume, label, output):
+def prepare_data(volume, label, output, input_label=None):
 
     if len(volume.size()) == 4:   # 2D Inputs
         if volume.size()[0] > N:
@@ -16,29 +16,46 @@ def prepare_data(volume, label, output):
             volume = volume[:min_batch, :, mid_slice_number:mid_slice_number+int(N/min_batch), :, :].permute(0, 2, 1, 3, 4).contiguous().view(-1, volume.shape[1], volume.shape[3], volume.shape[4])
             label = label[:min_batch,   :, mid_slice_number:mid_slice_number+int(N/min_batch), :, :].permute(0, 2, 1, 3, 4).contiguous().view(-1, label.shape[1], label.shape[3], label.shape[4])
             output = output[:min_batch, :, mid_slice_number:mid_slice_number+int(N/min_batch), :, :].permute(0, 2, 1, 3, 4).contiguous().view(-1, output.shape[1], output.shape[3], output.shape[4])
+            if input_label is not None:
+                input_label = input_label[:min_batch,   :, mid_slice_number:mid_slice_number+int(N/min_batch), :, :].permute(0, 2, 1, 3, 4).contiguous().view(-1, input_label.shape[1], input_label.shape[3], input_label.shape[4])
         else:
             volume, label, output = volume[0].permute(1,0,2,3), label[0].permute(1,0,2,3), output[0].permute(1,0,2,3)
-
+            if input_label is not None:
+                input_label = input_label[0].permute(1, 0, 2, 3)
         if volume.size()[0] > N:
-            return volume[:N], label[:N], output[:N]
+            if input_label is not None:
+                return volume[:N], label[:N], output[:N], input_label[:N]
+            else:
+                return volume[:N], label[:N], output[:N]
         else:
-            return volume, label, output
+            if input_label is not None:
+                return volume, label, output, input_label
+            else:
+                return volume, label, output
 
-def visualize(volume, label, output, iteration, writer, mode='Train'):
-    volume, label, output = prepare_data(volume, label, output)
+def visualize(volume, label, output, iteration, writer, mode='Train', input_label=None):
+
+    if input_label is not None:
+        volume, label, output, input_label = prepare_data(volume, label, output, input_label)
+    else:
+        volume, label, output = prepare_data(volume, label, output)
 
     sz = volume.size() # z,c,y,x
     volume_visual = volume.detach().cpu().expand(sz[0],3,sz[2],sz[3])
     output_visual = output.detach().cpu().expand(sz[0],3,sz[2],sz[3])
     label_visual = label.detach().cpu().expand(sz[0],3,sz[2],sz[3])
+    if input_label is not None:
+        input_label_visual = input_label.detach().cpu().expand(sz[0], 3, sz[2], sz[3])
 
     canvas = []
     for idx in range(volume_visual.shape[0]):
         canvas.append(volume_visual[idx])
-        canvas.append(label_visual[idx])
+        if input_label is not None:
+            canvas.append(input_label_visual[idx])
         canvas.append(output_visual[idx])
+        canvas.append(label_visual[idx])
 
-    canvas_show = vutils.make_grid(canvas, nrow=3, normalize=False, scale_each=True)
+    canvas_show = vutils.make_grid(canvas, nrow=4, normalize=False, scale_each=True)
     writer.add_image(mode + ' Mask', canvas_show, iteration)
 
     # volume_show = vutils.make_grid(volume_visual, nrow=N, normalize=False, scale_each=True)

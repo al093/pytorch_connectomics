@@ -36,6 +36,8 @@ def get_args(mode='train'):
                         help='Pre-trained model path')      
     parser.add_argument('--out-channel', type=int, default=3,
                         help='Number of output channel(s).')
+    parser.add_argument('--in-channel', type=int, default=1,
+                        help='Number of input channel(s).')
 
     # machine option
     parser.add_argument('-g','--num-gpu', type=int,  default=1,

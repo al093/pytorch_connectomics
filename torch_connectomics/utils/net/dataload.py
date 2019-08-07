@@ -8,8 +8,8 @@ import torch.nn as nn
 import torch.utils.data
 import torchvision.utils as vutils
 
-from torch_connectomics.data.dataset import AffinityDataset, SynapseDataset, MitoDataset, MaskDataset
-from torch_connectomics.data.utils import collate_fn, collate_fn_test
+from torch_connectomics.data.dataset import AffinityDataset, SynapseDataset, MitoDataset, MaskDataset, MaskDatasetDualInput
+from torch_connectomics.data.utils import collate_fn, collate_fn_2, collate_fn_test
 from torch_connectomics.data.augmentation import *
 from torch_connectomics.utils.net.serialSampler import SerialSampler
 
@@ -170,12 +170,17 @@ def get_input(args, model_io_size, mode='train'):
             dataset = MitoDataset(volume=model_input, label=model_label, sample_input_size=sample_input_size,
                                   sample_label_size=sample_input_size, augmentor=augmentor, mode = 'train')
         elif args.task == 3: # mask prediction
-            dataset = MaskDataset(volume=model_input, label=model_label, sample_input_size=sample_input_size,
+            dataset = MaskDatasetDualInput(volume=model_input, label=model_label, sample_input_size=sample_input_size,
                                   sample_label_size=sample_input_size, augmentor=augmentor, mode = 'train',
                                   seed_points=s_points, pad_size=pad_size.astype(np.uint32))
-                                      
+
+        if args.task == 3:
+            c_fn = collate_fn_2
+        else:
+            c_fn = collate_fn
+
         img_loader =  torch.utils.data.DataLoader(
-              dataset, batch_size=args.batch_size, shuffle=SHUFFLE, collate_fn = collate_fn,
+              dataset, batch_size=args.batch_size, shuffle=SHUFFLE, collate_fn=c_fn,
               num_workers=args.num_cpu, pin_memory=True)
         return img_loader
 

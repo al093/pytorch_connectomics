@@ -69,7 +69,7 @@ def setup_model(args, device, exact=True, size_match=True):
     if args.task == 2:
         model = MODEL_MAP[args.architecture](in_channel=1, out_channel=args.out_channel, act='tanh')
     else:        
-        model = MODEL_MAP[args.architecture](in_channel=1, out_channel=args.out_channel)
+        model = MODEL_MAP[args.architecture](in_channel=args.in_channel, out_channel=args.out_channel)
     print('model: ', model.__class__.__name__)
     model = DataParallelWithCallback(model, device_ids=range(args.num_gpu))
     model = model.to(device)
