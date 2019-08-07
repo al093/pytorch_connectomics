@@ -18,11 +18,11 @@ def train(args, train_loader, val_loader, model, device, criterion,
     if val_loader is not None:
         val_loader_itr = iter(val_loader)
 
-    for iteration, (_, volume, label, class_weight, _) in enumerate(train_loader):
+    for iteration, (_, volume, input_label, label, class_weight, _) in enumerate(train_loader):
         sys.stdout.flush()
-        volume, label = volume.to(device), label.to(device)
+        volume, input_label, label = volume.to(device), input_label.to(device), label.to(device)
         class_weight = class_weight.to(device)
-        output = model(volume)
+        output = model(torch.cat((volume, input_label), 1))
 
         if regularization is not None:
             loss = criterion(output, label, class_weight) + regularization(output)
@@ -48,7 +48,7 @@ def train(args, train_loader, val_loader, model, device, criterion,
             if args.task == 0:
                 visualize_aff(volume, label, output, iteration, writer, mode='Train')
             elif args.task == 1 or args.task == 3:
-                visualize(volume, label, output, iteration, writer)
+                visualize(volume, label, output, iteration, writer, input_label=input_label)
 
             scheduler.step(record.avg)
             record.reset()
@@ -99,7 +99,7 @@ def train(args, train_loader, val_loader, model, device, criterion,
 
         #Save model
         if iteration % args.iteration_save == 0 or iteration >= args.iteration_total:
-            torch.save(model.state_dict(), args.output+('/modelBinnedSampling_%d.pth' % (iteration)))
+            torch.save(model.state_dict(), args.output+('/m_32_192_192_noBN_Dout_dualChan_AllAug%d.pth' % (iteration)))
 
         # Terminate
         if iteration >= args.iteration_total:
