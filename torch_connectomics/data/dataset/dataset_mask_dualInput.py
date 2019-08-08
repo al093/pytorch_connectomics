@@ -1,6 +1,7 @@
 from __future__ import print_function, division
 import numpy as np
 from scipy.ndimage.interpolation import shift
+from scipy.ndimage.morphology import distance_transform_cdt
 import torch
 import torch.utils.data
 
@@ -40,6 +41,7 @@ class MaskDatasetDualInput(MaskDataset):
                                                     pad_size)
 
         self.rim_width = np.array([4, 24, 24], dtype=np.uint32)
+        self.return_distance_transform = False
 
     def __getitem__(self, index):
         vol_size = self.sample_input_size
@@ -51,16 +53,19 @@ class MaskDatasetDualInput(MaskDataset):
             seed = np.random.RandomState(index)
 
             # 3 First sampling, pos is the top left origin to start cropping from
-            pos = self.get_pos_seed(vol_size, seed)
-            out_label_input = crop_volume(self.label[pos[0]], vol_size, pos[1:])
 
-            possible_pos = np.transpose(np.nonzero(out_label_input))
-            possible_pos = possible_pos[(possible_pos[:, 0] < self.rim_width[0]) |
-                                        (possible_pos[:, 0] > vol_size[0] - self.rim_width[0]) |
-                                        (possible_pos[:, 1] < self.rim_width[1]) |
-                                        (possible_pos[:, 1] > vol_size[1] - self.rim_width[1]) |
-                                        (possible_pos[:, 2] < self.rim_width[2]) |
-                                        (possible_pos[:, 2] > vol_size[2] - self.rim_width[2])]
+            while True:
+                pos = self.get_pos_seed(vol_size, seed)
+                out_label_input = crop_volume(self.label[pos[0]], vol_size, pos[1:])
+
+                possible_pos = np.transpose(np.nonzero(out_label_input))
+
+                out_axis = np.random.randint(3)
+                possible_pos = possible_pos[(possible_pos[:, out_axis] < self.rim_width[out_axis]) |
+                                            (possible_pos[:, out_axis] > vol_size[out_axis] - self.rim_width[out_axis])]
+                if possible_pos.shape[0] > 0:
+                    # print('Out axis :', out_axis)
+                    break
 
             while True:
                 choosen_idx = np.random.randint(possible_pos.shape[0], dtype=np.int64)
@@ -94,22 +99,36 @@ class MaskDatasetDualInput(MaskDataset):
             out_label = None if self.label is None else crop_volume(self.label[pos[0]], vol_size, pos[1:])
 
         if out_label is not None:
+            if self.return_distance_transform:
+                out_distance_tx = distance_transform_cdt(out_label)
+                out_distance_tx = torch.from_numpy(out_distance_tx.copy().astype(np.float32))
+                out_distance_tx = out_distance_tx.unsqueeze(0)
+                out_distance_tx = out_distance_tx.detach()
+
             out_label = torch.from_numpy(out_label.copy().astype(np.float32))
             out_label = out_label.unsqueeze(0)
+            out_label = out_label.detach()
 
         if out_label_input is not None:
             out_label_input = torch.from_numpy(out_label_input.copy().astype(np.float32))
             out_label_input = out_label_input.unsqueeze(0)
+            out_label_input = out_label_input.detach()
 
-        # Turn input to Pytorch Tensor, unsqueeze once to include the channel dimension:
+            # Turn input to Pytorch Tensor, unsqueeze once to include the channel dimension:
         out_input = torch.from_numpy(out_input.copy())
         out_input = out_input.unsqueeze(0)
+        out_input = out_input.detach()
 
         if self.mode == 'train':
             # Rebalancing
             temp = 1.0 - out_label.clone()
             weight_factor, weight = rebalance_binary_class(temp)
-            return pos, out_input, out_label_input, out_label, weight, weight_factor
+            weight_factor, weight = weight_factor.detach(), weight.detach()
+
+            if self.return_distance_transform:
+                return pos, out_input, out_label_input*out_distance_tx, out_distance_tx, weight, weight_factor
+            else:
+                return pos, out_input, out_label_input, out_label, weight, weight_factor
 
         else:
             return pos, out_input
