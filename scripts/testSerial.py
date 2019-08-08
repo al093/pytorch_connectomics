@@ -9,7 +9,7 @@ from scipy.ndimage.morphology import binary_erosion
 from torch_connectomics.utils.net import *
 from torch_connectomics.utils.vis import visualize_aff
 
-def test(args, test_loader, model, device, model_io_size, volume_shape, pad_size):
+def test(args, test_loader, model, device, model_io_size, volume_shape, pad_size, initial_seg=None):
     # switch to eval mode
     model.eval()
     volume_id = 0
@@ -17,10 +17,14 @@ def test(args, test_loader, model, device, model_io_size, volume_shape, pad_size
     NUM_OUT = args.out_channel
     sel_cpu = np.ones((3, 3, 3), dtype=bool)
     sel = torch.ones((1, 1, 3, 3, 3), dtype=torch.float32, device=device)
-    result = [np.stack([np.zeros(x, dtype=bool) for _ in range(NUM_OUT)]) for x in volume_shape]
-    result_raw = [np.stack([np.zeros(x) for _ in range(NUM_OUT)]) for x in volume_shape]
+    if initial_seg is not None:
+        result = [np.expand_dims(initial_seg, axis=0)]
+    else:
+        result = [np.stack([np.zeros(x, dtype=bool) for _ in range(NUM_OUT)]) for x in volume_shape]
+
+    result_raw = [np.stack([np.zeros(x, dtype=np.float32) for _ in range(NUM_OUT)]) for x in volume_shape]
     prediction_points = []
-    # std_result = [np.stack([np.zeros(x, dtype=np.float32) for _ in range(NUM_OUT)]) for x in volume_shape]
+
     weight = [np.zeros(x, dtype=np.float32) for x in volume_shape]
     print(result[0].shape, weight[0].shape)
 
@@ -35,19 +39,14 @@ def test(args, test_loader, model, device, model_io_size, volume_shape, pad_size
         itr_max = 0
         while test_loader.remaining_pos() > 0 :
             itr_max += 1
-            pos, volume = test_loader.get_input_data()
-
+            pos, volume, past_pred = test_loader.get_input_data()
             volume = volume.to(device)
-            output_raw = model(volume)
-            # output = F.interpolate(output_raw, scale_factor=1/2, mode='trilinear')
-            output = output_raw > 0.85
+            past_pred = past_pred.to(device)
 
-            # edge = F.conv3d(output.float(), sel.float(), padding=1)
-            # edge = (edge > 0) * (edge < 9)
-            # edge = F.interpolate(edge.float(), scale_factor=1/3, mode='trilinear')
-            # # edge = edge > 0.9
+            output_raw = model(torch.cat((volume, past_pred), 1))
+
+            output = output_raw > 0.85
             output_raw = output_raw.cpu().detach().numpy()
-            # output = output.cpu().detach().numpy().astype(bool)
 
             for idx in range(output.shape[0]):
 
@@ -100,17 +99,6 @@ def test(args, test_loader, model, device, model_io_size, volume_shape, pad_size
         hf = h5py.File(args.output + '/mask_raw' + str(vol_id) + '.h5', 'w')
         hf.create_dataset('main', data=data, compression='gzip')
         hf.close()
-
-        # std_result[vol_id] = std_result[vol_id] / weight[vol_id]
-        # std_result = std_result[0]
-        # std_result = std_result[:,
-        #        pad_size[0]:-pad_size[0],
-        #        pad_size[1]:-pad_size[1],
-        #        pad_size[2]:-pad_size[2]]
-        # hf = h5py.File(args.output + '/std_' + str(vol_id) + '.h5', 'w')
-        # hf.create_dataset('main', data=std_result, compression='gzip')
-        # hf.close()
-
 
 def get_augmented(volume):
     # perform 16 Augmentations as mentioned in Kisuks thesis
@@ -173,13 +161,13 @@ def main():
     print('model I/O size:', model_io_size)
 
     print('1. setup data')
-    test_loader, volume_shape, pad_size = get_input(args, model_io_size, 'test')
+    test_loader, volume_shape, pad_size, initial_seg = get_input(args, model_io_size, 'test')
 
     print('2. setup model')
     model = setup_model(args, device, exact=True)
 
     print('3. start testing')
-    test(args, test_loader, model, device, model_io_size, volume_shape, pad_size)
+    test(args, test_loader, model, device, model_io_size, volume_shape, pad_size, initial_seg)
 
     print('4. finish testing')
 

@@ -154,6 +154,14 @@ def get_input(args, model_io_size, mode='train'):
             b = b[b[:, 2] >= 0, :]
             s_points[i][0] = b
 
+            initial_seg = None
+            if args.initial_seg is not None:
+                initial_seg = np.array((h5py.File(args.initial_seg, 'r')['main'])[bs[0]:be[0], bs[1]:be[1], bs[2]:be[2]])
+                initial_seg = initial_seg.astype(bool)
+                initial_seg = np.pad(initial_seg, ((pad_size[0], pad_size[0]),
+                                                     (pad_size[1], pad_size[1]),
+                                                     (pad_size[2], pad_size[2])), 'reflect')
+
     if mode=='train' or mode=='validation':
         if augmentor is None:
             sample_input_size = model_io_size
@@ -207,11 +215,13 @@ def get_input(args, model_io_size, mode='train'):
             img_loader =  torch.utils.data.DataLoader(
                     dataset, batch_size=args.batch_size, shuffle=SHUFFLE, collate_fn = collate_fn_test,
                     num_workers=args.num_cpu, pin_memory=True)
+            return img_loader, volume_shape, pad_size
         else:
             assert len(img_name) == 1
             img_loader = SerialSampler(dataset, args.batch_size, pad_size, s_points[0][0] + pad_size)
+            return img_loader, volume_shape, pad_size, initial_seg
 
-        return img_loader, volume_shape, pad_size
+
 
 def crop_cremi(image, label, path):
     filename = os.path.basename(path)

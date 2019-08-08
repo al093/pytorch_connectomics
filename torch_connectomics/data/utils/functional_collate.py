@@ -39,6 +39,12 @@ def collate_fn_test(batch):
     out_input = torch.stack(out_input, 0)
     return pos, out_input
 
+def collate_fn_test_2(batch):
+    pos, out_input, past_prediction = zip(*batch)
+    out_input = torch.stack(out_input, 0)
+    past_prediction = torch.stack(past_prediction, 0)
+    return pos, out_input, past_prediction
+
 def collate_fn_plus(batch):
     """
     Puts each data field into a tensor with outer dimension batch size

@@ -3,8 +3,8 @@ import numpy as np
 
 import torch
 
-from torch_connectomics.data.dataset import  MaskDataset
-from torch_connectomics.data.utils.functional_collate import collate_fn_test
+from torch_connectomics.data.dataset.misc import crop_volume
+from torch_connectomics.data.utils.functional_collate import collate_fn_test_2
 
 class SerialSampler():
 
@@ -67,6 +67,7 @@ class SerialSampler():
     def get_input_data(self):
         input_batch = []
         pos_batch = []
+        past_pred_batch = []
 
         if len(self.pos_queue) > self.batch_size:
             num_data_points = self.batch_size
@@ -81,8 +82,9 @@ class SerialSampler():
             # print('Position: ', pos)
             input_batch.append(self.dataset.get_vol(pos))
             pos_batch.append(pos)
-
-        return collate_fn_test(zip(pos_batch, input_batch))
+            past_pred_cpu = crop_volume(self.seg, self.dataset.sample_input_size, pos[1:])
+            past_pred_batch.append((torch.from_numpy(past_pred_cpu.copy().astype(np.float32))).unsqueeze(0))
+        return collate_fn_test_2(zip(pos_batch, input_batch, past_pred_batch))
 
     def remaining_pos(self):
         return len(self.pos_queue)

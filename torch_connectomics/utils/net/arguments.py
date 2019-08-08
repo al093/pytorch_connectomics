@@ -81,6 +81,8 @@ def get_args(mode='train'):
                             help='Perform Data Augmentation during inference')
         parser.add_argument('--scale-input', type=float, default='1.0',
                             help='Scale factor for entire input volume')
+        parser.add_argument('-is', '--initial-seg', type=str, default=None,
+                            help='Initial segmentation volume (e.g. neurons)')
 
     parser.add_argument('--argsFile', type=open, action=LoadFromFile)
 
