@@ -18,15 +18,22 @@ from torch_connectomics.model.loss import *
 from torch_connectomics.utils.net import *
 from torch_connectomics.utils.vis import visualize, visualize_aff
 from torch_connectomics.data.utils.functional_collate import collate_fn_2
+from torch_connectomics.data.augmentation import *
 
 def to_numpy_array(mp_arr, shape, dtype):
     ar = np.frombuffer(mp_arr.get_obj(), dtype=dtype, count=np.prod(shape))
     ar.shape = tuple([s for s in shape])
     return ar
 
-def mp_init(shared_ar_):
+def mp_init(shared_ar_, shared_ar_in_vol_, shared_ar_in_label_, shared_ar_out_label_):
     global shared_ar
+    global shared_ar_in_vol
+    global shared_ar_in_label
+    global shared_ar_out_label
     shared_ar = shared_ar_
+    shared_ar_in_vol = shared_ar_in_vol_
+    shared_ar_in_label = shared_ar_in_label_
+    shared_ar_out_label = shared_ar_out_label_
 
 def get_predictions_pos(idx, sample1_c, shape, shift_sz, dtype):
     # connectivity and sel for erosion and connected components
@@ -54,16 +61,47 @@ def get_predictions_pos(idx, sample1_c, shape, shift_sz, dtype):
 
     return int_pos
 
+def augment_data(idx, vol_shape, model_io_size):
+    augmentor = Compose([Rotate(p=1.0),
+                         Rescale(p=0.5),
+                         Flip(p=1.0),
+                         Elastic(alpha=12.0, p=0.75),
+                         Grayscale(p=0.75),
+                         MissingParts(p=0.9),
+                         MissingSection(p=0.5),
+                         MisAlignment(p=1.0, displacement=16)],
+                        input_size=model_io_size)
+    in_vol = to_numpy_array(shared_ar_in_vol, vol_shape, np.float32)
+    in_label = to_numpy_array(shared_ar_in_label, vol_shape, np.float32)
+    out_label = to_numpy_array(shared_ar_out_label, vol_shape, np.float32)
+
+    data = {'image': in_vol, 'label': out_label, 'input_label': in_label}
+    augmented = augmentor(data, random_state=np.random.RandomState(None))
+    np.copyto(in_vol, augmented['image'])
+    np.copyto(in_label, augmented['input_label'])
+    np.copyto(out_label, augmented['label'])
+
 def train(args, train_loader, val_loader, model, device, criterion,
           optimizer, scheduler, logger, writer, regularization=None):
     model_ip_sz = train_loader.dataset.model_input_size
-
+    sample_ip_sz = train_loader.dataset.sample_input_size
     #create a shared memory for the numpy arrays of size batch_size * model input size
     shared_ar = t_mp.Array('f', int(train_loader.batch_size*np.prod(model_ip_sz)))
     shared_ar_np = to_numpy_array(shared_ar, dtype=np.float32, shape=np.array([train_loader.batch_size, 1, model_ip_sz[0], model_ip_sz[1], model_ip_sz[2]]))
 
+    shared_ar_in_vol = t_mp.Array('f', int(train_loader.batch_size * np.prod(train_loader.dataset.sample_input_size)))
+    in_vol = to_numpy_array(shared_ar_in_vol, dtype=np.float32, shape=np.array(
+        [train_loader.batch_size, 1, sample_ip_sz[0], sample_ip_sz[1], sample_ip_sz[2]]))
+    shared_ar_in_label = t_mp.Array('f', int(train_loader.batch_size * np.prod(train_loader.dataset.sample_input_size)))
+    in_label = to_numpy_array(shared_ar_in_label, dtype=np.float32, shape=np.array(
+        [train_loader.batch_size, 1, sample_ip_sz[0], sample_ip_sz[1], sample_ip_sz[2]]))
+    shared_ar_out_label = t_mp.Array('f', int(train_loader.batch_size * np.prod(train_loader.dataset.sample_input_size)))
+    out_label = to_numpy_array(shared_ar_out_label, dtype=np.float32, shape=np.array(
+        [train_loader.batch_size, 1, sample_ip_sz[0], sample_ip_sz[1], sample_ip_sz[2]]))
+
     original_sigint_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
-    pool = t_mp.Pool(processes=train_loader.batch_size, initializer=mp_init, initargs=(shared_ar,))
+    pool = t_mp.Pool(processes=train_loader.batch_size, initializer=mp_init,
+                     initargs=(shared_ar, shared_ar_in_vol, shared_ar_in_label, shared_ar_out_label))
     signal.signal(signal.SIGINT, original_sigint_handler)
 
     vz_freq = 50
@@ -133,8 +171,10 @@ def train(args, train_loader, val_loader, model, device, criterion,
         for idx in range(prediction_points.shape[0]):
             int_pos = prediction_points[idx]
             global_pos = int_pos + sample1_pos[idx][1:] - train_loader.dataset.half_input_sz
+            start = time.time()
             (_pos, _volume, _input_label, _label, _class_weight, _weight_factor) = \
                 train_loader.dataset.__getitem__(index=None, pos=np.append(0, global_pos), past_pred=past_pred[idx, 0])
+            print('Time taken for __getitem__: ', time.time() - start)
             pos.append(_pos)
             volume.append(_volume)
             input_label.append(_input_label)
@@ -143,6 +183,10 @@ def train(args, train_loader, val_loader, model, device, criterion,
             weight_factor.append(_weight_factor)
 
         # print('Time taken for padding and fetching data: ', time.time() - start)
+        # import pdb; pdb.set_trace()
+        results = pool.starmap_async(augment_data, mp_data)
+        results.get()
+
 
         # start = time.time()
         # stack data and copy to gpu

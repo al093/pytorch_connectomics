@@ -4,7 +4,7 @@ import scipy.spatial as sp
 from scipy.ndimage.morphology import distance_transform_cdt
 import torch
 import torch.utils.data
-
+import time
 from .misc import crop_volume, rebalance_binary_class
 from .dataset_mask import MaskDataset
 
@@ -86,13 +86,15 @@ class FFNStyleDataset(MaskDataset):
                 augmented = augmentor(data, random_state=seed)
                 out_input, out_label = augmented['image'], augmented['label']
             else:
+
                 data = {'image': out_input, 'label': out_label, 'input_label': past_pred}
-                augmented = augmentor(data, random_state=seed)
-                out_input, out_label, out_label_input = augmented['image'], augmented['label'], augmented['input_label']
-                out_label_input = out_label_input.astype(np.float32)
+                # augmented = augmentor(data, random_state=seed)
+                # out_input, out_label, out_label_input = augmented['image'], augmented['label'], augmented['input_label']
+                out_label_input = past_pred.astype(np.float32)
                 out_label_input = torch.from_numpy(out_label_input)
                 out_label_input = out_label_input.unsqueeze(0)
                 out_label_input = out_label_input.detach()
+
 
             out_input = out_input.astype(np.float32)
             out_label = out_label.astype(np.uint32)
