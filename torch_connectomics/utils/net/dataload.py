@@ -8,7 +8,7 @@ import torch.nn as nn
 import torch.utils.data
 import torchvision.utils as vutils
 
-from torch_connectomics.data.dataset import AffinityDataset, SynapseDataset, MitoDataset, MaskDataset, MaskDatasetDualInput
+from torch_connectomics.data.dataset import AffinityDataset, SynapseDataset, MitoDataset, MaskDataset, FFNStyleDataset
 from torch_connectomics.data.utils import collate_fn, collate_fn_2, collate_fn_test
 from torch_connectomics.data.augmentation import *
 from torch_connectomics.utils.net.serialSampler import SerialSampler
@@ -66,7 +66,6 @@ def get_input(args, model_io_size, mode='train'):
     else:
         augmentor = None
 
-    print('data augmentation: ', augmentor is not None)
     SHUFFLE = (mode=='train' or mode=='validation')
     print('batch size: ', args.batch_size)
 
@@ -109,8 +108,8 @@ def get_input(args, model_io_size, mode='train'):
                     b = b[b[:, 1] >= 0, :]
                     b = b[b[:, 2] >= 0, :]
                     s_points[i][idx] = b
-
-                #concatenate all the bins together and shuffle them
+                    print(b.shape)
+                # concatenate all the bins together and shuffle them
                 # s_points[i] = [np.concatenate(s_points[i], axis=0)]
                 # np.random.shuffle(s_points[i][0])
 
@@ -178,9 +177,15 @@ def get_input(args, model_io_size, mode='train'):
             dataset = MitoDataset(volume=model_input, label=model_label, sample_input_size=sample_input_size,
                                   sample_label_size=sample_input_size, augmentor=augmentor, mode = 'train')
         elif args.task == 3: # mask prediction
-            dataset = MaskDatasetDualInput(volume=model_input, label=model_label, sample_input_size=sample_input_size,
-                                  sample_label_size=sample_input_size, augmentor=augmentor, mode = 'train',
-                                  seed_points=s_points, pad_size=pad_size.astype(np.uint32))
+            # setup augmentor
+            augmentor_1 = Compose([Grayscale(p=0.75),
+                                   MissingParts(p=0.9)],
+                                   input_size=model_io_size)
+
+            # augmentor = None # debug
+            dataset = FFNStyleDataset(volume=model_input, label=model_label, sample_input_size=sample_input_size,
+                                  sample_label_size=sample_input_size, augmentor_1=augmentor_1, augmentor_2=augmentor,
+                                  mode = 'train', seed_points=s_points, pad_size=pad_size.astype(np.uint32))
 
         if args.task == 3:
             c_fn = collate_fn_2
