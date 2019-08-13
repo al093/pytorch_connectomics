@@ -19,7 +19,7 @@ TASK_MAP = {0: 'neuron segmentation',
             3: 'mask prediction'}
  
 
-def get_input(args, model_io_size, mode='train'):
+def get_input(args, model_io_size, mode='train', model=None):
     """Prepare dataloader for training and inference.
     """
     print('Task: ', TASK_MAP[args.task])
@@ -178,9 +178,14 @@ def get_input(args, model_io_size, mode='train'):
             dataset = MitoDataset(volume=model_input, label=model_label, sample_input_size=sample_input_size,
                                   sample_label_size=sample_input_size, augmentor=augmentor, mode = 'train')
         elif args.task == 3: # mask prediction
+
+            augmentor_1 = Compose([Grayscale(p=0.75),
+                                   MissingParts(p=0.9)],
+                                   input_size=model_io_size)
+
             dataset = MaskDatasetDualInput(volume=model_input, label=model_label, sample_input_size=sample_input_size,
-                                  sample_label_size=sample_input_size, augmentor=augmentor, mode = 'train',
-                                  seed_points=s_points, pad_size=pad_size.astype(np.uint32))
+                                  sample_label_size=sample_input_size, augmentor_pre=augmentor_1, augmentor=augmentor,
+                                  mode='train', seed_points=s_points, pad_size=pad_size.astype(np.uint32), model=model)
 
         if args.task == 3:
             c_fn = collate_fn_2

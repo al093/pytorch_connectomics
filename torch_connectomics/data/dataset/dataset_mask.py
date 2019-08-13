@@ -101,7 +101,7 @@ class MaskDataset(torch.utils.data.Dataset):
     def get_pos_dataset(self, index):
         return np.argmax(index < self.sample_num_c) - 1  # which dataset
 
-    def get_pos_seed(self, seed):
+    def get_pos_seed(self, seed, offset=None):
         pos = [0, 0, 0, 0]
         # pick a dataset
         did = self.get_pos_dataset(seed.randint(self.sample_num_a))
@@ -111,7 +111,10 @@ class MaskDataset(torch.utils.data.Dataset):
         # pick a index
         idx = np.random.randint(self.seed_points[did][size_bin].shape[0])
         # pick a position
-        pos[1:] = self.seed_points[did][size_bin][idx] + self.seed_points_offset
+        if offset is None:
+            pos[1:] = self.seed_points[did][size_bin][idx] + self.seed_points_offset
+        else:
+            pos[1:] = self.seed_points[did][size_bin][idx] + offset
         return pos
 
     def get_pos_test(self, index):

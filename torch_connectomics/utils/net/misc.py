@@ -68,10 +68,12 @@ def setup_model(args, device, exact=True, size_match=True):
     assert args.architecture in MODEL_MAP.keys()
     if args.task == 2:
         model = MODEL_MAP[args.architecture](in_channel=1, out_channel=args.out_channel, act='tanh')
+        model_cpu = MODEL_MAP[args.architecture](in_channel=1, out_channel=args.out_channel, act='tanh')
     else:        
         model = MODEL_MAP[args.architecture](in_channel=args.in_channel, out_channel=args.out_channel)
+        model_cpu = MODEL_MAP[args.architecture](in_channel=args.in_channel, out_channel=args.out_channel)
     print('model: ', model.__class__.__name__)
-    model = DataParallelWithCallback(model, device_ids=range(args.num_gpu))
+    # model = DataParallelWithCallback(model, device_ids=range(args.num_gpu))
     model = model.to(device)
 
     if bool(args.load_model):
@@ -94,7 +96,7 @@ def setup_model(args, device, exact=True, size_match=True):
             # 3. load the new state dict
             model.load_state_dict(model_dict)     
     
-    return model
+    return model, model_cpu
 
 def blend(sz, sigma=0.5, mu=0.0):  
     """

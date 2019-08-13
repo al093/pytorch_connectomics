@@ -1,14 +1,13 @@
 import os,sys
-import numpy as np
-import h5py, time, itertools, datetime
 
-import torch
+import h5py, time, itertools, datetime
 
 from torch_connectomics.model.loss import *
 from torch_connectomics.utils.net import *
 from torch_connectomics.utils.vis import visualize, visualize_aff
+import torch.multiprocessing as t_mp
 
-def train(args, train_loader, val_loader, model, device, criterion,
+def train(args, train_loader, val_loader, model, model_cpu, device, criterion,
           optimizer, scheduler, logger, writer, regularization=None):
     record = AverageMeter()
     val_record = AverageMeter()
@@ -38,13 +37,20 @@ def train(args, train_loader, val_loader, model, device, criterion,
 
         logger.write("[Volume %d] train_loss=%0.4f lr=%.5f\n" % (iteration,
                                                                  loss.item(), optimizer.param_groups[0]['lr']))
-
         print('[Iteration %d] train_loss=%0.4f lr=%.6f' % (iteration,
                                                            loss.item(), optimizer.param_groups[0]['lr']))
 
         writer.add_scalars('Loss', {'Train': loss.item()}, iteration)
 
-        if iteration % 100 == 0 and iteration >= 1:
+        if iteration % 50 == 0 and iteration >= 1:
+
+            params_gpu = model.named_parameters()
+            params_cpu = model_cpu.named_parameters()
+
+            dict_params2 = dict(params_cpu)
+            for name1, param1 in params_gpu:
+                dict_params2[name1].data.copy_(param1.data.cpu())
+
             if args.task == 0:
                 visualize_aff(volume, label, output, iteration, writer, mode='Train')
             elif args.task == 1 or args.task == 3:
@@ -99,7 +105,7 @@ def train(args, train_loader, val_loader, model, device, criterion,
 
         #Save model
         if iteration % args.iteration_save == 0 or iteration >= args.iteration_total:
-            torch.save(model.state_dict(), args.output+('/m_32_192_192_noBN_Dout_dualChan_AllAug%d.pth' % (iteration)))
+            torch.save(model.state_dict(), args.output+('/m_32_192_192_noBN_Dout_dualChan_Nearest%d.pth' % (iteration)))
 
         # Terminate
         if iteration >= args.iteration_total:
@@ -112,13 +118,20 @@ def main():
     model_io_size, device = init(args) 
     logger, writer = get_logger(args)
 
-    print('1. setup data')
-    train_loader = get_input(args, model_io_size, 'train')
-
-    # val_loader = get_input(args, model_io_size, 'validation')
 
     print('2.0 setup model')
-    model = setup_model(args, device)
+    model, model_cpu = setup_model(args, device)
+
+    params_gpu = model.named_parameters()
+    params_cpu = model_cpu.named_parameters()
+    dict_params2 = dict(params_cpu)
+    for name1, param1 in params_gpu:
+        dict_params2[name1].data.copy_(param1.data.cpu())
+
+    print('1. setup data')
+    train_loader = get_input(args, model_io_size, 'train', model=model_cpu)
+
+    # val_loader = get_input(args, model_io_size, 'validation')
             
     print('2.1 setup loss function')
     criterion = WeightedBCE()   
@@ -133,11 +146,21 @@ def main():
     
 
     print('4. start training')
-    train(args, train_loader, None, model, device, criterion, optimizer, scheduler, logger, writer)
+    train(args, train_loader, None, model, model_cpu, device, criterion, optimizer, scheduler, logger, writer)
   
     print('5. finish training')
     logger.close()
     writer.close()
 
 if __name__ == "__main__":
+
+    os.environ["OMP_NUM_THREADS"] = "1" # export OMP_NUM_THREADS=4
+    os.environ["OPENBLAS_NUM_THREADS"] = "1" # export OPENBLAS_NUM_THREADS=4 
+    os.environ["MKL_NUM_THREADS"] = "1" # export MKL_NUM_THREADS=6
+    os.environ["VECLIB_MAXIMUM_THREADS"] = "1" # export VECLIB_MAXIMUM_THREADS=4
+    os.environ["NUMEXPR_NUM_THREADS"] = "1" # export NUMEXPR_NUM_THREADS=6
+    import numpy as np
+    import torch
+    torch.set_num_threads(1)
+
     main()
