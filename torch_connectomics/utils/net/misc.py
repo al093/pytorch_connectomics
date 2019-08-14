@@ -94,8 +94,16 @@ def setup_model(args, device, exact=True, size_match=True):
                     if model_dict[param_tensor].size() == pretrained_dict[param_tensor].size():
                         model_dict[param_tensor] = pretrained_dict[param_tensor]       
             # 3. load the new state dict
-            model.load_state_dict(model_dict)     
-    
+            model.load_state_dict(model_dict)
+
+    model_cpu.share_memory()
+    params_gpu = model.named_parameters()
+    params_cpu = model_cpu.named_parameters()
+    dict_params_gpu = dict(params_gpu)
+    dict_params_cpu = dict(params_cpu)
+    for name, param in dict_params_gpu.items():
+        dict_params_cpu[name].data.copy_(param.data.cpu())
+
     return model, model_cpu
 
 def blend(sz, sigma=0.5, mu=0.0):  

@@ -1,6 +1,8 @@
 import os,sys
-
 import h5py, time, itertools, datetime
+import numpy as np
+
+import torch
 
 from torch_connectomics.model.loss import *
 from torch_connectomics.utils.net import *
@@ -17,7 +19,10 @@ def train(args, train_loader, val_loader, model, model_cpu, device, criterion,
     if val_loader is not None:
         val_loader_itr = iter(val_loader)
 
+    start = time.time()
     for iteration, (_, volume, input_label, label, class_weight, _) in enumerate(train_loader):
+        print('time taken for itr: ', time.time() - start)
+        start = time.time()
         sys.stdout.flush()
         volume, input_label, label = volume.to(device), input_label.to(device), label.to(device)
         class_weight = class_weight.to(device)
@@ -35,6 +40,7 @@ def train(args, train_loader, val_loader, model, model_cpu, device, criterion,
         loss.backward()
         optimizer.step()
 
+
         logger.write("[Volume %d] train_loss=%0.4f lr=%.5f\n" % (iteration,
                                                                  loss.item(), optimizer.param_groups[0]['lr']))
         print('[Iteration %d] train_loss=%0.4f lr=%.6f' % (iteration,
@@ -46,10 +52,10 @@ def train(args, train_loader, val_loader, model, model_cpu, device, criterion,
 
             params_gpu = model.named_parameters()
             params_cpu = model_cpu.named_parameters()
-
-            dict_params2 = dict(params_cpu)
-            for name1, param1 in params_gpu:
-                dict_params2[name1].data.copy_(param1.data.cpu())
+            dict_p = dict(params_gpu)
+            dict_params_cpu = dict(params_cpu)
+            for name, param in dict_p.items():
+                dict_params_cpu[name].data.copy_(param.data)
 
             if args.task == 0:
                 visualize_aff(volume, label, output, iteration, writer, mode='Train')
@@ -122,12 +128,6 @@ def main():
     print('2.0 setup model')
     model, model_cpu = setup_model(args, device)
 
-    params_gpu = model.named_parameters()
-    params_cpu = model_cpu.named_parameters()
-    dict_params2 = dict(params_cpu)
-    for name1, param1 in params_gpu:
-        dict_params2[name1].data.copy_(param1.data.cpu())
-
     print('1. setup data')
     train_loader = get_input(args, model_io_size, 'train', model=model_cpu)
 
@@ -153,14 +153,4 @@ def main():
     writer.close()
 
 if __name__ == "__main__":
-
-    os.environ["OMP_NUM_THREADS"] = "1" # export OMP_NUM_THREADS=4
-    os.environ["OPENBLAS_NUM_THREADS"] = "1" # export OPENBLAS_NUM_THREADS=4 
-    os.environ["MKL_NUM_THREADS"] = "1" # export MKL_NUM_THREADS=6
-    os.environ["VECLIB_MAXIMUM_THREADS"] = "1" # export VECLIB_MAXIMUM_THREADS=4
-    os.environ["NUMEXPR_NUM_THREADS"] = "1" # export NUMEXPR_NUM_THREADS=6
-    import numpy as np
-    import torch
-    torch.set_num_threads(1)
-
     main()

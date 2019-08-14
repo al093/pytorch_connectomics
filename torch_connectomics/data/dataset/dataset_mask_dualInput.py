@@ -1,4 +1,5 @@
 from __future__ import print_function, division
+import time
 import numpy as np
 
 from scipy.ndimage.morphology import distance_transform_cdt
@@ -40,9 +41,6 @@ class MaskDatasetDualInput(MaskDataset):
                                                     mode,
                                                     seed_points,
                                                     pad_size)
-
-
-        self.rim_width = np.array([4, 24, 24], dtype=np.uint32)
         self.return_distance_transform = False
         self.model_input_size = augmentor.input_size
         self.model_half_isz = tuple(self.model_input_size // 2)
@@ -71,6 +69,7 @@ class MaskDatasetDualInput(MaskDataset):
         return sphere
 
     def __getitem__(self, index):
+        start = time.time()
         seed = np.random.RandomState(index)
 
         # 1. get first volume
@@ -84,38 +83,38 @@ class MaskDatasetDualInput(MaskDataset):
             augmented = self.augmentor_pre(data, random_state=seed)
             out_input, out_label = augmented['image'], augmented['label']
             out_input = out_input.astype(np.float32)
-            out_label = out_label.astype(np.uint32)
-
-        # Turn input to Pytorch Tensor, unsqueeze twice once to include the channel dimension and batch size as 1:
-        out_label_input = self.sphere_mask * out_label
-        out_label_input = torch.from_numpy(np.array(out_label_input, dtype=np.float32))
-        out_label_input = out_label_input.unsqueeze(0).unsqueeze(0).detach()
-        out_input = torch.from_numpy(np.array(out_input, copy=True, dtype=np.float32))
-        out_input = out_input.unsqueeze(0).unsqueeze(0).detach()
+            out_label = out_label.astype(np.float32)
 
         # Run first inference
         with torch.no_grad():
-            m = self.model.cpu()
-            output = m(torch.cat((out_input, out_label_input), 1))
-        output = output > 0.85
 
-        # During initial training the output of the network would be bad, so use the out_label_input as second condition
-        if output[(0, 0) + self.model_half_isz] == True:
-            out_mask = output.cpu().detach().numpy().astype(bool)
-        else:
-            out_mask = out_label_input.cpu().detach().numpy().astype(bool)
+            # Turn input to Pytorch Tensor, unsqueeze twice once to include the channel dimension and batch size as 1:
+            out_label *= self.sphere_mask
+            out_label_input = torch.from_numpy(out_label)
+            out_label_input = out_label_input.unsqueeze(0).unsqueeze(0)
+            out_input = torch.from_numpy(out_input)
+            out_input = out_input.unsqueeze(0).unsqueeze(0)
 
-        # edge detection to find the next sampling location
-        cc_out_mask, _ = scipy_label(out_mask[0, 0])
-        out_mask = (cc_out_mask == cc_out_mask[self.model_half_isz])
-        out_mask = torch.from_numpy(np.array(out_mask, dtype=np.float32))
-        edge = (F.conv3d(out_mask.unsqueeze(0).unsqueeze(0), self.sel, padding=1))
-        edge = (edge > 0) * (edge < 9)
-        edge = F.interpolate(edge.float(), scale_factor=1 / 4, mode='nearest')
-        edge = edge > 0
-        edge_pos = (torch.nonzero(edge[0, 0]) * 4).detach().numpy()
+            output = self.model(torch.cat((out_input, out_label_input), 1))
+            output = output > 0.85
 
-        if (edge_pos.shape[0] == 0):
+            # During initial training the output of the network would be bad, so can use the out_label_input
+            if output[(0, 0) + self.model_half_isz] == True:
+                out_mask = output.numpy().astype(bool)
+            else:
+                out_mask = out_label_input.numpy().astype(bool)
+
+            # edge detection to find the next sampling location
+            cc_out_mask, _ = scipy_label(out_mask[0, 0])
+            out_mask = (cc_out_mask == cc_out_mask[self.model_half_isz])
+            out_mask = torch.from_numpy(np.array(out_mask, dtype=np.float32))
+            edge = (F.conv3d(out_mask.unsqueeze(0).unsqueeze(0), self.sel, padding=1))
+            edge = (edge > 0) * (edge < 9)
+            # edge = F.interpolate(edge.float(), scale_factor=1 / 4, mode='nearest')
+            # edge = edge > 0
+            edge_pos = torch.nonzero(edge[0, 0]).numpy()
+
+        if edge_pos.shape[0] == 0:
             print(edge_pos.shape)
 
         int_pos = edge_pos[np.random.randint(edge_pos.shape[0], size=1)]
@@ -142,12 +141,13 @@ class MaskDatasetDualInput(MaskDataset):
 
         out_label_input = torch.from_numpy(np.array(out_label_input, dtype=np.float32))
         out_label_input = out_label_input.unsqueeze(0).detach()
-        out_label = torch.from_numpy(np.array(out_label, copy=True, dtype=np.float32))
+        out_label = torch.from_numpy(np.array(out_label, dtype=np.float32))
         out_label = out_label.unsqueeze(0).detach()
-        out_input = torch.from_numpy(np.array(out_input, copy=True, dtype=np.float32))
+        out_input = torch.from_numpy(np.array(out_input, dtype=np.float32))
         out_input = out_input.unsqueeze(0).detach()
 
         # Rebalancing
         temp = 1.0 - out_label.clone()
         weight_factor, weight = rebalance_binary_class(temp)
+        # print('Time taken for get item: ', time.time() - start)
         return pos, out_input, out_label_input, out_label, weight, weight_factor
