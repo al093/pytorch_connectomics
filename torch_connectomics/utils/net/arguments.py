@@ -83,6 +83,9 @@ def get_args(mode='train'):
                             help='Scale factor for entire input volume')
         parser.add_argument('-is', '--initial-seg', type=str, default=None,
                             help='Initial segmentation volume (e.g. neurons)')
+        parser.add_argument('-sid', '--segment-id', type=int, default=1,
+                            help='segmentation id of the neuron to be segmented')
+
 
     parser.add_argument('--argsFile', type=open, action=LoadFromFile)
 

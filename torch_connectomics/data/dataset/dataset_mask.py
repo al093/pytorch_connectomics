@@ -27,7 +27,6 @@ class MaskDataset(torch.utils.data.Dataset):
                  mode='train',
                  seed_points=None,
                  pad_size=None):
-
         if mode == 'test':
             for x in seed_points:
                 assert len(x) == 1
@@ -107,7 +106,8 @@ class MaskDataset(torch.utils.data.Dataset):
         did = self.get_pos_dataset(seed.randint(self.sample_num_a))
         pos[0] = did
         # pick a mask bin
-        size_bin = np.random.choice(len(self.seed_points[did]), p=[0.17, 0.17, 0.17, 0.17, 0.12, 0.05, 0.05, 0.05, 0.05])
+        # [0.17, 0.17, 0.17, 0.17, 0.12, 0.05, 0.05, 0.05, 0.05]
+        size_bin = np.random.choice(len(self.seed_points[did]), p=[0.45, 0.15, 0.10, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05])
         # pick a index
         idx = np.random.randint(self.seed_points[did][size_bin].shape[0])
         # pick a position

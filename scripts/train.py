@@ -111,7 +111,7 @@ def train(args, train_loader, val_loader, model, model_cpu, device, criterion,
 
         #Save model
         if iteration % args.iteration_save == 0 or iteration >= args.iteration_total:
-            torch.save(model.state_dict(), args.output+('/m_32_192_192_noBN_Dout_dualChan_Nearest%d.pth' % (iteration)))
+            torch.save(model.state_dict(), args.output+('/m_32_192_192_noBN_Dout_dualChan_restrictedSampling_Nearest_8000+%d.pth' % (iteration)))
 
         # Terminate
         if iteration >= args.iteration_total:
@@ -123,7 +123,6 @@ def main():
     print('0. initial setup')
     model_io_size, device = init(args) 
     logger, writer = get_logger(args)
-
 
     print('2.0 setup model')
     model, model_cpu = setup_model(args, device)

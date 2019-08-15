@@ -12,12 +12,12 @@ def prepare_data(volume, label, output, input_label=None):
             return volume, label, output
     elif len(volume.size()) == 5: # 3D Inputs
         if(volume.shape[0] > min_batch): #show slices from different batches
-            mid_slice_number = volume.shape[2] // 2
-            volume = volume[:min_batch, :, mid_slice_number:mid_slice_number+int(N/min_batch), :, :].permute(0, 2, 1, 3, 4).contiguous().view(-1, volume.shape[1], volume.shape[3], volume.shape[4])
-            label = label[:min_batch,   :, mid_slice_number:mid_slice_number+int(N/min_batch), :, :].permute(0, 2, 1, 3, 4).contiguous().view(-1, label.shape[1], label.shape[3], label.shape[4])
-            output = output[:min_batch, :, mid_slice_number:mid_slice_number+int(N/min_batch), :, :].permute(0, 2, 1, 3, 4).contiguous().view(-1, output.shape[1], output.shape[3], output.shape[4])
+            start_slice_number = (volume.shape[2] - int(N/min_batch)) // 2
+            volume = volume[:min_batch, :, start_slice_number:start_slice_number+int(N/min_batch), :, :].permute(0, 2, 1, 3, 4).contiguous().view(-1, volume.shape[1], volume.shape[3], volume.shape[4])
+            label = label[:min_batch,   :, start_slice_number:start_slice_number+int(N/min_batch), :, :].permute(0, 2, 1, 3, 4).contiguous().view(-1, label.shape[1], label.shape[3], label.shape[4])
+            output = output[:min_batch, :, start_slice_number:start_slice_number+int(N/min_batch), :, :].permute(0, 2, 1, 3, 4).contiguous().view(-1, output.shape[1], output.shape[3], output.shape[4])
             if input_label is not None:
-                input_label = input_label[:min_batch,   :, mid_slice_number:mid_slice_number+int(N/min_batch), :, :].permute(0, 2, 1, 3, 4).contiguous().view(-1, input_label.shape[1], input_label.shape[3], input_label.shape[4])
+                input_label = input_label[:min_batch,   :, start_slice_number:start_slice_number+int(N/min_batch), :, :].permute(0, 2, 1, 3, 4).contiguous().view(-1, input_label.shape[1], input_label.shape[3], input_label.shape[4])
         else:
             volume, label, output = volume[0].permute(1,0,2,3), label[0].permute(1,0,2,3), output[0].permute(1,0,2,3)
             if input_label is not None:

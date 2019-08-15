@@ -4,9 +4,7 @@ import h5py
 import scipy
 
 import torch
-import torch.nn as nn
 import torch.utils.data
-import torchvision.utils as vutils
 
 from torch_connectomics.data.dataset import AffinityDataset, SynapseDataset, MitoDataset, MaskDataset, MaskDatasetDualInput
 from torch_connectomics.data.utils import collate_fn, collate_fn_2, collate_fn_test
@@ -82,9 +80,13 @@ def get_input(args, model_io_size, mode='train', model=None):
         # bs = [0, 0, 0]
         # be = [800, 500, 800]
 
-        # Train Bounds
-        bs = [374, 1242, 0]
-        be = [1053, 3025, 1059]
+        if mode == 'train':
+            bs = [374, 1242, 0]
+            be = [1053, 3025, 1059]
+        elif mode == 'test':
+            bs = [0, 1800, 800]
+            be = [700, 2800, 1664]
+
 
         model_input[i] = np.array((h5py.File(img_name[i], 'r')['main'])[bs[0]:be[0], bs[1]:be[1], bs[2]:be[2]])/255.0
         print('Input Data size: ', model_input[i].shape)
@@ -142,25 +144,26 @@ def get_input(args, model_io_size, mode='train', model=None):
             print("label shape: ", model_label[i].shape)
             assert model_input[i].shape == model_label[i].shape
 
-        if mode=='test' and args.task == 3:
-            s_points[i] = load_seeds_from_txt(seed_points_files[i])
-            b = s_points[i][0]
-            b = b[b[:, 0] < be[0], :]
-            b = b[b[:, 1] < be[1], :]
-            b = b[b[:, 2] < be[2], :]
-            b = b - np.array([bs[0], bs[1], bs[2]], dtype=np.uint32)
-            b = b[b[:, 0] >= 0, :]
-            b = b[b[:, 1] >= 0, :]
-            b = b[b[:, 2] >= 0, :]
-            s_points[i][0] = b
+    if mode=='test' and args.task == 3:
+        b = np.array(h5py.File(seed_points_files[0], 'r')[str(args.segment_id)])
+        b = b[b[:, 0] < be[0], :]
+        b = b[b[:, 1] < be[1], :]
+        b = b[b[:, 2] < be[2], :]
+        b = b - np.array([bs[0], bs[1], bs[2]], dtype=np.int64)
+        b = b[b[:, 0] >= 0, :]
+        b = b[b[:, 1] >= 0, :]
+        b = b[b[:, 2] >= 0, :]
+        s_points = [[b.astype(np.uint32)[::200]]]
 
-            initial_seg = None
-            if args.initial_seg is not None:
-                initial_seg = np.array((h5py.File(args.initial_seg, 'r')['main'])[bs[0]:be[0], bs[1]:be[1], bs[2]:be[2]])
-                initial_seg = initial_seg.astype(bool)
-                initial_seg = np.pad(initial_seg, ((pad_size[0], pad_size[0]),
-                                                     (pad_size[1], pad_size[1]),
-                                                     (pad_size[2], pad_size[2])), 'reflect')
+        print('Num of initial seed points: ', s_points[0][0].shape[0])
+        # read the initial segmentation volume and choose the neuron which needs to be run
+        # read the seed points from another h5 file
+        assert args.initial_seg is not None
+        initial_seg = np.array((h5py.File(args.initial_seg, 'r')['main'])[bs[0]:be[0], bs[1]:be[1], bs[2]:be[2]])
+        initial_seg = initial_seg == args.segment_id
+        initial_seg = np.pad(initial_seg, ((pad_size[0], pad_size[0]),
+                                           (pad_size[1], pad_size[1]),
+                                           (pad_size[2], pad_size[2])), 'reflect')
 
     if mode=='train' or mode=='validation':
         if augmentor is None:

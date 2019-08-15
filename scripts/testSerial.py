@@ -31,7 +31,6 @@ def test(args, test_loader, model, device, model_io_size, volume_shape, pad_size
     if args.test_augmentation:
         print("Will augment (Rotate and Flip) data during inference.")
 
-    seed_points_files = args.seed_points.split('@')
     test_loader.set_out_array(result[0][0])
     sz = tuple([NUM_OUT] + list(model_io_size))
     start = time.time()
@@ -164,7 +163,7 @@ def main():
     test_loader, volume_shape, pad_size, initial_seg = get_input(args, model_io_size, 'test')
 
     print('2. setup model')
-    model = setup_model(args, device, exact=True)
+    model, _ = setup_model(args, device, exact=True)
 
     print('3. start testing')
     test(args, test_loader, model, device, model_io_size, volume_shape, pad_size, initial_seg)

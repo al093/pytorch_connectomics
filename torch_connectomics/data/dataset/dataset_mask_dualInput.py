@@ -72,12 +72,16 @@ class MaskDatasetDualInput(MaskDataset):
         start = time.time()
         seed = np.random.RandomState(index)
 
-        # 1. get first volume
+        # Get first volume
         pos = self.get_pos_seed(seed, offset=self.seed_points_offset_2)
         out_label = crop_volume(self.label[pos[0]], self.model_input_size, pos[1:])
         out_input = crop_volume(self.input[pos[0]], self.model_input_size, pos[1:])
 
-        # 2. Apply augmentation for the first sample. alignment should not be changed here
+        # Perform connected component on the label to remove any disconnected segments
+        out_label, _ = scipy_label(out_label)
+        out_label = (out_label == out_label[self.model_half_isz])
+
+        # Apply augmentation for the first sample. alignment should not be changed here
         if self.augmentor_pre is not None:
             data = {'image': out_input, 'label': out_label}
             augmented = self.augmentor_pre(data, random_state=seed)
@@ -89,11 +93,10 @@ class MaskDatasetDualInput(MaskDataset):
         with torch.no_grad():
 
             # Turn input to Pytorch Tensor, unsqueeze twice once to include the channel dimension and batch size as 1:
-            out_label *= self.sphere_mask
-            out_label_input = torch.from_numpy(out_label)
-            out_label_input = out_label_input.unsqueeze(0).unsqueeze(0)
+            out_label_input = torch.from_numpy(out_label*self.sphere_mask)
+            out_label_input = out_label_input.unsqueeze(0).unsqueeze(0).cuda()
             out_input = torch.from_numpy(out_input)
-            out_input = out_input.unsqueeze(0).unsqueeze(0)
+            out_input = out_input.unsqueeze(0).unsqueeze(0).cuda()
 
             output = self.model(torch.cat((out_input, out_label_input), 1))
             output = output > 0.85
@@ -112,7 +115,8 @@ class MaskDatasetDualInput(MaskDataset):
             edge = (edge > 0) * (edge < 9)
             # edge = F.interpolate(edge.float(), scale_factor=1 / 4, mode='nearest')
             # edge = edge > 0
-            edge_pos = torch.nonzero(edge[0, 0]).numpy()
+            # always keep sample middle points from the inside of the actual segment
+            edge_pos = np.transpose(np.nonzero(edge[0, 0].numpy()*binary_erosion(out_label, self.sel_cpu)))
 
         if edge_pos.shape[0] == 0:
             print(edge_pos.shape)
