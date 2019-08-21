@@ -24,11 +24,11 @@ class SwapZ(DataAugment):
                 data = data.transpose(2, 1, 0)
         else:
             if rule:
-                data = data.transpose(0, 2, 1, 2)
+                data = data.transpose(0, 2, 1, 3)
             else:
                 data = data.transpose(0, 3, 2, 1)
         return data
-    
+
     def __call__(self, data, random_state):
         i_shape = data['image'].shape
         l_shape = data['label'].shape
@@ -37,12 +37,16 @@ class SwapZ(DataAugment):
 
         if random_state is None:
             random_state = np.random.RandomState(1234)
-        
+
         output = {}
         rule = random_state.randint(2)
         augmented_image = self.swap(data['image'], rule)
         augmented_label = self.swap(data['label'], rule)
         output['image'] = augmented_image
         output['label'] = augmented_label
+
+        if 'input_label' in data and data['input_label'] is not None:
+            augmented_input_label = self.swap(data['input_label'], rule)
+            output['input_label'] = augmented_input_label
 
         return output

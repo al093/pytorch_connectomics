@@ -77,7 +77,9 @@ class Compose(object):
         
         # whether need to crop z or not (missing section augmentation)
         if label.shape[0] > self.input_size[0]:
-            z_low = np.random.choice(label.shape[0]-self.input_size[0]+1, 1)[0]
+            # z_low = np.random.choice(label.shape[0]-self.input_size[0]+1, 1)[0]
+            # always crop keeping the center fixed
+            z_low = (label.shape[0]-self.input_size[0]) // 2
         else:
             z_low = 0
         z_high = z_low + self.input_size[0] 
