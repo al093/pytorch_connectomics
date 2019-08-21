@@ -44,7 +44,10 @@ class Rescale(DataAugment):
 
         y_length = int(sf_y * image.shape[1])
         if y_length <= image.shape[1]:
-            y0 = random_state.randint(low=0, high=image.shape[1]-y_length+1)
+            # y0 = random_state.randint(low=0, high=image.shape[1]-y_length+1)
+            # y1 = y0 + y_length
+            # rescaling keeping center pixel at center
+            y0 = (image.shape[1] - y_length) // 2
             y1 = y0 + y_length
             transformed_image = transformed_image[:, y0:y1, :]
             transformed_label = transformed_label[:, y0:y1, :]
@@ -61,7 +64,10 @@ class Rescale(DataAugment):
 
         x_length = int(sf_x * image.shape[2])
         if x_length <= image.shape[2]:
-            x0 = random_state.randint(low=0, high=image.shape[2]-x_length+1)
+            # x0 = random_state.randint(low=0, high=image.shape[2]-x_length+1)
+            # x1 = x0 + x_length
+            # rescaling keeping center pixel at center
+            x0 = (image.shape[2] - x_length) // 2
             x1 = x0 + x_length
             transformed_image = transformed_image[:, :, x0:x1]
             transformed_label = transformed_label[:, :, x0:x1]

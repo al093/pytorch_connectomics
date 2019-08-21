@@ -11,7 +11,9 @@ class MissingSection(DataAugment):
     """
     def __init__(self, num_sections=2, p=0.5):
         super(MissingSection, self).__init__(p=p)
-        self.num_sections = 2
+        # ensure the equal number of sections are removed from the top and bottom wrt center
+        assert num_sections % 2 == 0
+        self.num_sections = num_sections
         self.set_params()
 
     def set_params(self):
@@ -28,7 +30,9 @@ class MissingSection(DataAugment):
         new_images = images.copy()   
         new_labels = labels.copy()
 
-        idx = random_state.choice(np.array(range(1, images.shape[0]-1)), self.num_sections, replace=False)
+        idx1 = random_state.choice(np.array(range(1, (images.shape[0]//2)-1)), self.num_sections//2, replace=False)
+        idx2 = random_state.choice(np.array(range((images.shape[0]//2)+1, images.shape[0]-1)),self.num_sections//2, replace=False)
+        idx = np.concatenate((idx1, idx2))
 
         new_images = np.delete(new_images, idx, 0)
         new_labels = np.delete(new_labels, idx, 0)
@@ -49,10 +53,3 @@ class MissingSection(DataAugment):
             random_state = np.random.RandomState(1234)
 
         return self.missing_section(data, random_state)
-
-        # if 'mask' in data and data['mask'] is not None:
-        #     new_images, new_labels, new_mask = self.missing_section(data, random_state)
-        #     return {'image': new_images, 'label': new_labels, 'mask': new_mask}
-        # else:
-        #     new_images, new_labels, _ = self.missing_section(data, random_state)
-        #     return {'image': new_images, 'label': new_labels}

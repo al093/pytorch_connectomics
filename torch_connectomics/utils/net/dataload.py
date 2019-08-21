@@ -49,14 +49,15 @@ def get_input(args, model_io_size, mode='train', model=None):
 
     if mode=='train' or mode=='validation':
         # setup augmentor
-        augmentor = Compose([Rotate(p=1.0),
+        augmentor = Compose([
+                             Rotate(p=1.0),
                              Rescale(p=0.5),
                              Flip(p=1.0),
-                             Elastic(alpha=12.0, p=0.75),
+                             #Elastic(alpha=5.0, p=0.75),
                              Grayscale(p=0.75),
                              MissingParts(p=0.9),
                              MissingSection(p=0.5),
-                             MisAlignment(p=1.0, displacement=16)
+                             MisAlignment2(p=1.0, displacement=16)
                              # ,SwapZ(p=0.5)
                              ],
                              input_size = model_io_size)
@@ -80,6 +81,7 @@ def get_input(args, model_io_size, mode='train', model=None):
         # bs = [0, 0, 0]
         # be = [800, 500, 800]
 
+        #TODO make a better way of selecting subregion
         if mode == 'train':
             bs = [374, 1242, 0]
             be = [1053, 3025, 1059]
@@ -87,6 +89,9 @@ def get_input(args, model_io_size, mode='train', model=None):
             bs = [0, 1800, 800]
             be = [700, 2800, 1664]
 
+        # TODO Remove this
+        bs = [374, 1242, 0]
+        be = [1053, 3025, 1059]
 
         model_input[i] = np.array((h5py.File(img_name[i], 'r')['main'])[bs[0]:be[0], bs[1]:be[1], bs[2]:be[2]])/255.0
         print('Input Data size: ', model_input[i].shape)
@@ -182,8 +187,10 @@ def get_input(args, model_io_size, mode='train', model=None):
                                   sample_label_size=sample_input_size, augmentor=augmentor, mode = 'train')
         elif args.task == 3: # mask prediction
 
-            augmentor_1 = Compose([Grayscale(p=0.75),
-                                   MissingParts(p=0.9)],
+            augmentor_1 = Compose([
+                                    Grayscale(p=0.75),
+                                   MissingParts(p=0.9)
+                                    ],
                                    input_size=model_io_size)
 
             dataset = MaskDatasetDualInput(volume=model_input, label=model_label, sample_input_size=sample_input_size,

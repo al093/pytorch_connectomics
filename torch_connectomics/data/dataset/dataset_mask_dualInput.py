@@ -15,7 +15,6 @@ import torch.nn.functional as F
 from .misc import crop_volume, rebalance_binary_class
 from .dataset_mask import MaskDataset
 
-
 class MaskDatasetDualInput(MaskDataset):
 
     def __init__(self,
@@ -44,7 +43,7 @@ class MaskDatasetDualInput(MaskDataset):
         self.return_distance_transform = False
         self.model_input_size = augmentor.input_size
         self.model_half_isz = tuple(self.model_input_size // 2)
-        self.sphere_mask = self.get_sphere(10)
+        self.sphere_mask = self.get_sphere(13)
         self.seed_points_offset_2 = pad_size - (self.model_input_size // 2)  # override the base class variable data
         self.augmentor_pre = augmentor_pre
         self.sel_cpu = np.ones((3, 3, 3), dtype=bool)
@@ -91,39 +90,39 @@ class MaskDatasetDualInput(MaskDataset):
 
         # Run first inference
         with torch.no_grad():
-
             # Turn input to Pytorch Tensor, unsqueeze twice once to include the channel dimension and batch size as 1:
             out_label_input = torch.from_numpy(out_label*self.sphere_mask)
-            out_label_input = out_label_input.unsqueeze(0).unsqueeze(0).cuda()
+            out_label_input = out_label_input.unsqueeze(0).unsqueeze(0)
             out_input = torch.from_numpy(out_input)
-            out_input = out_input.unsqueeze(0).unsqueeze(0).cuda()
+            out_input = out_input.unsqueeze(0).unsqueeze(0)
 
             output = self.model(torch.cat((out_input, out_label_input), 1))
             output = output > 0.85
+            output = output[0, 0]
 
             # During initial training the output of the network would be bad, so can use the out_label_input
-            if output[(0, 0) + self.model_half_isz] == True:
+            use_first_sample = True
+            # Try to use the inference result first
+            if output[self.model_half_isz] == True:
                 out_mask = output.numpy().astype(bool)
-            else:
-                out_mask = out_label_input.numpy().astype(bool)
+                cc_out_mask, _ = scipy_label(out_mask)
+                out_mask = (cc_out_mask == cc_out_mask[self.model_half_isz])
+                edge = out_mask & ~binary_erosion(out_mask, self.sel_cpu)
+                edge_pos = np.transpose(np.nonzero(edge * binary_erosion(out_label, self.sel_cpu)))
+                if edge_pos.shape[0] != 0:
+                    use_first_sample = False
 
-            # edge detection to find the next sampling location
-            cc_out_mask, _ = scipy_label(out_mask[0, 0])
-            out_mask = (cc_out_mask == cc_out_mask[self.model_half_isz])
-            out_mask = torch.from_numpy(np.array(out_mask, dtype=np.float32))
-            edge = (F.conv3d(out_mask.unsqueeze(0).unsqueeze(0), self.sel, padding=1))
-            edge = (edge > 0) * (edge < 9)
-            # edge = F.interpolate(edge.float(), scale_factor=1 / 4, mode='nearest')
-            # edge = edge > 0
-            # always keep sample middle points from the inside of the actual segment
-            edge_pos = np.transpose(np.nonzero(edge[0, 0].numpy()*binary_erosion(out_label, self.sel_cpu)))
-
-        if edge_pos.shape[0] == 0:
-            print(edge_pos.shape)
+            #if no edges found use the first sample directly
+            if use_first_sample:
+                out_mask = out_label_input.numpy().astype(bool)[0, 0]
+                cc_out_mask, _ = scipy_label(out_mask)
+                out_mask = (cc_out_mask == cc_out_mask[self.model_half_isz])
+                edge = out_mask & ~binary_erosion(out_mask, self.sel_cpu)
+                edge_pos = np.transpose(np.nonzero(edge * binary_erosion(out_label, self.sel_cpu)))
 
         int_pos = edge_pos[np.random.randint(edge_pos.shape[0], size=1)]
         int_pos = int_pos.astype(np.uint32)[0]
-        global_pos = int_pos + pos[1:] - self.half_input_sz
+        global_pos = (int_pos + pos[1:]) - self.half_input_sz
         pos[1:] = global_pos
         # sample next location
         out_label = crop_volume(self.label[pos[0]], self.sample_input_size, pos[1:])
@@ -133,15 +132,31 @@ class MaskDatasetDualInput(MaskDataset):
         out_mask = shift(out_mask,
                                 -(int_pos.astype(np.int64) - self.model_half_isz),
                                 order=0, prefilter=False)
-        out_label_input = np.pad(out_mask, ((self.pad_sz[0], self.pad_sz[0]),
+        out_label_input = np.pad(out_mask, ((int(self.pad_sz[0]), self.pad_sz[0]),
                                      (self.pad_sz[1], self.pad_sz[1]),
-                                     (self.pad_sz[2], self.pad_sz[2])), 'constant')
+                                     (self.pad_sz[2], self.pad_sz[2])), 'constant').astype(np.float32)
 
         # Augment it now using the full fledged augmentor.
         if self.augmentor is not None:
             data = {'image': out_input, 'label': out_label, 'input_label': out_label_input}
             augmented = self.augmentor(data, random_state=seed)
             out_input, out_label, out_label_input = augmented['image'], augmented['label'], augmented['input_label']
+
+        # Perform connected component on the label to remove any disconnected segments
+        out_label, _ = scipy_label(out_label)
+        if out_label[self.model_half_isz] == 0:
+            print('Center pixel is not inside 2nd inference\'s GT segmentation.')
+            print('This probably happened due to augmentation')
+            # Find nearby segment id and use that for now
+            seg_ids = np.unique(out_label[self.model_half_isz[0]-5:self.model_half_isz[0]+6, self.model_half_isz[1]-5:self.model_half_isz[1]+6, self.model_half_isz[2]-5:self.model_half_isz[2]+6])
+            seg_ids = seg_ids[seg_ids > 0]
+            if seg_ids.shape[0] > 1:
+                print('More than 1 disconnected segments near the center. This should have never happened!')
+                print('Using the first segment')
+            c_seg_id = seg_ids[0]
+            out_label = (out_label == c_seg_id)
+        else:
+            out_label = (out_label == out_label[self.model_half_isz])
 
         out_label_input = torch.from_numpy(np.array(out_label_input, dtype=np.float32))
         out_label_input = out_label_input.unsqueeze(0).detach()

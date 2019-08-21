@@ -8,6 +8,7 @@ from .flip import Flip
 from .rotation import Rotate
 from .rescale import Rescale
 from .misalign import MisAlignment
+from .misalign2 import MisAlignment2
 from .missing_section import MissingSection
 from .missing_parts import MissingParts
 from .swapz import SwapZ
@@ -19,6 +20,7 @@ __all__ = ['Compose',
            'Rotate',
            'Rescale',
            'MisAlignment',
+           'MisAlignment2',
            'MissingSection',
            'MissingParts',
            'Flip',
