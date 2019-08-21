@@ -63,6 +63,7 @@ def setup_model(args, device, exact=True, size_match=True):
                  'unetv1': unetv1,
                  'unetv2': unetv2,
                  'unetv3': unetv3,
+                 'unetLite': unetLite,
                  'fpn': fpn}
 
     assert args.architecture in MODEL_MAP.keys()
