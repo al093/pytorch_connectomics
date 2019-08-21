@@ -49,8 +49,7 @@ class Elastic(DataAugment):
         else:
             mask = None
 
-
-        height, width = image.shape[-2:] # (c, z, y, x)
+        height, width = image.shape[-2:]  # (z, y, x)
         if random_state is None:
             random_state = np.random.RandomState(1234)
 
