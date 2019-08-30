@@ -53,12 +53,11 @@ def get_input(args, model_io_size, mode='train', model=None):
                              Rotate(p=1.0),
                              Rescale(p=0.5),
                              Flip(p=1.0),
-                             #Elastic(alpha=5.0, p=0.75),
+                             # Elastic(alpha=5.0, p=0.75),
                              Grayscale(p=0.75),
                              MissingParts(p=0.9),
                              MissingSection(p=0.5),
                              MisAlignment2(p=1.0, displacement=16)
-                             # ,SwapZ(p=0.5)
                              ],
                              input_size = model_io_size)
         # augmentor = None # debug
@@ -81,19 +80,20 @@ def get_input(args, model_io_size, mode='train', model=None):
         # bs = [0, 0, 0]
         # be = [800, 500, 800]
 
-        #TODO make a better way of selecting subregion
-        if mode == 'train':
-            bs = [374, 1242, 0]
-            be = [1053, 3025, 1059]
-        elif mode == 'test':
-            bs = [0, 1800, 800]
-            be = [700, 2800, 1664]
+        # # TODO make a better way of selecting subregion
+        # if mode == 'train':
+        #     bs = [374, 1242, 0]
+        #     be = [1053, 3025, 1059]
+        # elif mode == 'test':
+        #     bs = [0, 1800, 800]
+        #     be = [700, 2800, 1664]
+        #
+        # # TODO Remove this
+        # bs = [374, 1242, 0]
+        # be = [1053, 3025, 1059]
 
-        # TODO Remove this
-        bs = [374, 1242, 0]
-        be = [1053, 3025, 1059]
-
-        model_input[i] = np.array((h5py.File(img_name[i], 'r')['main'])[bs[0]:be[0], bs[1]:be[1], bs[2]:be[2]])/255.0
+        model_input[i] = np.array((h5py.File(img_name[i], 'r')['main']))/255.0
+        # model_input[i] = np.array((h5py.File(img_name[i], 'r')['main'])[bs[0]:be[0], bs[1]:be[1], bs[2]:be[2]])/255.0
         print('Input Data size: ', model_input[i].shape)
         print(mode)
         if mode == 'test' and args.scale_input != 1:
@@ -102,20 +102,21 @@ def get_input(args, model_io_size, mode='train', model=None):
             print('Final volume size: ', model_input[i].shape)
 
         if mode == 'train' or mode == 'validation':
-            model_label[i] = np.array((h5py.File(seg_name[i], 'r')['main'])[bs[0]:be[0], bs[1]:be[1], bs[2]:be[2]])
+            model_label[i] = np.array((h5py.File(seg_name[i], 'r')['main']))
+            # model_label[i] = np.array((h5py.File(seg_name[i], 'r')['main'])[bs[0]:be[0], bs[1]:be[1], bs[2]:be[2]])
             # model_label[i] = shrink_range_uint32(model_label[i])
             if args.task == 3:
                 s_points[i] = load_list_from_h5(seed_points_files[i])
-                for idx in range(len(s_points[i])):
-                    b = s_points[i][idx]
-                    b = b[b[:, 0] < be[0], :]
-                    b = b[b[:, 1] < be[1], :]
-                    b = b[b[:, 2] < be[2], :]
-                    b = b - np.array([bs[0], bs[1], bs[2]], dtype=np.uint32)
-                    b = b[b[:, 0] >= 0, :]
-                    b = b[b[:, 1] >= 0, :]
-                    b = b[b[:, 2] >= 0, :]
-                    s_points[i][idx] = b
+                # for idx in range(len(s_points[i])):
+                #     b = s_points[i][idx]
+                #     b = b[b[:, 0] < be[0], :]
+                #     b = b[b[:, 1] < be[1], :]
+                #     b = b[b[:, 2] < be[2], :]
+                #     b = b - np.array([bs[0], bs[1], bs[2]], dtype=np.uint32)
+                #     b = b[b[:, 0] >= 0, :]
+                #     b = b[b[:, 1] >= 0, :]
+                #     b = b[b[:, 2] >= 0, :]
+                #     s_points[i][idx] = b
 
                 #concatenate all the bins together and shuffle them
                 # s_points[i] = [np.concatenate(s_points[i], axis=0)]
@@ -151,20 +152,21 @@ def get_input(args, model_io_size, mode='train', model=None):
 
     if mode=='test' and args.task == 3:
         b = np.array(h5py.File(seed_points_files[0], 'r')[str(args.segment_id)])
-        b = b[b[:, 0] < be[0], :]
-        b = b[b[:, 1] < be[1], :]
-        b = b[b[:, 2] < be[2], :]
-        b = b - np.array([bs[0], bs[1], bs[2]], dtype=np.int64)
-        b = b[b[:, 0] >= 0, :]
-        b = b[b[:, 1] >= 0, :]
-        b = b[b[:, 2] >= 0, :]
+        # b = b[b[:, 0] < be[0], :]
+        # b = b[b[:, 1] < be[1], :]
+        # b = b[b[:, 2] < be[2], :]
+        # b = b - np.array([bs[0], bs[1], bs[2]], dtype=np.int64)
+        # b = b[b[:, 0] >= 0, :]
+        # b = b[b[:, 1] >= 0, :]
+        # b = b[b[:, 2] >= 0, :]
         s_points = [[b.astype(np.uint32)[::200]]]
 
         print('Num of initial seed points: ', s_points[0][0].shape[0])
         # read the initial segmentation volume and choose the neuron which needs to be run
         # read the seed points from another h5 file
         assert args.initial_seg is not None
-        initial_seg = np.array((h5py.File(args.initial_seg, 'r')['main'])[bs[0]:be[0], bs[1]:be[1], bs[2]:be[2]])
+        initial_seg = np.array((h5py.File(args.initial_seg, 'r')['main']))
+        # initial_seg = np.array((h5py.File(args.initial_seg, 'r')['main'])[bs[0]:be[0], bs[1]:be[1], bs[2]:be[2]])
         initial_seg = initial_seg == args.segment_id
         initial_seg = np.pad(initial_seg, ((pad_size[0], pad_size[0]),
                                            (pad_size[1], pad_size[1]),
@@ -186,18 +188,20 @@ def get_input(args, model_io_size, mode='train', model=None):
             dataset = MitoDataset(volume=model_input, label=model_label, sample_input_size=sample_input_size,
                                   sample_label_size=sample_input_size, augmentor=augmentor, mode = 'train')
         elif args.task == 3: # mask prediction
+            if args.in_channel == 2:
 
-            augmentor_1 = Compose([
-                                    Grayscale(p=0.75),
-                                   MissingParts(p=0.9)
-                                    ],
-                                   input_size=model_io_size)
+                augmentor_1 = Compose([Grayscale(p=0.75),
+                                       MissingParts(p=0.9)],
+                                       input_size=model_io_size)
+                dataset = MaskDatasetDualInput(volume=model_input, label=model_label, sample_input_size=sample_input_size,
+                                      sample_label_size=sample_input_size, augmentor_pre=augmentor_1, augmentor=augmentor,
+                                      mode='train', seed_points=s_points, pad_size=pad_size.astype(np.uint32), model=model)
+            else:
+                dataset = MaskDataset(volume=model_input, label=model_label, sample_input_size=sample_input_size,
+                                      sample_label_size=sample_input_size, augmentor=augmentor,
+                                      mode='train', seed_points=s_points, pad_size=pad_size.astype(np.uint32))
 
-            dataset = MaskDatasetDualInput(volume=model_input, label=model_label, sample_input_size=sample_input_size,
-                                  sample_label_size=sample_input_size, augmentor_pre=augmentor_1, augmentor=augmentor,
-                                  mode='train', seed_points=s_points, pad_size=pad_size.astype(np.uint32), model=model)
-
-        if args.task == 3:
+        if args.task == 3 and args.in_channel == 2:
             c_fn = collate_fn_2
         else:
             c_fn = collate_fn
