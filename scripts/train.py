@@ -20,14 +20,21 @@ def train(args, train_loader, val_loader, model, model_cpu, device, criterion,
         val_loader_itr = iter(val_loader)
 
     start = time.time()
-    for iteration, (_, volume, input_label, label, class_weight, _) in enumerate(train_loader):
+    for iteration, data in enumerate(train_loader):
         print('time taken for itr: ', time.time() - start)
         start = time.time()
         sys.stdout.flush()
-        volume, input_label, label = volume.to(device), input_label.to(device), label.to(device)
-        class_weight = class_weight.to(device)
-        output = model(torch.cat((volume, input_label), 1))
 
+        if args.in_channel == 2:
+            (_, volume, input_label, label, class_weight, _) = data
+            volume, input_label, label = volume.to(device), input_label.to(device), label.to(device)
+            output = model(torch.cat((volume, input_label), 1))
+        else:
+            (_, volume, label, class_weight, _) =  data
+            volume, label = volume.to(device), label.to(device)
+            output = model(volume)
+
+        class_weight = class_weight.to(device)
         if regularization is not None:
             loss = criterion(output, label, class_weight) + regularization(output)
         else:
@@ -40,12 +47,10 @@ def train(args, train_loader, val_loader, model, model_cpu, device, criterion,
         loss.backward()
         optimizer.step()
 
-
         logger.write("[Volume %d] train_loss=%0.4f lr=%.5f\n" % (iteration,
                                                                  loss.item(), optimizer.param_groups[0]['lr']))
         print('[Iteration %d] train_loss=%0.4f lr=%.6f' % (iteration,
                                                            loss.item(), optimizer.param_groups[0]['lr']))
-
         writer.add_scalars('Loss', {'Train': loss.item()}, iteration)
 
         if iteration % 50 == 0 and iteration >= 1:
@@ -60,7 +65,10 @@ def train(args, train_loader, val_loader, model, model_cpu, device, criterion,
             if args.task == 0:
                 visualize_aff(volume, label, output, iteration, writer, mode='Train')
             elif args.task == 1 or args.task == 3:
-                visualize(volume, label, output, iteration, writer, input_label=input_label)
+                if args.in_channel == 2:
+                    visualize(volume, label, output, iteration, writer, input_label=input_label)
+                else:
+                    visualize(volume, label, output, iteration, writer)
 
             scheduler.step(record.avg)
             record.reset()
@@ -111,7 +119,7 @@ def train(args, train_loader, val_loader, model, model_cpu, device, criterion,
 
         #Save model
         if iteration % args.iteration_save == 0 or iteration >= args.iteration_total:
-            torch.save(model.state_dict(), args.output+('/m_32_192_192_noBN_Dout_dualChan_restrictedSampling_Nearest_8000+%d.pth' % (iteration)))
+            torch.save(model.state_dict(), args.output+(args.exp_name + '_%d.pth' % (iteration)))
 
         # Terminate
         if iteration >= args.iteration_total:
@@ -125,7 +133,7 @@ def main():
     logger, writer = get_logger(args)
 
     print('2.0 setup model')
-    model, model_cpu = setup_model(args, device)
+    model, model_cpu = setup_model(args, device, model_io_size)
 
     print('1. setup data')
     train_loader = get_input(args, model_io_size, 'train', model=model_cpu)

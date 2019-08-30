@@ -11,8 +11,8 @@ def prepare_data(volume, label, output, input_label=None):
         else:
             return volume, label, output
     elif len(volume.size()) == 5: # 3D Inputs
-        if(volume.shape[0] > min_batch): #show slices from different batches
-            start_slice_number = (volume.shape[2] - int(N/min_batch)) // 2
+        if(volume.shape[0] >= min_batch): #show slices from different batches
+            start_slice_number = volume.shape[2]//2 - int(N/min_batch)//2
             volume = volume[:min_batch, :, start_slice_number:start_slice_number+int(N/min_batch), :, :].permute(0, 2, 1, 3, 4).contiguous().view(-1, volume.shape[1], volume.shape[3], volume.shape[4])
             label = label[:min_batch,   :, start_slice_number:start_slice_number+int(N/min_batch), :, :].permute(0, 2, 1, 3, 4).contiguous().view(-1, label.shape[1], label.shape[3], label.shape[4])
             output = output[:min_batch, :, start_slice_number:start_slice_number+int(N/min_batch), :, :].permute(0, 2, 1, 3, 4).contiguous().view(-1, output.shape[1], output.shape[3], output.shape[4])
@@ -55,7 +55,11 @@ def visualize(volume, label, output, iteration, writer, mode='Train', input_labe
         canvas.append(output_visual[idx])
         canvas.append(label_visual[idx])
 
-    canvas_show = vutils.make_grid(canvas, nrow=4, normalize=False, scale_each=True)
+        if input_label is not None:
+            canvas_show = vutils.make_grid(canvas, nrow=4, normalize=False, scale_each=True)
+        else:
+            canvas_show = vutils.make_grid(canvas, nrow=3, normalize=False, scale_each=True)
+
     writer.add_image(mode + ' Mask', canvas_show, iteration)
 
     # volume_show = vutils.make_grid(volume_visual, nrow=N, normalize=False, scale_each=True)
