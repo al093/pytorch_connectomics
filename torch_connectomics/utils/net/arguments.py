@@ -52,6 +52,9 @@ def get_args(mode='train'):
                         help='File path for seed points which need to be trained or tested on')
 
     if mode == 'train':
+        parser.add_argument('-en','--exp-name', type=str, default='unnamed_exp',
+                            help='Name of the model files to be saved')
+
         parser.add_argument('-ln','--seg-name',  default='seg-groundtruth2-malis.h5',
                             help='Ground-truth label path')
 
