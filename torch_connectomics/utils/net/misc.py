@@ -57,7 +57,7 @@ def get_logger(args):
     writer = SummaryWriter(args.output + '/runs/' + date + '_' + time)
     return logger, writer
 
-def setup_model(args, device, exact=True, size_match=True):
+def setup_model(args, device, model_io_size, exact=True, size_match=True):
 
     MODEL_MAP = {'unetv0': unetv0,
                  'unetv1': unetv1,
@@ -71,8 +71,8 @@ def setup_model(args, device, exact=True, size_match=True):
         model = MODEL_MAP[args.architecture](in_channel=1, out_channel=args.out_channel, act='tanh')
         model_cpu = MODEL_MAP[args.architecture](in_channel=1, out_channel=args.out_channel, act='tanh')
     else:        
-        model = MODEL_MAP[args.architecture](in_channel=args.in_channel, out_channel=args.out_channel)
-        model_cpu = MODEL_MAP[args.architecture](in_channel=args.in_channel, out_channel=args.out_channel)
+        model = MODEL_MAP[args.architecture](in_channel=args.in_channel, out_channel=args.out_channel, batch_sz=args.batch_size, input_sz=model_io_size)
+        model_cpu = MODEL_MAP[args.architecture](in_channel=args.in_channel, out_channel=args.out_channel, batch_sz=args.batch_size, input_sz=model_io_size)
     print('model: ', model.__class__.__name__)
     # model = DataParallelWithCallback(model, device_ids=range(args.num_gpu))
     model = model.to(device)
