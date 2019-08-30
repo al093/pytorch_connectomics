@@ -6,6 +6,8 @@ import torch.utils.data
 
 from .misc import crop_volume, rebalance_binary_class
 
+from scipy.ndimage import label as scipy_label
+
 class MaskDataset(torch.utils.data.Dataset):
     """PyTorch ddataset class for affinity graph prediction.
 
@@ -26,7 +28,8 @@ class MaskDataset(torch.utils.data.Dataset):
                  augmentor=None,
                  mode='train',
                  seed_points=None,
-                 pad_size=None):
+                 pad_size=None,
+                 multisegment_gt=True):
         if mode == 'test':
             for x in seed_points:
                 assert len(x) == 1
@@ -48,6 +51,9 @@ class MaskDataset(torch.utils.data.Dataset):
         self.sample_num_a = np.sum(self.sample_num)
         self.sample_num_c = np.cumsum([0] + list(self.sample_num))
 
+        # specifies if there are multiple segments in the GT, if yes then we need to keep only the central segment while calling get_item
+        self.multisegment_gt = multisegment_gt
+
     def __len__(self):  # number of seed points
         return self.sample_num_a
 
@@ -61,17 +67,26 @@ class MaskDataset(torch.utils.data.Dataset):
             seed = np.random.RandomState(index)
             # if elastic deformation: need different receptive field
             # change vol_size first
-            pos = self.get_pos_seed(vol_size, seed)
+            pos = self.get_pos_seed(seed)
             out_label = crop_volume(self.label[pos[0]], vol_size, pos[1:])
             out_input = crop_volume(self.input[pos[0]], vol_size, pos[1:])
 
+            # select the center segment and delete the rest
+            # this is needed only for parallel fibers, for the single neuron prediction only perform cc and remove
+            # the non central segments
+            if self.multisegment_gt:
+                out_label = self.keep_seg(out_label, out_label[tuple(self.half_input_sz)])
+
+            # Remove non central segment
+            out_label = self.remove_non_central_seg(out_label)
+
             # 3. augmentation
             if self.augmentor is not None:  # augmentation
-                data = {'image':out_input, 'label':out_label}
+                data = {'image':out_input, 'label':out_label.astype(np.float32)}
                 augmented = self.augmentor(data, random_state=seed)
                 out_input, out_label = augmented['image'], augmented['label']
                 out_input = out_input.astype(np.float32)
-                out_label = out_label.astype(np.uint32)
+                out_label = out_label.astype(np.float32)
 
         # Test Mode Specific Operations:
         elif self.mode == 'test':
@@ -81,7 +96,7 @@ class MaskDataset(torch.utils.data.Dataset):
             out_label = None if self.label is None else crop_volume(self.label[pos[0]], vol_size, pos[1:])
 
         if out_label is not None:
-            out_label = torch.from_numpy(out_label.copy().astype(np.float32))
+            out_label = torch.from_numpy(out_label) # did not create a copy because remove non central seg creates a copy
             out_label = out_label.unsqueeze(0)
 
         # Turn input to Pytorch Tensor, unsqueeze once to include the channel dimension:
@@ -106,8 +121,8 @@ class MaskDataset(torch.utils.data.Dataset):
         did = self.get_pos_dataset(seed.randint(self.sample_num_a))
         pos[0] = did
         # pick a mask bin
-        # [0.17, 0.17, 0.17, 0.17, 0.12, 0.05, 0.05, 0.05, 0.05]
-        size_bin = np.random.choice(len(self.seed_points[did]), p=[0.45, 0.15, 0.10, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05])
+        # p = [0.45, 0.15, 0.10, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
+        size_bin = np.random.choice(len(self.seed_points[did]))
         # pick a index
         idx = np.random.randint(self.seed_points[did][size_bin].shape[0])
         # pick a position
@@ -129,3 +144,27 @@ class MaskDataset(torch.utils.data.Dataset):
         out_input = torch.from_numpy(out_input.copy())
         out_input = out_input.unsqueeze(0)
         return out_input
+
+    def keep_seg(self, label, seg_id_to_keep):
+        return label == seg_id_to_keep
+
+    def remove_non_central_seg(self, label):
+        out_label, _ = scipy_label(label)
+
+        if out_label[tuple(self.half_input_sz)] == 0:
+            print('Center pixel is not inside 2nd inference\'s GT segmentation.')
+            print('This probably happened due to augmentation')
+            # Find nearby segment id and use that for now
+            seg_ids = np.unique(out_label[self.half_input_sz[0]-5:self.half_input_sz[0]+6,
+                                          self.half_input_sz[1]-5:self.half_input_sz[1]+6,
+                                          self.half_input_sz[2]-5:self.half_input_sz[2]+6])
+            seg_ids = seg_ids[seg_ids > 0]
+            if seg_ids.shape[0] > 1:
+                print('More than 1 disconnected segments near the center. This should have never happened!')
+                print('Using the first segment')
+            c_seg_id = seg_ids[0]
+            out_label = (out_label == c_seg_id)
+        else:
+            out_label = (out_label == out_label[tuple(self.half_input_sz)])
+
+        return out_label
