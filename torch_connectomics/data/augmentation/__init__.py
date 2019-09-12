@@ -12,6 +12,7 @@ from .misalign2 import MisAlignment2
 from .missing_section import MissingSection
 from .missing_parts import MissingParts
 from .swapz import SwapZ
+from .blur import Blur
 
 __all__ = ['Compose',
            'DataAugment', 
@@ -24,4 +25,5 @@ __all__ = ['Compose',
            'MissingSection',
            'MissingParts',
            'Flip',
-           'SwapZ']
+           'SwapZ',
+           'Blur']

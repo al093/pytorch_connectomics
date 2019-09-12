@@ -55,6 +55,7 @@ def get_input(args, model_io_size, mode='train', model=None):
                              Flip(p=1.0),
                              # Elastic(alpha=5.0, p=0.75),
                              Grayscale(p=0.75),
+                             Blur(min_sigma=1, max_sigma=4, min_slices=model_io_size[0]//5, max_slices=model_io_size[0]//3, p=.80),
                              MissingParts(p=0.9),
                              MissingSection(p=0.5),
                              MisAlignment2(p=1.0, displacement=16)
@@ -71,8 +72,8 @@ def get_input(args, model_io_size, mode='train', model=None):
     if mode == 'test':
         pad_size = model_io_size//2
     else:
-        # pad_size = (0,0,0)
-        pad_size = augmentor.sample_size//2
+        pad_size = np.array((0, 0, 0))
+        # pad_size = augmentor.sample_size//2
     pad_size = pad_size.astype(np.int64)
 
     for i in range(len(img_name)):
@@ -94,6 +95,7 @@ def get_input(args, model_io_size, mode='train', model=None):
 
         model_input[i] = np.array((h5py.File(img_name[i], 'r')['main']))/255.0
         # model_input[i] = np.array((h5py.File(img_name[i], 'r')['main'])[bs[0]:be[0], bs[1]:be[1], bs[2]:be[2]])/255.0
+
         print('Input Data size: ', model_input[i].shape)
         print(mode)
         if mode == 'test' and args.scale_input != 1:
@@ -107,16 +109,21 @@ def get_input(args, model_io_size, mode='train', model=None):
             # model_label[i] = shrink_range_uint32(model_label[i])
             if args.task == 3:
                 s_points[i] = load_list_from_h5(seed_points_files[i])
-                # for idx in range(len(s_points[i])):
-                #     b = s_points[i][idx]
-                #     b = b[b[:, 0] < be[0], :]
-                #     b = b[b[:, 1] < be[1], :]
-                #     b = b[b[:, 2] < be[2], :]
-                #     b = b - np.array([bs[0], bs[1], bs[2]], dtype=np.uint32)
-                #     b = b[b[:, 0] >= 0, :]
-                #     b = b[b[:, 1] >= 0, :]
-                #     b = b[b[:, 2] >= 0, :]
-                #     s_points[i][idx] = b
+                # Remove all points which cannot be used to crop a region around it
+                half_aug_sz = augmentor.sample_size//2
+                vol_size = model_input[i].shape
+                new_list = []
+                for idx in range(len(s_points[i])):
+                    b = s_points[i][idx]
+                    b = b[b[:, 0] >= half_aug_sz[0], :]
+                    b = b[b[:, 1] >= half_aug_sz[1], :]
+                    b = b[b[:, 2] >= half_aug_sz[2], :]
+                    b = b[vol_size[0] - b[:, 0] >= half_aug_sz[0], :]
+                    b = b[vol_size[1] - b[:, 1] >= half_aug_sz[1], :]
+                    b = b[vol_size[2] - b[:, 2] >= half_aug_sz[2], :]
+                    if b.shape[0] > 0:
+                        new_list.append(b)
+                s_points[i] = new_list
 
                 #concatenate all the bins together and shuffle them
                 # s_points[i] = [np.concatenate(s_points[i], axis=0)]
@@ -152,6 +159,8 @@ def get_input(args, model_io_size, mode='train', model=None):
 
     if mode=='test' and args.task == 3:
         b = np.array(h5py.File(seed_points_files[0], 'r')[str(args.segment_id)])
+        if len(b.shape) == 1: #  only one point was read, make it into 2D
+            b = b.reshape((1, 3))
         # b = b[b[:, 0] < be[0], :]
         # b = b[b[:, 1] < be[1], :]
         # b = b[b[:, 2] < be[2], :]
@@ -164,13 +173,13 @@ def get_input(args, model_io_size, mode='train', model=None):
         print('Num of initial seed points: ', s_points[0][0].shape[0])
         # read the initial segmentation volume and choose the neuron which needs to be run
         # read the seed points from another h5 file
-        assert args.initial_seg is not None
-        initial_seg = np.array((h5py.File(args.initial_seg, 'r')['main']))
-        # initial_seg = np.array((h5py.File(args.initial_seg, 'r')['main'])[bs[0]:be[0], bs[1]:be[1], bs[2]:be[2]])
-        initial_seg = initial_seg == args.segment_id
-        initial_seg = np.pad(initial_seg, ((pad_size[0], pad_size[0]),
-                                           (pad_size[1], pad_size[1]),
-                                           (pad_size[2], pad_size[2])), 'reflect')
+        if args.initial_seg is not None:
+            initial_seg = np.array((h5py.File(args.initial_seg, 'r')['main']))
+            # initial_seg = np.array((h5py.File(args.initial_seg, 'r')['main'])[bs[0]:be[0], bs[1]:be[1], bs[2]:be[2]])
+            initial_seg = initial_seg == args.segment_id
+            initial_seg = np.pad(initial_seg, ((pad_size[0], pad_size[0]),
+                                               (pad_size[1], pad_size[1]),
+                                               (pad_size[2], pad_size[2])), 'reflect')
 
     if mode=='train' or mode=='validation':
         if augmentor is None:
@@ -237,9 +246,11 @@ def get_input(args, model_io_size, mode='train', model=None):
             return img_loader, volume_shape, pad_size
         else:
             assert len(img_name) == 1
-            img_loader = SerialSampler(dataset, args.batch_size, pad_size, s_points[0][0] + pad_size)
-            return img_loader, volume_shape, pad_size, initial_seg
-
+            img_loader = SerialSampler(dataset, args.batch_size, pad_size, s_points[0][0] + pad_size, args.in_channel)
+            if args.initial_seg is not None:
+                return img_loader, volume_shape, pad_size, initial_seg
+            else:
+                return img_loader, volume_shape, pad_size, None
 
 
 def crop_cremi(image, label, path):

@@ -10,9 +10,11 @@ def test(args, test_loader, model, device, model_io_size, volume_shape, pad_size
     model.eval()
     volume_id = 0
     ww = blend(model_io_size)
-    NUM_OUT = 3
+    NUM_OUT = args.out_channel
 
     result = [np.stack([np.zeros(x, dtype=np.float32) for _ in range(NUM_OUT)]) for x in volume_shape]
+    prediction_points = np.empty((0, 4), dtype=np.uint32)
+    # std_result = [np.stack([np.zeros(x, dtype=np.float32) for _ in range(NUM_OUT)]) for x in volume_shape]
     weight = [np.zeros(x, dtype=np.float32) for x in volume_shape]
     print(result[0].shape, weight[0].shape)
 
@@ -35,31 +37,63 @@ def test(args, test_loader, model, device, model_io_size, volume_shape, pad_size
                     augmented_outputs.append(model(aug_vol))
                 output, _ = combine_augmented(augmented_outputs)
             else:
-                output = model(volume)
+                output = torch.Tensor().to(device)
+                for itr in range(1):
+                    output = torch.cat((output, model(volume).unsqueeze(dim=0)))
+                #std = output.std(dim=0) ## calculate standard deviation
+                output = output[0]
+
+            prediction_points = np.append(prediction_points, pos, axis=0)
 
             sz = tuple([NUM_OUT]+list(model_io_size))
             for idx in range(output.size()[0]):
                 st = pos[idx]
-                result[st[0]][:, st[1]:st[1]+sz[1], st[2]:st[2]+sz[2], \
-                st[3]:st[3]+sz[3]] += output[idx].cpu().detach().numpy().reshape(sz) * np.expand_dims(ww, axis=0)
-                weight[st[0]][st[1]:st[1]+sz[1], st[2]:st[2]+sz[2], \
-                st[3]:st[3]+sz[3]] += ww
+                if args.task == 3:
+                    result[st[0]][:, st[1]:st[1]+sz[1], st[2]:st[2]+sz[2], st[3]:st[3]+sz[3]] \
+                        = np.maximum(result[st[0]][:, st[1]:st[1]+sz[1], st[2]:st[2]+sz[2], st[3]:st[3]+sz[3]], \
+                                     output[idx].cpu().detach().numpy().reshape(sz))
+                else:
+                    result[st[0]][:, st[1]:st[1] + sz[1], st[2]:st[2] + sz[2], st[3]:st[3] + sz[3]] \
+                        += output[idx].cpu().detach().numpy().reshape(sz) * np.expand_dims(ww, axis=0)
+
+                    weight[st[0]][st[1]:st[1] + sz[1], st[2]:st[2] + sz[2], st[3]:st[3] + sz[3]]\
+                        += ww
+
+                    # std_result[st[0]][:, st[1]:st[1]+sz[1], st[2]:st[2]+sz[2], \
+                    # st[3]:st[3]+sz[3]] += std[idx].cpu().detach().numpy().reshape(sz) * np.expand_dims(ww, axis=0)
+
+                # weight[st[0]][st[1]:st[1]+sz[1], st[2]:st[2]+sz[2], st[3]:st[3]+sz[3]] += ww
 
     end = time.time()
     print("prediction time:", (end-start))
-
     for vol_id in range(len(result)):
-        result[vol_id] = result[vol_id] / weight[vol_id]
+        if args.task != 3:
+            result[vol_id] = result[vol_id] / (weight[vol_id] + np.finfo(np.float32).eps)
+
         data = (result[vol_id]*255).astype(np.uint8)
         data = data[:,
                     pad_size[0]:-pad_size[0],
                     pad_size[1]:-pad_size[1],
                     pad_size[2]:-pad_size[2]]
-
         print('Output shape: ', data.shape)
-        hf = h5py.File(args.output+'/affinity_'+ str(vol_id) + '.h5', 'w')
+        hf = h5py.File(args.output + '/mask_' + str(vol_id) + '.h5', 'w')
         hf.create_dataset('main', data=data, compression='gzip')
         hf.close()
+
+        hf = h5py.File(args.output + '/prediction_points' + str(vol_id) + '.h5', 'w')
+        hf.create_dataset('main', data=prediction_points[:, 1:], compression='gzip')
+        hf.close()
+
+        # std_result[vol_id] = std_result[vol_id] / weight[vol_id]
+        # std_result = std_result[0]
+        # std_result = std_result[:,
+        #        pad_size[0]:-pad_size[0],
+        #        pad_size[1]:-pad_size[1],
+        #        pad_size[2]:-pad_size[2]]
+        # hf = h5py.File(args.output + '/std_' + str(vol_id) + '.h5', 'w')
+        # hf.create_dataset('main', data=std_result, compression='gzip')
+        # hf.close()
+
 
 def get_augmented(volume):
     # perform 16 Augmentations as mentioned in Kisuks thesis
@@ -122,7 +156,7 @@ def main():
     print('model I/O size:', model_io_size) 
 
     print('1. setup data')
-    test_loader, volume_shape, pad_size = get_input(args, model_io_size, 'test')
+    test_loader, volume_shape, pad_size, _ = get_input(args, model_io_size, 'test')
 
     print('2. setup model')
     model = setup_model(args, device, exact=True)

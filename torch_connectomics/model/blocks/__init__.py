@@ -1,5 +1,9 @@
 from .basic import *
 from .residual import *
+from .convlstm import ConvLSTM
+from .convlstmcenter import ConvLSTMCenter
+from .slicelstm import SliceLSTM
+from .slicelstmconv import SliceLSTMConv
 
 __all__ = ['conv2d_pad',
            'conv2d_bn_non',
@@ -15,4 +19,8 @@ __all__ = ['conv2d_pad',
            'bottleneck_dilated_3d',
            'dilated_fusion_block',
            'squeeze_excitation_2d',
-           'squeeze_excitation_3d']
+           'squeeze_excitation_3d',
+           'ConvLSTMCenter',
+           'ConvLSTM',
+           'SliceLSTM',
+           'SliceLSTMConv']

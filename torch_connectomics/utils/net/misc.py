@@ -71,8 +71,8 @@ def setup_model(args, device, model_io_size, exact=True, size_match=True):
         model = MODEL_MAP[args.architecture](in_channel=1, out_channel=args.out_channel, act='tanh')
         model_cpu = MODEL_MAP[args.architecture](in_channel=1, out_channel=args.out_channel, act='tanh')
     else:        
-        model = MODEL_MAP[args.architecture](in_channel=args.in_channel, out_channel=args.out_channel, batch_sz=args.batch_size, input_sz=model_io_size)
-        model_cpu = MODEL_MAP[args.architecture](in_channel=args.in_channel, out_channel=args.out_channel, batch_sz=args.batch_size, input_sz=model_io_size)
+        model = MODEL_MAP[args.architecture](in_channel=args.in_channel, out_channel=args.out_channel, input_sz=model_io_size, batch_sz=args.batch_size)
+        model_cpu = MODEL_MAP[args.architecture](in_channel=args.in_channel, out_channel=args.out_channel, input_sz=model_io_size, batch_sz=args.batch_size)
     print('model: ', model.__class__.__name__)
     # model = DataParallelWithCallback(model, device_ids=range(args.num_gpu))
     model = model.to(device)
@@ -106,6 +106,16 @@ def setup_model(args, device, model_io_size, exact=True, size_match=True):
         dict_params_cpu[name].data.copy_(param.data.cpu())
 
     return model, model_cpu
+
+def setup_lstm_model(args, device, model_io_size):
+    model = LSTMHead(input_sz=model_io_size)
+    model = model.to(device)
+
+    if bool(args.load_model_lstm):
+        print('Load pretrained LSTM model:')
+        print(args.pre_model_lstm)
+        model.load_state_dict(torch.load(args.pre_model_lstm))
+    return model
 
 def blend(sz, sigma=0.5, mu=0.0):  
     """

@@ -35,16 +35,22 @@ def test(args, test_loader, model, device, model_io_size, volume_shape, pad_size
     sz = tuple([NUM_OUT] + list(model_io_size))
     start = time.time()
     with torch.no_grad():
-        itr_max = 0
+        itr_num = 0
         while test_loader.remaining_pos() > 0 :
-            itr_max += 1
-            pos, volume, past_pred = test_loader.get_input_data()
-            volume = volume.to(device)
-            past_pred = past_pred.to(device)
+            itr_num += 1
 
-            output_raw = model(torch.cat((volume, past_pred), 1))
+            if args.out_channel == 2:
+                pos, volume, past_pred = test_loader.get_input_data()
+                volume = volume.to(device)
+                past_pred = past_pred.to(device)
 
-            output = output_raw > 0.85
+                output_raw = model(torch.cat((volume, past_pred), 1))
+            else:
+                pos, volume = test_loader.get_input_data()
+                volume = volume.to(device)
+                output_raw = model(volume)
+
+            output = output_raw > 0.95
             output_raw = output_raw.cpu().detach().numpy()
 
             for idx in range(output.shape[0]):
@@ -62,7 +68,8 @@ def test(args, test_loader, model, device, model_io_size, volume_shape, pad_size
                                      output_raw[idx].reshape(sz))
                     prediction_points.append(st[1:] - test_loader.dataset.seed_points_offset)  # appending center points wrt the unpadded volume
 
-                    if True:
+                    if itr_num < 200:
+                        print('Iteration: ', itr_num)
                         out_mask = torch.from_numpy(binary_erosion(out_mask, sel_cpu).astype(np.float32)).to(device)
                         out_mask = out_mask.unsqueeze(0).unsqueeze(0)
                         edge = (F.conv3d(out_mask, sel, padding=1))[0, 0]
@@ -163,7 +170,7 @@ def main():
     test_loader, volume_shape, pad_size, initial_seg = get_input(args, model_io_size, 'test')
 
     print('2. setup model')
-    model, _ = setup_model(args, device, exact=True)
+    model, _ = setup_model(args, device, exact=True, model_io_size=model_io_size)
 
     print('3. start testing')
     test(args, test_loader, model, device, model_io_size, volume_shape, pad_size, initial_seg)

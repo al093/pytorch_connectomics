@@ -28,5 +28,5 @@ def selu_init(model):
 def ortho_init(model):
     # orthogonal initialization
     for m in model.modules():
-        if isinstance(m, (nn.Conv3d, nn.Linear)):
+        if isinstance(m, (nn.Conv3d, nn.Conv2d, nn.Linear)):
             nn.init.orthogonal_(m.weight)

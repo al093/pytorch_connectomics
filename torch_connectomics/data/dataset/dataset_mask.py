@@ -7,6 +7,7 @@ import torch.utils.data
 from .misc import crop_volume, rebalance_binary_class
 
 from scipy.ndimage import label as scipy_label
+import scipy.ndimage.morphology as morphology
 
 class MaskDataset(torch.utils.data.Dataset):
     """PyTorch ddataset class for affinity graph prediction.
@@ -104,9 +105,13 @@ class MaskDataset(torch.utils.data.Dataset):
         out_input = out_input.unsqueeze(0)
 
         if self.mode == 'train':
+			# TODO if masked loss around center is needed use this mask for rebalancing
+            # mask = morphology.binary_dilation(out_label[0].numpy(), structure=np.ones((5, 5, 5)))
+            # mask = mask.astype(np.float32)
+
             # Rebalancing
             temp = 1.0 - out_label.clone()
-            weight_factor, weight = rebalance_binary_class(temp)
+            weight_factor, weight = rebalance_binary_class(temp, mask=None) # torch.from_numpy(mask)
             return pos, out_input, out_label, weight, weight_factor
 
         else:

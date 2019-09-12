@@ -4,5 +4,6 @@ from .unetv2 import unetv2
 from .unetv3 import unetv3
 from .unetLite import unetLite
 from .fpn import fpn
+from .lstmHead import LSTMHead
 
-__all__ = ['unetv0', 'unetv1', 'unetv2', 'unetv3', 'unetLite', 'fpn']
+__all__ = ['unetv0', 'unetv1', 'unetv2', 'unetv3', 'unetLite', 'fpn', 'LSTMHead']

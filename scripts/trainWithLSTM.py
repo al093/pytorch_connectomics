@@ -35,14 +35,16 @@ def train(args, train_loader, val_loader, model, model_cpu, device, criterion,
             volume, label = volume.to(device), label.to(device)
             output = model(volume)
             if model_lstm is not None:
-                output_pre_lstm = output.clone().detach()
+                output_pre_lstm = output
                 output = model_lstm(output.clone())
 
         class_weight = class_weight.to(device)
         if regularization is not None:
-            loss = criterion(output, label, class_weight) + regularization(output)
+            loss_unet = criterion(output_pre_lstm, label, class_weight) + regularization(output_pre_lstm)
+            loss = loss_unet + criterion(output, label, torch.ones_like(class_weight)) + regularization(output)
         else:
-            loss = criterion(output, label, class_weight)
+            loss_unet = criterion(output_pre_lstm, label, class_weight)
+            loss = loss_unet + criterion(output, label, torch.ones_like(class_weight))
 
         record.update(loss, args.batch_size) 
 
@@ -72,7 +74,7 @@ def train(args, train_loader, val_loader, model, model_cpu, device, criterion,
                 if args.in_channel == 2:
                     visualize(volume, label, output, iteration, writer, input_label=input_label)
                 else:
-                    visualize(volume, label, output, iteration, writer)
+                    visualize(volume, label, output, iteration, writer, input_label=output_pre_lstm)  #TODO used input label to show the pre LSTM output, change this later into more elegant format
 
             scheduler.step(record.avg)
             record.reset()
@@ -125,7 +127,7 @@ def train(args, train_loader, val_loader, model, model_cpu, device, criterion,
         if iteration % args.iteration_save == 0 or iteration >= args.iteration_total:
             torch.save(model.state_dict(), args.output+(args.exp_name + '_%d.pth' % iteration))
             if model_lstm is not None:
-                torch.save(model_lstm.state_dict(), args.output + (args.exp_name + '_headLSTM_%d.pth' % iteration))
+                torch.save(model_lstm.state_dict(), args.output + (args.exp_name + 'head_%d.pth' % iteration))
 
         # Terminate
         if iteration >= args.iteration_total:
@@ -133,7 +135,6 @@ def train(args, train_loader, val_loader, model, model_cpu, device, criterion,
 
 def main():
     args = get_args(mode='train')
-    save_cmd_line(args)  # Saving the command line args with machine name and time for later reference
 
     print('Initial setup')
     model_io_size, device = init(args)
@@ -146,6 +147,8 @@ def main():
     print('Setup model')
     model, model_cpu = setup_model(args, device, model_io_size)
 
+    model_lstm = setup_lstm_model(args, device, model_io_size)
+
     print('Setup data')
     train_loader = get_input(args, model_io_size, 'train', model=model_cpu)
 
@@ -156,14 +159,16 @@ def main():
     regularization = BinaryReg(alpha=10.0)
  
     print('Setup optimizer')
-    optimizer = torch.optim.Adam(list(model.parameters()), lr=args.lr, betas=(0.9, 0.999),
+    torch.autograd.set_detect_anomaly(True)
+    # list(model.parameters()) +
+    optimizer = torch.optim.Adam(list(model_lstm.parameters()), lr=args.lr, betas=(0.9, 0.999),
                                  eps=1e-08, weight_decay=1e-6, amsgrad=True)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, 
                 patience=1000, verbose=False, threshold=0.0001, threshold_mode='rel', cooldown=0, 
                 min_lr=1e-7, eps=1e-08)
 
     print('4. start training')
-    train(args, train_loader, None, model, model_cpu, device, criterion, optimizer, scheduler, logger, writer)
+    train(args, train_loader, None, model, model_cpu, device, criterion, optimizer, scheduler, logger, writer, model_lstm=model_lstm)
 
     print('5. finish training')
     logger.close()

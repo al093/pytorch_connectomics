@@ -14,7 +14,7 @@ class Rescale(DataAugment):
         fix_aspect (bool): fix aspect ratio or not.
         p (float): probability of applying the augmentation
     """
-    def __init__(self, low=0.8, high=1.2, fix_aspect=False, p=0.5):
+    def __init__(self, low=0.6, high=1.4, fix_aspect=False, p=0.5):
         super(Rescale, self).__init__(p=p) 
         self.low = low
         self.high = high
