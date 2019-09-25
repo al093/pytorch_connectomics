@@ -1,5 +1,7 @@
 import torch
 import torchvision.utils as vutils
+import h5py
+import numpy as np
 
 N = 15 # default maximum number of sections to show
 min_batch = 3
@@ -41,9 +43,14 @@ def visualize(volume, label, output, iteration, writer, mode='Train', input_labe
         volume, label, output = prepare_data(volume, label, output)
 
     sz = volume.size() # z,c,y,x
-    volume_visual = volume.detach().cpu().expand(sz[0],3,sz[2],sz[3])
-    output_visual = output.detach().cpu().expand(sz[0],3,sz[2],sz[3])
-    label_visual = label.detach().cpu().expand(sz[0],3,sz[2],sz[3])
+    volume_visual = volume.detach().cpu().expand(sz[0], 3, sz[2], sz[3])
+    if output.shape[1] == 1:
+        output_visual = output.detach().cpu().expand(sz[0], 3, sz[2], sz[3])
+        label_visual = label.detach().cpu().expand(sz[0], 3, sz[2], sz[3])
+    elif output.shape[1] > 1:
+        output_visual = output.detach().cpu()
+        label_visual = label.detach().cpu()
+
     if input_label is not None:
         input_label_visual = input_label.detach().cpu().expand(sz[0], 3, sz[2], sz[3])
 
@@ -52,13 +59,20 @@ def visualize(volume, label, output, iteration, writer, mode='Train', input_labe
         canvas.append(volume_visual[idx])
         if input_label is not None:
             canvas.append(input_label_visual[idx])
-        canvas.append(output_visual[idx])
-        canvas.append(label_visual[idx])
 
-        if input_label is not None:
-            canvas_show = vutils.make_grid(canvas, nrow=4, normalize=False, scale_each=True)
-        else:
-            canvas_show = vutils.make_grid(canvas, nrow=3, normalize=False, scale_each=True)
+        if output.shape[1] == 1:
+            canvas.append(output_visual[idx])
+            canvas.append(label_visual[idx])
+        elif output.shape[1] > 1:
+            for i in range(output.shape[1]):
+                canvas.append(output_visual[idx, i:i+1].expand(3, sz[2], sz[3]))
+                canvas.append(label_visual[idx, i:i+1].expand(3, sz[2], sz[3]))
+
+    nrow = volume.shape[1] + label.shape[1] + output.shape[1]
+    if input_label is not None:
+        nrow += input_label.shape[1]
+
+    canvas_show = vutils.make_grid(canvas, nrow=nrow, normalize=False, scale_each=True)
 
     writer.add_image(mode + ' Mask', canvas_show, iteration)
 
@@ -94,3 +108,16 @@ def visualize_aff(volume, label, output, iteration, writer, mode='Train'):
     canvas_show = vutils.make_grid(canvas_merge, nrow=10, normalize=True, scale_each=True)
 
     writer.add_image(mode + ' Affinity', canvas_show, iteration)
+
+def save_data(data, fileName):
+    hfile = h5py.File(fileName, 'w')
+    hfile.create_dataset('main', data=data, compression='gzip')
+    hfile.close()
+
+def save_all(input, gt_label, gt_flux, gt_skeleton, out_flux, out_mask, data_name_prefix, path):
+    save_data((input.cpu().detach().numpy()*255).astype(np.uint8),  path + '/input_' + data_name_prefix + '.h5')
+    save_data(gt_label.cpu().detach().numpy().astype(np.uint16), path + '/gt_label_' + data_name_prefix + '.h5')
+    save_data(gt_flux.cpu().detach().numpy(), path + '/gt_flux_' + data_name_prefix + '.h5')
+    save_data(gt_skeleton.cpu().detach().numpy().astype(np.uint16), path + '/gt_skeleton_' + data_name_prefix + '.h5')
+    save_data(out_flux.cpu().detach().numpy(), path + '/out_flux_' + data_name_prefix + '.h5')
+    save_data(out_mask.cpu().detach().numpy().astype(np.uint16), path + '/in_2d_mask' + data_name_prefix + '.h5')
