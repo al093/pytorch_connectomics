@@ -7,6 +7,12 @@ import torch
 ## Collate Functions
 ####################################################################
 
+def collate_fn_var(batch):
+    data = list(zip(*batch))
+    for idx in range(len(data) - 1): # first var is the position others are 4D array
+        data[idx+1] = torch.stack(data[idx+1], 0)
+    return tuple(data)
+
 def collate_fn(batch):
     """
     Puts each data field into a tensor with outer dimension batch size
