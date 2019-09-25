@@ -81,7 +81,7 @@ class unetv3(nn.Module):
         )
 
         # pooling & upsample
-        self.down = nn.MaxPool3d(kernel_size=(1,2,2), stride=(1,2,2))
+        self.down = nn.AvgPool3d(kernel_size=(1,2,2), stride=(1,2,2))
         self.up = nn.Upsample(scale_factor=(1,2,2), mode='trilinear', align_corners=False)
         self.dropout = nn.Dropout3d(p=0.25)
 
@@ -150,7 +150,12 @@ class unetv3(nn.Module):
         x = x + z1
         x = self.layer1_D(torch.cat((x, self.attention_layer1D[0:x.shape[0]]), 1))
 
-        x = torch.sigmoid(x)
+        # x = torch.cat((torch.sigmoid(x[:, 0]).unsqueeze(1), normalize(x[:, 1:])), 1)
+        # x = normalize(x)
+        x = torch.tanh(x)
+
+        if torch.isnan(x).any() or torch.isinf(x).any():
+            import pdb; pdb.set_trace()
         return x
 
 def get_distance_feature(size):
@@ -162,6 +167,10 @@ def get_distance_feature(size):
     Y =  Y.astype(np.int32) - (size[1] // 2)
     X =  X.astype(np.int32) - (size[2] // 2)
     return np.sqrt(Z**2 + Y**2 + X**2, dtype=np.float32)
+
+def normalize(x):
+    norm = torch.sum(x**2, dim=1)
+    return x / (norm.unsqueeze(1) + 1e-10)
 
 def test():
     model = unetv3()
