@@ -6,8 +6,8 @@ import scipy
 import torch
 import torch.utils.data
 
-from torch_connectomics.data.dataset import AffinityDataset, SynapseDataset, MitoDataset, MaskDataset, MaskDatasetDualInput
-from torch_connectomics.data.utils import collate_fn, collate_fn_2, collate_fn_test
+from torch_connectomics.data.dataset import AffinityDataset, SynapseDataset, MitoDataset, MaskDataset, MaskDatasetDualInput, MaskAndSkeletonDataset
+from torch_connectomics.data.utils import collate_fn, collate_fn_2, collate_fn_test, collate_fn_var
 from torch_connectomics.data.augmentation import *
 from torch_connectomics.utils.net.serialSampler import SerialSampler
 
@@ -30,6 +30,8 @@ def get_input(args, model_io_size, mode='train', model=None):
     else:
         img_name = args.img_name.split('@')
         s_points = [None] * len(img_name)
+        skeleton = [None] * len(img_name)
+        flux = [None] * len(img_name)
 
     if mode=='validation':
         seg_name = args.val_seg_name.split('@')
@@ -39,6 +41,14 @@ def get_input(args, model_io_size, mode='train', model=None):
     if args.task == 3:
         assert args.seed_points is not None
         seed_points_files = args.seed_points.split('@')
+
+        skeleton_files = None
+        if args.skeleton_name is not None:
+            skeleton_files = args.skeleton_name.split('@')
+
+        flux_files = None
+        if args.flux_name is not None:
+            flux_files = args.flux_name.split('@')
 
     # 1. load data
     model_input = [None]*len(img_name)
@@ -50,15 +60,15 @@ def get_input(args, model_io_size, mode='train', model=None):
     if mode=='train' or mode=='validation':
         # setup augmentor
         augmentor = Compose([
-                             Rotate(p=1.0),
-                             Rescale(p=0.5),
-                             Flip(p=1.0),
+                             # Rotate(p=1.0),
+                             # Rescale(p=0.5),
+                             #Flip(p=1.0),
                              # Elastic(alpha=5.0, p=0.75),
-                             Grayscale(p=0.75),
-                             Blur(min_sigma=1, max_sigma=4, min_slices=model_io_size[0]//5, max_slices=model_io_size[0]//3, p=.80),
-                             MissingParts(p=0.9),
-                             MissingSection(p=0.5),
-                             MisAlignment2(p=1.0, displacement=16)
+                             #Grayscale(p=0.75),
+                             #Blur(min_sigma=1, max_sigma=4, min_slices=model_io_size[0]//5, max_slices=model_io_size[0]//3, p=.80),
+                             # MissingParts(p=0.9),
+                             # MissingSection(p=0.5),
+                             # MisAlignment2(p=1.0, displacement=16)
                              ],
                              input_size = model_io_size)
         # augmentor = None # debug
@@ -129,6 +139,13 @@ def get_input(args, model_io_size, mode='train', model=None):
                 # s_points[i] = [np.concatenate(s_points[i], axis=0)]
                 # np.random.shuffle(s_points[i][0])
 
+                # load skeletons
+                if skeleton_files is not None:
+                    skeleton[i] = np.array((h5py.File(skeleton_files[i], 'r')['main']))
+
+                if flux_files is not None:
+                    flux[i] = np.array((h5py.File(flux_files[i], 'r')['main']))
+
             print(img_name[i])
             print(seg_name[i])
 
@@ -152,7 +169,7 @@ def get_input(args, model_io_size, mode='train', model=None):
             model_label[i] = np.pad(model_label[i], ((pad_size[0], pad_size[0]),
                                                            (pad_size[1], pad_size[1]),
                                                            (pad_size[2], pad_size[2])), 'reflect')
-            model_label[i] = model_label[i].astype(np.float32)
+            model_label[i] = model_label[i]
 
             print("label shape: ", model_label[i].shape)
             assert model_input[i].shape == model_label[i].shape
@@ -206,16 +223,17 @@ def get_input(args, model_io_size, mode='train', model=None):
                                       sample_label_size=sample_input_size, augmentor_pre=augmentor_1, augmentor=augmentor,
                                       mode='train', seed_points=s_points, pad_size=pad_size.astype(np.uint32), model=model)
             else:
-                dataset = MaskDataset(volume=model_input, label=model_label, sample_input_size=sample_input_size,
-                                      sample_label_size=sample_input_size, augmentor=augmentor,
-                                      mode='train', seed_points=s_points, pad_size=pad_size.astype(np.uint32))
+                dataset = MaskAndSkeletonDataset(volume=model_input, label=model_label, skeleton=skeleton, flux=flux,
+                                                 sample_input_size=sample_input_size, sample_label_size=sample_input_size,
+                                                 augmentor=augmentor, mode='train', seed_points=s_points,
+                                                 pad_size=pad_size.astype(np.uint32))
 
         if args.task == 3 and args.in_channel == 2:
             c_fn = collate_fn_2
         else:
-            c_fn = collate_fn
+            c_fn = collate_fn_var
 
-        img_loader =  torch.utils.data.DataLoader(
+        img_loader = torch.utils.data.DataLoader(
               dataset, batch_size=args.batch_size, shuffle=SHUFFLE, collate_fn=c_fn,
               num_workers=args.num_cpu, pin_memory=True)
         return img_loader
