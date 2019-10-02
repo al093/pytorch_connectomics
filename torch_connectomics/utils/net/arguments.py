@@ -69,12 +69,6 @@ def get_args(mode='train'):
         parser.add_argument('-ln','--seg-name',  default='seg-groundtruth2-malis.h5',
                             help='Ground-truth label path')
 
-        parser.add_argument('-skn','--skeleton-name', type=str, default=None,
-                            help='Ground-truth skeleton path')
-
-        parser.add_argument('-fn','--flux-name', type=str, default=None,
-                            help='Ground-truth Flux path')
-
         #Added input args for validation set
         parser.add_argument('-vln', '--val-seg-name', default='seg-groundtruth2-malis.h5',
                             help='Validation Ground-truth label path')
@@ -105,6 +99,12 @@ def get_args(mode='train'):
                             help='Initial segmentation volume (e.g. neurons)')
         parser.add_argument('-sid', '--segment-id', type=int, default=1,
                             help='segmentation id of the neuron to be segmented')
+
+    parser.add_argument('-skn','--skeleton-name', type=str, default=None,
+                        help='Ground-truth skeleton path')
+
+    parser.add_argument('-fn','--flux-name', type=str, default=None,
+                        help='Ground-truth Flux path')
 
 
     parser.add_argument('--argsFile', type=open, action=LoadFromFile)

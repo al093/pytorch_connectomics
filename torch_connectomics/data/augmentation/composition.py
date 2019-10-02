@@ -64,90 +64,55 @@ class Compose(object):
 
         return smoothed_label
 
-    def crop(self, data):
-        image, label = data['image'], data['label']
-
-        if 'input_label' in data and data['input_label'] is not None:
-            input_label = data['input_label']
-
-        assert image.shape[-3:] == label.shape
-        assert image.ndim == 3 or image.ndim == 4
-        margin = (label.shape[1] - self.input_size[1]) // 2
+    def get_crop_params(self, image):
+        margin = (image.shape[1] - self.input_size[1]) // 2
         margin = int(margin)
-        
+
         # whether need to crop z or not (missing section augmentation)
-        if label.shape[0] > self.input_size[0]:
-            # z_low = np.random.choice(label.shape[0]-self.input_size[0]+1, 1)[0]
+        if image.shape[0] > self.input_size[0]:
             # always crop keeping the center fixed
-            z_low = (label.shape[0]-self.input_size[0]) // 2
+            z_low = (image.shape[0] - self.input_size[0]) // 2
         else:
             z_low = 0
-        z_high = z_low + self.input_size[0] 
+        z_high = z_low + self.input_size[0]
         z_low, z_high = int(z_low), int(z_high)
-
-        # if margin==0:
-        #     if 'input_label' in data and data['input_label'] is not None:
-        #         return {'image': image, 'label': label, 'input_label': input_label}
-        #     else:
-        #         return {'image': image, 'label': label}
-        # else:
         low = margin
         high = margin + self.input_size[1]
-        if image.ndim == 3:
-            if self.keep_uncropped == True:
-                out = {'image': image[z_low:z_high, low:high, low:high],
-                       'label': label[z_low:z_high, low:high, low:high],
-                       'image_uncropped': image,
-                       'label_uncropped': label}
-                if 'input_label' in data and data['input_label'] is not None:
-                    out['input_label'] = input_label[z_low:z_high, low:high, low:high]
-                    out['input_label_uncropped'] = input_label
-                return out
-            else:
-                out = {'image': image[z_low:z_high, low:high, low:high],
-                        'label': label[z_low:z_high, low:high, low:high]}
-                if 'input_label' in data and data['input_label'] is not None:
-                    out['input_label'] = input_label[z_low:z_high, low:high, low:high]
-                return out
-        else:
-            if self.keep_uncropped == True:
-                out = {'image': image[:, z_low:z_high, low:high, low:high],
-                        'label': label[z_low:z_high, low:high, low:high],
-                        'image_uncropped': image,
-                        'label_uncropped': label}
-                if 'input_label' in data and data['input_label'] is not None:
-                    out['input_label'] = input_label[z_low:z_high, low:high, low:high]
-                    out['input_label_uncropped'] = input_label
-                return out
 
-            else:
-                out = {'image': image[:, z_low:z_high, low:high, low:high],
-                       'label': label[z_low:z_high, low:high, low:high]}
-                if 'input_label' in data and data['input_label'] is not None:
-                    out['input_label'] = input_label[z_low:z_high, low:high, low:high]
-                return out
+        return z_low, z_high, low, high
+
+    def crop(self, image, crop_params):
+        # assert image.shape[-3:] == label.shape
+        assert image.ndim == 3 or image.ndim == 4
+        (z_low, z_high, low, high) = crop_params
+        if image.ndim == 3:
+            return image[z_low:z_high, low:high, low:high]
+        else:
+            return image[:, z_low:z_high, low:high, low:high]
 
     def __call__(self, data, random_state=None):
-        data['image'] = data['image'].astype(np.float32)
         for t in reversed(self.transforms):
             if random.random() < t.p:
                 data = t(data, random_state)
 
         # crop the data to input size
-        if self.keep_uncropped:
-            data['uncropped_image'] = data['image']
-            data['uncropped_label'] = data['label']
-            if 'input_label' in data and data['input_label'] is not None:
-                data['uncropped_input_label'] = data['input_label']
+        # if self.keep_uncropped:
+        #     data['uncropped_image'] = data['image']
+        #     data['uncropped_label'] = data['label']
+        #     if 'input_label' in data and data['input_label'] is not None:
+        #         data['uncropped_input_label'] = data['input_label']
 
-        data = self.crop(data)
+        output = {}
+        crop_params = self.get_crop_params(data['image'])
+        for key, val in data.items():
+            output[key] = self.crop(val, crop_params)
 
-        if self.keep_non_smoothed:
-            data['non_smoothed'] = data['label']
-        data['label'] = self.smooth_edge(data['label'])
+        # if self.keep_non_smoothed:
+        #     data['non_smoothed'] = data['label']
+        # data['label'] = self.smooth_edge(data['label'])
 
         # if 'input_label' in data and data['input_label'] is not None:
         #     if self.keep_non_smoothed:
         #         data['input_label_non_smoothed'] = data['input_label']
         #     data['input_label'] = self.smooth_edge(data['input_label'])
-        return data
+        return output

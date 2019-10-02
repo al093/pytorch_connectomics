@@ -1,6 +1,8 @@
 import numpy as np
 from .augmentor import DataAugment
 
+from torch_connectomics.utils.vis import *
+
 class Flip(DataAugment):
     """
     Randomly flip along z-, y- and x-axes as well as swap y- and x-axes.
@@ -44,19 +46,39 @@ class Flip(DataAugment):
             if rule[3]:
                 data = data.transpose(0, 1, 3, 2)
         return data
-    
+
+    def flip_and_swap_vectors(self, data, rule):
+        assert data.ndim == 4
+        # z reflection.
+        if rule[0]:
+            data[0] = -data[0]
+        # y reflection.
+        if rule[1]:
+            data[1] = -data[1]
+        # x reflection.
+        if rule[2]:
+            data[2] = -data[2]
+        # Transpose in xy.
+        if rule[3]:
+            data = data[(0, 2, 1), :]
+            # data[1] = -data[1]
+            # data[2] = -data[2]
+
+        return data
+
     def __call__(self, data, random_state):
         if random_state is None:
             random_state = np.random.RandomState(1234)
-        
-        output = {}
         rule = random_state.randint(2, size=4)
-        augmented_image = self.flip_and_swap(data['image'], rule)
-        augmented_label = self.flip_and_swap(data['label'], rule)
-        if 'input_label' in data and data['input_label'] is not None:
-            augmented_input_label = self.flip_and_swap(data['input_label'], rule)
-            output['input_label'] = augmented_input_label
-        output['image'] = augmented_image
-        output['label'] = augmented_label
-
+        # rule = np.array([1, 0, 0, 0])
+        # import pdb; pdb.set_trace()
+        # save_data(data['image'], 'image.h5')
+        # save_data(data['flux'], 'flux.h5')
+        output = {}
+        for key, val in data.items():
+            output[key] = self.flip_and_swap(val, rule)
+            if key == 'flux': # extra step to rotate the vectors
+                output[key] = self.flip_and_swap_vectors(output[key], rule)
+        # save_data(output['image'], 'image_a.h5')
+        # save_data(output['flux'], 'flux_a.h5')
         return output

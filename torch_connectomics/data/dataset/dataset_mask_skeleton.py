@@ -60,41 +60,49 @@ class MaskAndSkeletonDataset(torch.utils.data.Dataset):
 
         # Train Mode Specific Operations:
         if self.mode == 'train':
-            # 2. get input volume
-            seed = np.random.RandomState(index)
-            # if elastic deformation: need different receptive field
-            # change vol_size first
-            pos = self.get_pos_seed(seed)
-            out_label = crop_volume(self.label[pos[0]], vol_size, pos[1:])
-            out_input = crop_volume(self.input[pos[0]], vol_size, pos[1:])
-            out_skeleton = crop_volume(self.skeleton[pos[0]], vol_size, pos[1:])
-            out_flux = crop_volume_mul(self.flux[pos[0]], vol_size, pos[1:])
+            is_good = False
+            while is_good is False:
+                # 2. get input volume
+                seed = np.random.RandomState(index)
+                # if elastic deformation: need different receptive field
+                # change vol_size first
+                pos = self.get_pos_seed(seed)
+                out_label = crop_volume(self.label[pos[0]], vol_size, pos[1:])
+                out_input = crop_volume(self.input[pos[0]], vol_size, pos[1:])
+                out_skeleton = crop_volume(self.skeleton[pos[0]], vol_size, pos[1:])
+                out_flux = crop_volume_mul(self.flux[pos[0]], vol_size, pos[1:])
 
-            out_label = out_label.copy()
-            out_skeleton = out_skeleton.copy()
-            out_input = out_input.copy()
-            out_flux = out_flux.copy()
+                out_label = out_label.copy()
+                out_skeleton = out_skeleton.copy()
+                out_input = out_input.copy()
+                out_flux = out_flux.copy()
 
-            # see if small side segments need to be removed, because they dont have enough context for predicting flux
-            out_label, old_ref_d = self.relabel_disconnected(out_label)
+                # Augmentations
+                if self.augmentor is not None:  # augmentation
+                    data = {'image':out_input, 'flux':out_flux.astype(np.float32),
+                            'skeleton':out_skeleton.astype(np.float32), 'label':out_label.astype(np.float32)}
+                    augmented = self.augmentor(data, random_state=seed)
+                    out_input, out_flux = augmented['image'], augmented['flux']
+                    out_skeleton, out_label = augmented['skeleton'], augmented['label']
 
-            #remove skeleton and flux of deleted segs
-            mask = out_label > 0
-            out_flux = mask*out_flux
-            out_skeleton = mask*out_skeleton
+                    out_input = out_input.astype(np.float32)
+                    out_flux = out_flux.astype(np.float32)
+                    out_skeleton = out_skeleton.astype(np.float32)
+                    out_label = out_label.astype(np.float)
 
-            # binarize the label volume, which would be the input for the network
+                # see if small side segments need to be removed, because they dont have enough context for predicting flux
+                out_label, old_ref_d, is_good = self.relabel_disconnected(out_label)
+
+                #remove skeleton and flux of deleted segs
+                mask = out_label > 0
+                out_flux = mask*out_flux
+                out_skeleton = mask*out_skeleton
+
+                if out_skeleton.sum() == 0:
+                    is_good = False
+
+            # binarize the label volume
             out_seg_2d = self.compute_2d_seg(out_label)
-
-            # 3. augmentation
-        # TODO Augmentations not done for Flux!
-        # if self.augmentor is not None:  # augmentation
-        #     data = {'image':out_input, 'label':out_label.astype(np.float32), 'input_label':out_skeleton.astype(np.float32)}
-        #     augmented = self.augmentor(data, random_state=seed)
-        #     out_input, out_label, out_skeleton = augmented['image'], augmented['label'], augmented['input_label']
-        #     out_input = out_input.astype(np.float32)
-        #     out_label = out_label.astype(np.float32)
-        #     out_skeleton = out_skeleton.astype(np.float32)
 
         # Test Mode Specific Operations:
         elif self.mode == 'test':
@@ -245,7 +253,9 @@ class MaskAndSkeletonDataset(torch.utils.data.Dataset):
         return weight
 
     def relabel_disconnected(self, label):
-        self.remove_small_seg(label)  # remove small segments first
+        if self.remove_small_seg(label) == False: # remove small segments first
+            #all segments were removed
+            return label, None, False
         seg_ids = np.unique(label)
         seg_ids = seg_ids[seg_ids > 0]  # find seg ids to check
         max_seg_id = seg_ids.max() + 1
@@ -257,14 +267,15 @@ class MaskAndSkeletonDataset(torch.utils.data.Dataset):
             if num_cc == 1:  # this is good just leave them as it is
                 label_new[mask] = seg_id
             elif num_cc > 0:
-                self.remove_small_seg(label_cc)  # removing small noise like pixels in split segmentation
+                if self.remove_small_seg(label_cc) == False:
+                    return label, None, False # removing small noise like pixels in split segmentation
                 split_seg_ids = np.unique(label_cc)
                 split_seg_ids = split_seg_ids[split_seg_ids > 0]  # find all the remaining new segs id
                 for split_id in split_seg_ids:
                     label_new[label_cc == split_id] = max_seg_id  # store the seg
                     old_seg_ref[max_seg_id] = seg_id  # reference to the old seg_id
                     max_seg_id += 1
-        return label_new, old_seg_ref
+        return label_new, old_seg_ref, True
 
 
     def remove_small_seg(self, label):
@@ -274,4 +285,9 @@ class MaskAndSkeletonDataset(torch.utils.data.Dataset):
             mask = (label == seg_id)
             if mask.sum() < self.minimum_seg_size:
                 label[mask] = 0
+
+        if np.all(label == 0):
+            return False
+        else:
+            return True
 

@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 from .augmentor import DataAugment
+import math
 
 class Rotate(DataAugment):
     """
@@ -24,37 +25,66 @@ class Rotate(DataAugment):
 
     def rotate(self, imgs, M, interpolation):
         height, width = imgs.shape[-2:]
+        if imgs.ndim == 4:
+            channels = imgs.shape[-4]
+            slices = imgs.shape[-3]
+        if imgs.ndim == 3:
+            channels = 1
+            slices = imgs.shape[-3]
+
         transformedimgs = np.copy(imgs)
-        for z in range(transformedimgs.shape[-3]):
-            img = transformedimgs[z, :, :]
-            dst = cv2.warpAffine(img, M ,(height,width), 1.0, flags=interpolation, borderMode=self.border_mode)
-            transformedimgs[z, :, :] = dst
+
+        for z in range(slices):
+            if channels == 1:
+                img = transformedimgs[z, :, :]
+                dst = cv2.warpAffine(img, M, (height, width), 1.0, flags=interpolation, borderMode=self.border_mode)
+                transformedimgs[z, :, :] = dst
+            elif channels == 3:
+                img = transformedimgs[:, z, :, :]
+                img = np.moveaxis(img, 0, -1)
+                dst = cv2.warpAffine(img, M, (height, width), 1.0, flags=interpolation, borderMode=self.border_mode)
+                transformedimgs[:, z, :, :] = np.moveaxis(dst, -1, 0)
+            else:
+                raise Exception('Unknown number of channels in 2d slice')
 
         return transformedimgs
+
+    def rotation_matrix(self, axis, theta):
+        """
+        Return the rotation matrix associated with counterclockwise rotation about
+        the given axis by theta degrees.
+        """
+        axis = np.asarray(axis)
+        axis = axis / math.sqrt(np.dot(axis, axis))
+        theta = float(theta) * np.pi / 180.0
+        a = math.cos(theta / 2.0)
+        b, c, d = -axis * math.sin(theta / 2.0)
+        aa, bb, cc, dd = a * a, b * b, c * c, d * d
+        bc, ad, ac, ab, bd, cd = b * c, a * d, a * c, a * b, b * d, c * d
+        return np.array([[aa + bb - cc - dd, 2 * (bc + ad), 2 * (bd - ac)],
+                         [2 * (bc - ad), aa + cc - bb - dd, 2 * (cd + ab)],
+                         [2 * (bd + ac), 2 * (cd - ab), aa + dd - bb - cc]])
 
     def __call__(self, data, random_state=None):
         if random_state is None:
             random_state = np.random.RandomState(1234)
 
         image = data['image']
-
-        if 'label' in data and data['label'] is not None:
-            label = data['label']
-        else:
-            label = None
-
-        if 'input_label' in data and data['input_label'] is not None:
-            mask = data['input_label']
-        else:
-            mask = None
-
         height, width = image.shape[-2:]
-        M = cv2.getRotationMatrix2D((height/2, width/2), random_state.rand()*360.0, 1)
+        angle = random_state.rand()*360.0
+        M = cv2.getRotationMatrix2D((height/2, width/2), angle, 1)
 
         output = {}
-        output['image'] = self.rotate(image, M, self.image_interpolation)
-        if label is not None:
-            output['label'] = self.rotate(label, M, self.label_interpolation)
-        if mask is not None:
-            output['input_label'] = self.rotate(mask, M, self.label_interpolation)
+        for key, val in data.items():
+            if key == 'label' or key == 'skeleton':
+                output[key] = self.rotate(val, M, self.label_interpolation)
+            elif key == 'flux':
+                r_img = self.rotate(val, M, self.image_interpolation)
+                r_mat = self.rotation_matrix((1, 0, 0), angle)
+                r_field = np.matmul(r_mat, r_img.reshape((3, -1)))
+                output[key] = r_field.reshape(val.shape)
+            else:
+                output[key] = self.rotate(val, M, self.image_interpolation)
+
+
         return output

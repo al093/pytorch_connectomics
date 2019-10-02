@@ -14,7 +14,8 @@ from torch_connectomics.utils.net.serialSampler import SerialSampler
 TASK_MAP = {0: 'neuron segmentation',
             1: 'synapse detection',
             2: 'mitochondria segmentation',
-            3: 'mask prediction'}
+            3: 'mask prediction',
+            4: 'skeleton prediction'}
  
 
 def get_input(args, model_io_size, mode='train', model=None):
@@ -38,10 +39,11 @@ def get_input(args, model_io_size, mode='train', model=None):
     elif mode=='train':
         seg_name = args.seg_name.split('@')
 
-    if args.task == 3:
-        assert args.seed_points is not None
-        seed_points_files = args.seed_points.split('@')
+    if args.task == 3 or args.task == 4:
+        if args.seed_points is not None:
+            seed_points_files = args.seed_points.split('@')
 
+    if args.task == 4:
         skeleton_files = None
         if args.skeleton_name is not None:
             skeleton_files = args.skeleton_name.split('@')
@@ -62,11 +64,11 @@ def get_input(args, model_io_size, mode='train', model=None):
         augmentor = Compose([
                              # Rotate(p=1.0),
                              # Rescale(p=0.5),
-                             #Flip(p=1.0),
+                             Flip(p=1.0),
                              # Elastic(alpha=5.0, p=0.75),
-                             #Grayscale(p=0.75),
-                             #Blur(min_sigma=1, max_sigma=4, min_slices=model_io_size[0]//5, max_slices=model_io_size[0]//3, p=.80),
-                             # MissingParts(p=0.9),
+                             Grayscale(p=0.75),
+                             Blur(min_sigma=1, max_sigma=3, min_slices=model_io_size[0]//6, max_slices=model_io_size[0]//4, p=0.6),
+                             MissingParts(p=0.9)
                              # MissingSection(p=0.5),
                              # MisAlignment2(p=1.0, displacement=16)
                              ],
@@ -80,7 +82,7 @@ def get_input(args, model_io_size, mode='train', model=None):
     print('batch size: ', args.batch_size)
 
     if mode == 'test':
-        pad_size = model_io_size//2
+        pad_size = np.array(model_io_size//2)
     else:
         pad_size = np.array((0, 0, 0))
         # pad_size = augmentor.sample_size//2
@@ -88,23 +90,7 @@ def get_input(args, model_io_size, mode='train', model=None):
 
     for i in range(len(img_name)):
 
-        # bs = [0, 0, 0]
-        # be = [800, 500, 800]
-
-        # # TODO make a better way of selecting subregion
-        # if mode == 'train':
-        #     bs = [374, 1242, 0]
-        #     be = [1053, 3025, 1059]
-        # elif mode == 'test':
-        #     bs = [0, 1800, 800]
-        #     be = [700, 2800, 1664]
-        #
-        # # TODO Remove this
-        # bs = [374, 1242, 0]
-        # be = [1053, 3025, 1059]
-
-        model_input[i] = np.array((h5py.File(img_name[i], 'r')['main']))/255.0
-        # model_input[i] = np.array((h5py.File(img_name[i], 'r')['main'])[bs[0]:be[0], bs[1]:be[1], bs[2]:be[2]])/255.0
+        model_input[i] = np.array((h5py.File(img_name[i], 'r')['main'][:, 2570:3570, 4233:6233]))/255.0
 
         print('Input Data size: ', model_input[i].shape)
         print(mode)
@@ -115,9 +101,7 @@ def get_input(args, model_io_size, mode='train', model=None):
 
         if mode == 'train' or mode == 'validation':
             model_label[i] = np.array((h5py.File(seg_name[i], 'r')['main']))
-            # model_label[i] = np.array((h5py.File(seg_name[i], 'r')['main'])[bs[0]:be[0], bs[1]:be[1], bs[2]:be[2]])
-            # model_label[i] = shrink_range_uint32(model_label[i])
-            if args.task == 3:
+            if args.task == 3 or args.task==4:
                 s_points[i] = load_list_from_h5(seed_points_files[i])
                 # Remove all points which cannot be used to crop a region around it
                 half_aug_sz = augmentor.sample_size//2
@@ -178,13 +162,6 @@ def get_input(args, model_io_size, mode='train', model=None):
         b = np.array(h5py.File(seed_points_files[0], 'r')[str(args.segment_id)])
         if len(b.shape) == 1: #  only one point was read, make it into 2D
             b = b.reshape((1, 3))
-        # b = b[b[:, 0] < be[0], :]
-        # b = b[b[:, 1] < be[1], :]
-        # b = b[b[:, 2] < be[2], :]
-        # b = b - np.array([bs[0], bs[1], bs[2]], dtype=np.int64)
-        # b = b[b[:, 0] >= 0, :]
-        # b = b[b[:, 1] >= 0, :]
-        # b = b[b[:, 2] >= 0, :]
         s_points = [[b.astype(np.uint32)[::200]]]
 
         print('Num of initial seed points: ', s_points[0][0].shape[0])
@@ -222,24 +199,20 @@ def get_input(args, model_io_size, mode='train', model=None):
                 dataset = MaskDatasetDualInput(volume=model_input, label=model_label, sample_input_size=sample_input_size,
                                       sample_label_size=sample_input_size, augmentor_pre=augmentor_1, augmentor=augmentor,
                                       mode='train', seed_points=s_points, pad_size=pad_size.astype(np.uint32), model=model)
-            else:
+        elif args.task == 4:  # skeleton/flux prediction
                 dataset = MaskAndSkeletonDataset(volume=model_input, label=model_label, skeleton=skeleton, flux=flux,
                                                  sample_input_size=sample_input_size, sample_label_size=sample_input_size,
                                                  augmentor=augmentor, mode='train', seed_points=s_points,
                                                  pad_size=pad_size.astype(np.uint32))
 
-        if args.task == 3 and args.in_channel == 2:
-            c_fn = collate_fn_2
-        else:
-            c_fn = collate_fn_var
-
+        c_fn = collate_fn_var
         img_loader = torch.utils.data.DataLoader(
               dataset, batch_size=args.batch_size, shuffle=SHUFFLE, collate_fn=c_fn,
               num_workers=args.num_cpu, pin_memory=True)
         return img_loader
 
     else:
-        if args.task == 0:
+        if args.task == 0 or args.task == 4:
             dataset = AffinityDataset(volume=model_input, label=None, sample_input_size=model_io_size, \
                                       sample_label_size=None, sample_stride=model_io_size // 2, \
                                       augmentor=None, mode='test')
@@ -258,8 +231,8 @@ def get_input(args, model_io_size, mode='train', model=None):
                                   pad_size=pad_size.astype(np.uint32))
 
         if args.task != 3:
-            img_loader =  torch.utils.data.DataLoader(
-                    dataset, batch_size=args.batch_size, shuffle=SHUFFLE, collate_fn = collate_fn_test,
+            img_loader = torch.utils.data.DataLoader(
+                    dataset, batch_size=args.batch_size, shuffle=SHUFFLE, collate_fn=collate_fn_test,
                     num_workers=args.num_cpu, pin_memory=True)
             return img_loader, volume_shape, pad_size
         else:

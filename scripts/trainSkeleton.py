@@ -22,16 +22,20 @@ def train(args, train_loader, val_loader, model, model_cpu, device, criterion,
     start = time.time()
 
     for iteration, data in enumerate(train_loader):
-        print('time taken for itr: ', time.time() - start)
-        start = time.time()
         sys.stdout.flush()
 
-        (pos, volume, label, flux, skeleton, seg_2d, class_weight, _, flux_weight) = data
+        if iteration < 200:
+            print('time taken for itr: ', time.time() - start)
+            start = time.time()
 
-        volume, label, seg_2d = volume.to(device), label.to(device), seg_2d.to(device)
+        pos, volume, label, flux, skeleton, seg_2d, class_weight, _, flux_weight = data
+
+        volume = volume.to(device)
+        # label = label.to(device)
+        # seg_2d = seg_2d.to(device)
         flux, flux_weight = flux.to(device), flux_weight.to(device)
 
-        output = model(seg_2d)
+        output = model(volume)
         output_flux = output
 
         loss, angular_l, scale_l = criterion(output_flux, flux, angular_weight=flux_weight, scale_weight=flux_weight)
@@ -55,7 +59,7 @@ def train(args, train_loader, val_loader, model, model_cpu, device, criterion,
             # if args.batch_size > 1:
             #     save_all(volume[1, 0], label[1, 0], flux[1], skeleton[1, 0], output_flux[1], seg_2d[1, 0], str(iteration) + '_1', args.output)
 
-            visualize(seg_2d, flux, output_flux, iteration, writer, mode='Train', input_label=volume)
+            visualize(volume.cpu(), flux.cpu(), seg_2d*output_flux.cpu(), iteration, writer, mode='Train')
 
             scheduler.step(record.avg)
             record.reset()

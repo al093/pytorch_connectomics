@@ -9,8 +9,8 @@ import torch
 
 def collate_fn_var(batch):
     data = list(zip(*batch))
-    for idx in range(len(data) - 1): # first var is the position others are 4D array
-        data[idx+1] = torch.stack(data[idx+1], 0)
+    for idx in range(1, len(data)): # first var is the position others are 4D array
+        data[idx] = torch.stack(data[idx], 0)
     return tuple(data)
 
 def collate_fn(batch):

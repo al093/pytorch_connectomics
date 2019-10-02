@@ -110,9 +110,8 @@ def visualize_aff(volume, label, output, iteration, writer, mode='Train'):
     writer.add_image(mode + ' Affinity', canvas_show, iteration)
 
 def save_data(data, fileName):
-    hfile = h5py.File(fileName, 'w')
-    hfile.create_dataset('main', data=data, compression='gzip')
-    hfile.close()
+    with h5py.File(fileName, 'w') as hfile:
+        hfile.create_dataset('main', data=data, compression='gzip')
 
 def save_all(input, gt_label, gt_flux, gt_skeleton, out_flux, out_mask, data_name_prefix, path):
     save_data((input.cpu().detach().numpy()*255).astype(np.uint8),  path + '/input_' + data_name_prefix + '.h5')
