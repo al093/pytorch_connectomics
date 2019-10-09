@@ -9,18 +9,20 @@ from torch_connectomics.utils.net import *
 from torch_connectomics.utils.vis import *
 import torch.multiprocessing as t_mp
 
-def train(args, train_loader, val_loader, model, model_cpu, device, criterion,
-          optimizer, scheduler, logger, writer, regularization=None, model_lstm=None):
+def train(args, train_loader, val_loader, model, model_2, device, criterion,
+          criterion_2, optimizer, scheduler, logger, writer, regularization=None):
     record = AverageMeter()
     val_record = AverageMeter()
 
     model.train()
+    if model_2:
+        model_2.train()
 
     if val_loader is not None:
         val_loader_itr = iter(val_loader)
 
     start = time.time()
-
+    loss_ratio = 0.95
     for iteration, data in enumerate(train_loader):
         sys.stdout.flush()
 
@@ -28,38 +30,46 @@ def train(args, train_loader, val_loader, model, model_cpu, device, criterion,
             print('time taken for itr: ', time.time() - start)
             start = time.time()
 
-        pos, volume, label, flux, skeleton, seg_2d, class_weight, _, flux_weight = data
+        pos, volume, label, flux, skeleton, skeleton_weight, flux_weight = data
 
         volume = volume.to(device)
-        # label = label.to(device)
-        # seg_2d = seg_2d.to(device)
         flux, flux_weight = flux.to(device), flux_weight.to(device)
 
-        output = model(volume)
-        output_flux = output
+        output_flux = model(volume)
+        flux_loss, angular_l, scale_l = criterion(output_flux, flux, angular_weight=flux_weight, scale_weight=flux_weight)
+        loss = flux_loss
 
-        loss, angular_l, scale_l = criterion(output_flux, flux, angular_weight=flux_weight, scale_weight=flux_weight)
-        record.update(loss, args.batch_size) 
+        if model_2:
+            skeleton, skeleton_weight = skeleton.to(device), skeleton_weight.to(device)
+            output_skel = model_2(output_flux)
+            skel_loss = criterion_2(output_skel, skeleton, weight=skeleton_weight)
+            loss = loss_ratio*skel_loss + (1-loss_ratio)*loss
+            if writer:
+                writer.add_scalars('Part-wise Losses', {'Grad Angular': angular_l.item(), 'Grad Scale': scale_l.item(),
+                                                        'Flux': flux_loss.item(), 'Skeleton': skel_loss.item()}, iteration)
+
+        record.update(loss, args.batch_size)
 
         # compute gradient and do Adam step
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
-        logger.write("[Volume %d] train_loss=%0.4f lr=%.5f\n" % (iteration,
-                                                                 loss.item(), optimizer.param_groups[0]['lr']))
         print('[Iteration %d] train_loss=%0.4f lr=%.6f' % (iteration,
                                                            loss.item(), optimizer.param_groups[0]['lr']))
-        writer.add_scalars('Loss', {'Train': loss.item()}, iteration)
-        writer.add_scalars('Angular Loss', {'Train': angular_l.item()}, iteration)
-        writer.add_scalars('Scalar Loss', {'Train': scale_l.item()}, iteration)
+
+        if logger and writer:
+            logger.write("[Volume %d] train_loss=%0.4f lr=%.5f\n" % (iteration,
+                                                                     loss.item(), optimizer.param_groups[0]['lr']))
+            writer.add_scalars('Loss', {'Overall Loss': loss.item()}, iteration)
 
         if iteration % 200 == 0 and iteration >= 1:
-            # save_all(volume[0, 0], label[0, 0], flux[0], skeleton[0, 0], output_flux[0], seg_2d[0, 0], str(iteration) + '_0', args.output)
-            # if args.batch_size > 1:
-            #     save_all(volume[1, 0], label[1, 0], flux[1], skeleton[1, 0], output_flux[1], seg_2d[1, 0], str(iteration) + '_1', args.output)
-
-            visualize(volume.cpu(), flux.cpu(), seg_2d*output_flux.cpu(), iteration, writer, mode='Train')
+            if writer:
+                if model_2:
+                    visualize(volume.cpu(), output_flux.cpu(), flux.cpu(), iteration, writer, mode='Train',
+                              input_label=torch.cat((skeleton.cpu(), output_skel.cpu()), 1))
+                else:
+                    visualize(volume.cpu(), output_flux.cpu(), flux.cpu(), iteration, writer, mode='Train')
 
             scheduler.step(record.avg)
             record.reset()
@@ -102,8 +112,8 @@ def train(args, train_loader, val_loader, model, model_cpu, device, criterion,
         #Save model
         if iteration % args.iteration_save == 0 or iteration >= args.iteration_total:
             torch.save(model.state_dict(), args.output+(args.exp_name + '_%d.pth' % iteration))
-            if model_lstm is not None:
-                torch.save(model_lstm.state_dict(), args.output + (args.exp_name + '_headLSTM_%d.pth' % iteration))
+            if model_2:
+                torch.save(model_2.state_dict(), args.output + (args.exp_name + '_second_%d.pth' % iteration))
 
         # Terminate
         if iteration >= args.iteration_total:
@@ -117,30 +127,51 @@ def main():
     print('Initial setup')
     model_io_size, device = init(args)
 
-    if args.enable_logging:
+    if args.disable_logging is not True:
         logger, writer = get_logger(args)
     else:
         print('No log file would be created.')
 
     print('Setup model')
-    model, model_cpu = setup_model(args, device, model_io_size)
+    model = setup_model(args, device, model_io_size, non_linearity=torch.tanh)
+
+    if args.init_second_model is True:
+        print('Setting up Second model')
+        class ModelArgs(object):
+            pass
+        args2 = ModelArgs()
+        args2.task = args.task
+        args2.architecture = args.architecture
+        args2.pre_model = args.pre_model_second
+        args2.load_model = args.load_model_second
+        args2.in_channel = args.out_channel
+        args2.out_channel = 1
+        args2.batch_size = args.batch_size
+        model_2 = setup_model(args2, device, model_io_size, non_linearity=torch.sigmoid)
+    else:
+        model_2 = None
 
     print('Setup data')
     train_loader = get_input(args, model_io_size, 'train', model=None)
             
     print('Setup loss function')
-    criterion = AngularAndScaleLoss(alpha=0.5)
+    criterion = AngularAndScaleLoss(alpha=0.1)
+    criterion_2 = WeightedBCE()
     # regularization = BinaryReg(alpha=10.0)
  
     print('Setup optimizer')
-    optimizer = torch.optim.Adam(list(model.parameters()), lr=args.lr, betas=(0.9, 0.999),
+    model_parameters = list(model.parameters())
+    if model_2:
+        model_parameters += list(model_2.parameters())
+    optimizer = torch.optim.Adam(model_parameters, lr=args.lr, betas=(0.9, 0.999),
                                  eps=1e-08, weight_decay=1e-6, amsgrad=True)
+
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, 
                 patience=1000, verbose=False, threshold=0.0001, threshold_mode='rel', cooldown=0, 
                 min_lr=1e-7, eps=1e-08)
 
     print('4. start training')
-    train(args, train_loader, None, model, model_cpu, device, criterion, optimizer, scheduler, logger, writer)
+    train(args, train_loader, None, model, model_2, device, criterion, criterion_2, optimizer, scheduler, logger, writer)
 
     print('5. finish training')
     logger.close()

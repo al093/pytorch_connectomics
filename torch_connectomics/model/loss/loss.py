@@ -83,22 +83,22 @@ class WeightedBCE(nn.Module):
         #_assert_no_grad(target)
         return F.binary_cross_entropy(input, target, weight, reduction='mean')
 
-class WeightedCosineLoss(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.cos = nn.CosineSimilarity(dim=1, eps=1e-6)
-
-    def forward(self, input, target, weight):
-        # _assert_no_grad(target)
-        s1 = torch.prod(torch.tensor(input.size()[2:]).float())
-        s2 = input.size()[0]
-        norm_term = (s1 * s2).cuda()
-
-        cosine_similarity = self.cos(input, target)
-        cosine_loss = 1 - cosine_similarity
-        cosine_loss = cosine_loss*weight/norm_term
-
-        return cosine_loss
+# class WeightedCosineLoss(nn.Module):
+#     def __init__(self):
+#         super().__init__()
+#         self.cos = nn.CosineSimilarity(dim=1, eps=1e-6)
+#
+#     def forward(self, input, target, weight):
+#         # _assert_no_grad(target)
+#         s1 = torch.prod(torch.tensor(input.size()[2:]).float())
+#         s2 = input.size()[0]
+#         norm_term = (s1 * s2).cuda()
+#
+#         cosine_similarity = self.cos(input, target)
+#         cosine_loss = 1 - cosine_similarity
+#         cosine_loss = cosine_loss*weight/norm_term
+#
+#         return cosine_loss
 
 class AngularAndScaleLoss(nn.Module):
     def __init__(self, alpha):

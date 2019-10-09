@@ -32,6 +32,15 @@ def rebalance_binary_class(label, mask=None, base_w=1.0):
         weight = weight * mask
     return weight_factor, weight
 
+def rebalance_skeleton_weight(skeleton_mask, seg_mask):
+    num_skel_pixels = skeleton_mask.sum().float()
+    num_seg_pixels = seg_mask.sum().float()
+    weight_factor = num_seg_pixels / (num_skel_pixels + 1e-10)
+    weight_factor = torch.clamp(weight_factor, max=1e3)
+    weight = seg_mask.clone().float()
+    weight[skeleton_mask == 1.0] = weight_factor
+    return weight
+
 ####################################################################
 ## Affinitize.
 ####################################################################

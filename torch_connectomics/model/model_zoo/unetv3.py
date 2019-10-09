@@ -22,7 +22,7 @@ class unetv3(nn.Module):
         out_channel (int): number of output channels.
         filters (list): number of filters at each u-net stage.
     """
-    def __init__(self, input_sz, batch_sz, in_channel=1, out_channel=3, filters=[8, 12, 16, 20, 24]):
+    def __init__(self, input_sz, batch_sz, in_channel=1, out_channel=3, filters=[8, 12, 16, 20, 24], non_linearity=torch.sigmoid):
         super().__init__()
 
         # encoding path
@@ -111,6 +111,7 @@ class unetv3(nn.Module):
         self.attention_layer4D = np.tile(self.attention_layer4D, (batch_sz, 1, 1, 1, 1))
         self.attention_layer4D = torch.from_numpy(self.attention_layer4D).cuda()
 
+        self.non_linearity = non_linearity
         #initialization
         ortho_init(self)
 
@@ -150,9 +151,7 @@ class unetv3(nn.Module):
         x = x + z1
         x = self.layer1_D(torch.cat((x, self.attention_layer1D[0:x.shape[0]]), 1))
 
-        # x = torch.cat((torch.sigmoid(x[:, 0]).unsqueeze(1), normalize(x[:, 1:])), 1)
-        # x = normalize(x)
-        x = torch.tanh(x)
+        x = self.non_linearity(x)
 
         if torch.isnan(x).any() or torch.isinf(x).any():
             import pdb; pdb.set_trace()

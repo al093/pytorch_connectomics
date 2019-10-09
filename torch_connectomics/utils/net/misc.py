@@ -57,7 +57,7 @@ def get_logger(args):
     writer = SummaryWriter(args.output + '/runs/' + date + '_' + time)
     return logger, writer
 
-def setup_model(args, device, model_io_size, exact=True, size_match=True):
+def setup_model(args, device, model_io_size, exact=True, size_match=True, non_linearity=torch.sigmoid):
 
     MODEL_MAP = {'unetv0': unetv0,
                  'unetv1': unetv1,
@@ -69,10 +69,8 @@ def setup_model(args, device, model_io_size, exact=True, size_match=True):
     assert args.architecture in MODEL_MAP.keys()
     if args.task == 2:
         model = MODEL_MAP[args.architecture](in_channel=1, out_channel=args.out_channel, act='tanh')
-        model_cpu = MODEL_MAP[args.architecture](in_channel=1, out_channel=args.out_channel, act='tanh')
-    else:        
-        model = MODEL_MAP[args.architecture](in_channel=args.in_channel, out_channel=args.out_channel, input_sz=model_io_size, batch_sz=args.batch_size)
-        model_cpu = MODEL_MAP[args.architecture](in_channel=args.in_channel, out_channel=args.out_channel, input_sz=model_io_size, batch_sz=args.batch_size)
+    else:
+        model = MODEL_MAP[args.architecture](in_channel=args.in_channel, out_channel=args.out_channel, input_sz=model_io_size, batch_sz=args.batch_size, non_linearity=non_linearity)
     print('model: ', model.__class__.__name__)
     # model = DataParallelWithCallback(model, device_ids=range(args.num_gpu))
     model = model.to(device)
@@ -96,16 +94,7 @@ def setup_model(args, device, model_io_size, exact=True, size_match=True):
                         model_dict[param_tensor] = pretrained_dict[param_tensor]       
             # 3. load the new state dict
             model.load_state_dict(model_dict)
-
-    model_cpu.share_memory()
-    params_gpu = model.named_parameters()
-    params_cpu = model_cpu.named_parameters()
-    dict_params_gpu = dict(params_gpu)
-    dict_params_cpu = dict(params_cpu)
-    for name, param in dict_params_gpu.items():
-        dict_params_cpu[name].data.copy_(param.data.cpu())
-
-    return model, model_cpu
+    return model
 
 def setup_lstm_model(args, device, model_io_size):
     model = LSTMHead(input_sz=model_io_size)

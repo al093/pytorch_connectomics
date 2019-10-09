@@ -8,7 +8,7 @@ import scipy.ndimage.morphology as morphology
 from scipy import spatial
 import skimage
 
-from .misc import crop_volume, crop_volume_mul, rebalance_binary_class
+from .misc import crop_volume, crop_volume_mul, rebalance_binary_class, rebalance_skeleton_weight
 from torch_connectomics.utils.vis import save_data
 
 class MaskAndSkeletonDataset(torch.utils.data.Dataset):
@@ -87,7 +87,6 @@ class MaskAndSkeletonDataset(torch.utils.data.Dataset):
 
                     out_input = out_input.astype(np.float32)
                     out_flux = out_flux.astype(np.float32)
-                    out_skeleton = out_skeleton.astype(np.float32)
                     out_label = out_label.astype(np.float)
 
                 # see if small side segments need to be removed, because they dont have enough context for predicting flux
@@ -101,8 +100,12 @@ class MaskAndSkeletonDataset(torch.utils.data.Dataset):
                 if out_skeleton.sum() == 0:
                     is_good = False
 
+            #dilating skeletons for better learning
+            out_skeleton = ((out_skeleton > 0) * mask)
+            out_skeleton = morphology.binary_dilation(out_skeleton, structure=np.ones((3, 3, 3)), iterations=1)
+
             # binarize the label volume
-            out_seg_2d = self.compute_2d_seg(out_label)
+            # out_seg_2d = self.compute_2d_seg(out_label)
 
         # Test Mode Specific Operations:
         elif self.mode == 'test':
@@ -111,41 +114,33 @@ class MaskAndSkeletonDataset(torch.utils.data.Dataset):
             out_input = crop_volume(self.input[pos[0]], vol_size, pos[1:])
             out_label = None if self.label is None else crop_volume(self.label[pos[0]], vol_size, pos[1:])
 
-        # TODO Check is later Flux is to be calculated on the fly
-        # if out_skeleton is not None and out_label is not None:
-        #     out_flux = self.compute_flux(out_label, out_skeleton)
-        #     out_flux = torch.from_numpy(out_flux)
-        #     out_skeleton = torch.from_numpy(out_skeleton)
-        #     out_skeleton = out_skeleton.unsqueeze(0)
-
         if self.mode == 'train':
             # Rebalancing weights for Flux
             mask = morphology.binary_dilation(out_label > 0, structure=np.ones((1, 3, 3)))
-            flux_weight = self.compute_flux_weights(mask, out_skeleton>0)
+            flux_weight = self.compute_flux_weights(mask, out_skeleton)
             flux_weight = torch.from_numpy(flux_weight)
             flux_weight = flux_weight.unsqueeze(0)
 
-        out_input = torch.from_numpy(out_input.copy())
+        out_input = torch.from_numpy(out_input)
         out_input = out_input.unsqueeze(0)
 
         if out_skeleton is not None:
-            out_skeleton = torch.from_numpy(out_skeleton.astype(np.int32)).float()
+            out_skeleton = torch.from_numpy(out_skeleton.astype(np.float32))
             out_skeleton = out_skeleton.unsqueeze(0)
         if out_flux is not None:
             out_flux = torch.from_numpy(out_flux).float()
         if out_label is not None:
-            out_label = torch.from_numpy(out_label.astype(np.int32)).float()
+            out_label = torch.from_numpy(out_label.astype(np.float32))
             out_label = out_label.unsqueeze(0)
-        if out_seg_2d is not None:
-            out_seg_2d = torch.from_numpy(out_seg_2d.astype(np.bool)).float()
-            out_seg_2d = out_seg_2d.unsqueeze(0)
+        # if out_seg_2d is not None:
+        #     out_seg_2d = torch.from_numpy(out_seg_2d.astype(np.float32))
+        #     out_seg_2d = out_seg_2d.unsqueeze(0)
 
         if self.mode == 'train':
-            # Rebalancing weights for mask
-            temp = 1.0 - out_label.clone()
-            weight_factor, weight = rebalance_binary_class(temp, mask=torch.from_numpy(mask).float())
+            # Rebalancing weights for skeleton and non skel pixels
+            weight = rebalance_skeleton_weight(skeleton_mask=out_skeleton, seg_mask=torch.from_numpy(mask).unsqueeze(0).float())
 
-            return pos, out_input, out_label, out_flux, out_skeleton, out_seg_2d, weight, weight_factor, flux_weight
+            return pos, out_input, out_label, out_flux, out_skeleton, weight, flux_weight
 
         else:
             return pos, out_input

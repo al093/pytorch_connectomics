@@ -62,12 +62,12 @@ def get_input(args, model_io_size, mode='train', model=None):
     if mode=='train' or mode=='validation':
         # setup augmentor
         augmentor = Compose([
-                             # Rotate(p=1.0),
+                             Rotate(p=1.0),
                              # Rescale(p=0.5),
                              Flip(p=1.0),
                              # Elastic(alpha=5.0, p=0.75),
                              Grayscale(p=0.75),
-                             Blur(min_sigma=1, max_sigma=3, min_slices=model_io_size[0]//6, max_slices=model_io_size[0]//4, p=0.6),
+                             Blur(min_sigma=1, max_sigma=3, min_slices=model_io_size[0]//6, max_slices=model_io_size[0]//4, p=0.4),
                              MissingParts(p=0.9)
                              # MissingSection(p=0.5),
                              # MisAlignment2(p=1.0, displacement=16)
@@ -90,7 +90,7 @@ def get_input(args, model_io_size, mode='train', model=None):
 
     for i in range(len(img_name)):
 
-        model_input[i] = np.array((h5py.File(img_name[i], 'r')['main'][:, 2570:3570, 4233:6233]))/255.0
+        model_input[i] = np.array((h5py.File(img_name[i], 'r')['main']))/255.0
 
         print('Input Data size: ', model_input[i].shape)
         print(mode)

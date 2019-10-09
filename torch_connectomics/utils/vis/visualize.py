@@ -52,13 +52,21 @@ def visualize(volume, label, output, iteration, writer, mode='Train', input_labe
         label_visual = label.detach().cpu()
 
     if input_label is not None:
-        input_label_visual = input_label.detach().cpu().expand(sz[0], 3, sz[2], sz[3])
+        if output.shape[1] == 1:
+            input_label_visual = input_label.detach().cpu().expand(sz[0], 3, sz[2], sz[3])
+        elif output.shape[1] > 1:
+            input_label_visual = input_label.detach().cpu()
 
     canvas = []
     for idx in range(volume_visual.shape[0]):
         canvas.append(volume_visual[idx])
+
         if input_label is not None:
-            canvas.append(input_label_visual[idx])
+            if input_label.shape[1] == 1:
+                canvas.append(input_label_visual[idx])
+            elif input_label.shape[1] > 1:
+                for i in range(input_label_visual.shape[1]):
+                    canvas.append(input_label_visual[idx, i:i+1].expand(3, sz[2], sz[3]))
 
         if output.shape[1] == 1:
             canvas.append(output_visual[idx])
