@@ -32,19 +32,21 @@ def get_args(mode='train'):
                         help='Output path')
     parser.add_argument('-mi','--model-input', type=str,  default='31,204,204',
                         help='I/O size of deep network')
-    parser.add_argument('-el', '--enable-logging', type=bool, default=True,
-                        help='If False, Tensorflow and other log files are NOT created.')
+    parser.add_argument('-dl', '--disable-logging', type=my_bool, default=False,
+                        help='If True, Tensorflow and other log files are NOT created.')
 
     # model option
     parser.add_argument('-ac', '--architecture', help='model architecture')
-    parser.add_argument('-lm', '--load-model', type=bool, default=False,
+    parser.add_argument('-lm', '--load-model', type=my_bool, default=False,
                         help='Use pre-trained model')                
     parser.add_argument('-pm', '--pre-model', type=str, default='',
                         help='Pre-trained model path')
-    parser.add_argument('-lm_lstm', '--load-model-lstm', type=bool, default=False,
-                        help='Use pre-trained LSTM model')
-    parser.add_argument('-pm_lstm', '--pre-model-lstm', type=str, default='',
-                        help='Pre-trained LSTM model path')
+    parser.add_argument('-ism', '--init-second-model', type=my_bool, default=False,
+                        help='Train/Test second model together')
+    parser.add_argument('-lm_2', '--load-model-second', type=my_bool, default=False,
+                        help='Use pre-trained second model')
+    parser.add_argument('-pm_2', '--pre-model-second', type=str, default='',
+                        help='Pre-trained second model path')
     parser.add_argument('--out-channel', type=int, default=3,
                         help='Number of output channel(s).')
     parser.add_argument('--in-channel', type=int, default=1,
@@ -91,7 +93,7 @@ def get_args(mode='train'):
                             help='Number of iteration to save')
 
     if mode == 'test':
-        parser.add_argument('-ta', '--test-augmentation',  type=bool, default=False,
+        parser.add_argument('-ta', '--test-augmentation',  type=my_bool, default=False,
                             help='Perform Data Augmentation during inference')
         parser.add_argument('--scale-input', type=float, default='1.0',
                             help='Scale factor for entire input volume')
@@ -107,6 +109,8 @@ def get_args(mode='train'):
                         help='Ground-truth Flux path')
 
 
+
+
     parser.add_argument('--argsFile', type=open, action=LoadFromFile)
 
     args = parser.parse_args()
@@ -118,3 +122,6 @@ def save_cmd_line(args):
         f.write(str(datetime.datetime.now()))
         f.write(os.uname()[1])
         f.write('\n'.join(sys.argv[1:]))
+
+def my_bool(s):
+    return s == 'True' or s == 'true' or s == '1'
