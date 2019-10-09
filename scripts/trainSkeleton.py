@@ -32,21 +32,29 @@ def train(args, train_loader, val_loader, model, model_2, device, criterion,
 
         pos, volume, label, flux, skeleton, skeleton_weight, flux_weight = data
 
-        volume = volume.to(device)
-        flux, flux_weight = flux.to(device), flux_weight.to(device)
+        if args.train_grad_dtx:
+            volume = volume.to(device)
+            flux, flux_weight = flux.to(device), flux_weight.to(device)
+            output_flux = model(volume)
+            flux_loss, angular_l, scale_l = criterion(output_flux, flux, angular_weight=flux_weight, scale_weight=flux_weight)
+            loss = flux_loss
 
-        output_flux = model(volume)
-        flux_loss, angular_l, scale_l = criterion(output_flux, flux, angular_weight=flux_weight, scale_weight=flux_weight)
-        loss = flux_loss
+            if model_2:
+                skeleton, skeleton_weight = skeleton.to(device), skeleton_weight.to(device)
+                output_skel = model_2(output_flux)
+                skel_loss = criterion_2(output_skel, skeleton, weight=skeleton_weight)
+                loss = loss_ratio * skel_loss + (1 - loss_ratio) * loss
+                if writer:
+                    writer.add_scalars('Part-wise Losses',
+                                       {'Grad Angular': angular_l.item(), 'Grad Scale': scale_l.item(),
+                                        'Flux': flux_loss.item(), 'Skeleton': skel_loss.item()}, iteration)
 
-        if model_2:
+        else:
+            flux = flux.to(device)
             skeleton, skeleton_weight = skeleton.to(device), skeleton_weight.to(device)
-            output_skel = model_2(output_flux)
+            output_skel = model(flux)
             skel_loss = criterion_2(output_skel, skeleton, weight=skeleton_weight)
-            loss = loss_ratio*skel_loss + (1-loss_ratio)*loss
-            if writer:
-                writer.add_scalars('Part-wise Losses', {'Grad Angular': angular_l.item(), 'Grad Scale': scale_l.item(),
-                                                        'Flux': flux_loss.item(), 'Skeleton': skel_loss.item()}, iteration)
+            loss = skel_loss
 
         record.update(loss, args.batch_size)
 
@@ -63,13 +71,17 @@ def train(args, train_loader, val_loader, model, model_2, device, criterion,
                                                                      loss.item(), optimizer.param_groups[0]['lr']))
             writer.add_scalars('Loss', {'Overall Loss': loss.item()}, iteration)
 
-        if iteration % 200 == 0 and iteration >= 1:
+        if iteration % 200 == 0:
             if writer:
                 if model_2:
                     visualize(volume.cpu(), output_flux.cpu(), flux.cpu(), iteration, writer, mode='Train',
                               input_label=torch.cat((skeleton.cpu(), output_skel.cpu()), 1))
                 else:
-                    visualize(volume.cpu(), output_flux.cpu(), flux.cpu(), iteration, writer, mode='Train')
+                    if not args.train_grad_dtx:
+                        visualize(volume.cpu(), output_skel.cpu(), skeleton.cpu(), iteration, writer, mode='Train',
+                                  input_label=flux.cpu())
+                    else:
+                        visualize(volume.cpu(), output_flux.cpu(), flux.cpu(), iteration, writer, mode='Train')
 
             scheduler.step(record.avg)
             record.reset()
@@ -130,26 +142,31 @@ def main():
     if args.disable_logging is not True:
         logger, writer = get_logger(args)
     else:
+        logger, writer = None, None
         print('No log file would be created.')
 
     print('Setup model')
-    model = setup_model(args, device, model_io_size, non_linearity=torch.tanh)
-
-    if args.init_second_model is True:
-        print('Setting up Second model')
-        class ModelArgs(object):
-            pass
-        args2 = ModelArgs()
-        args2.task = args.task
-        args2.architecture = args.architecture
-        args2.pre_model = args.pre_model_second
-        args2.load_model = args.load_model_second
-        args2.in_channel = args.out_channel
-        args2.out_channel = 1
-        args2.batch_size = args.batch_size
-        model_2 = setup_model(args2, device, model_io_size, non_linearity=torch.sigmoid)
+    if not args.train_grad_dtx:
+        print('Will only train from gt gradients to skeleton.')
+        model = setup_model(args, device, model_io_size, non_linearity=torch.sigmoid)
+        model_2= None
     else:
-        model_2 = None
+        model = setup_model(args, device, model_io_size, non_linearity=torch.tanh)
+        if args.init_second_model is True:
+            print('Setting up Second model')
+            class ModelArgs(object):
+                pass
+            args2 = ModelArgs()
+            args2.task = args.task
+            args2.architecture = args.architecture
+            args2.pre_model = args.pre_model_second
+            args2.load_model = args.load_model_second
+            args2.in_channel = args.out_channel
+            args2.out_channel = 1
+            args2.batch_size = args.batch_size
+            model_2 = setup_model(args2, device, model_io_size, non_linearity=torch.sigmoid)
+        else:
+            model_2 = None
 
     print('Setup data')
     train_loader = get_input(args, model_io_size, 'train', model=None)
@@ -174,8 +191,9 @@ def main():
     train(args, train_loader, None, model, model_2, device, criterion, criterion_2, optimizer, scheduler, logger, writer)
 
     print('5. finish training')
-    logger.close()
-    writer.close()
+    if args.disable_logging is not True:
+        logger.close()
+        writer.close()
 
 if __name__ == "__main__":
     main()
