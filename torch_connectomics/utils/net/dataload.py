@@ -101,7 +101,7 @@ def get_input(args, model_io_size, mode='train', model=None):
 
         if mode == 'train' or mode == 'validation':
             model_label[i] = np.array((h5py.File(seg_name[i], 'r')['main']))
-            if args.task == 3 or args.task==4:
+            if args.task == 3 or args.task == 4:
                 s_points[i] = load_list_from_h5(seed_points_files[i])
                 # Remove all points which cannot be used to crop a region around it
                 half_aug_sz = augmentor.sample_size//2
@@ -112,9 +112,9 @@ def get_input(args, model_io_size, mode='train', model=None):
                     b = b[b[:, 0] >= half_aug_sz[0], :]
                     b = b[b[:, 1] >= half_aug_sz[1], :]
                     b = b[b[:, 2] >= half_aug_sz[2], :]
-                    b = b[vol_size[0] - b[:, 0] >= half_aug_sz[0], :]
-                    b = b[vol_size[1] - b[:, 1] >= half_aug_sz[1], :]
-                    b = b[vol_size[2] - b[:, 2] >= half_aug_sz[2], :]
+                    b = b[vol_size[0] - b[:, 0] > half_aug_sz[0], :]
+                    b = b[vol_size[1] - b[:, 1] > half_aug_sz[1], :]
+                    b = b[vol_size[2] - b[:, 2] > half_aug_sz[2], :]
                     if b.shape[0] > 0:
                         new_list.append(b)
                 s_points[i] = new_list
