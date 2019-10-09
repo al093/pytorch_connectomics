@@ -1,0 +1,3 @@
+-dn /n/pfister_lab2/Lab/alok/JWR15/im_64nm_y2_iso.h5
+-sp /n/pfister_lab2/Lab/alok/JWR15/segmentations/64nm/dendrite_seeds.h5
+-is /n/pfister_lab2/Lab/alok/JWR15/segmentations/64nm/dendrite_seed_segmentation.h5

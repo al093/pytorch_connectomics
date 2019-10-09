@@ -1,0 +1,5 @@
+-dn /n/pfister_lab2/Lab/alok/p7_new/segmentations/partial/im_0.h5
+-ln /n/pfister_lab2/Lab/alok/p7_new/segmentations/partial/seg_0_separated_rem_border.h5
+-sp /n/pfister_lab2/Lab/alok/p7_new/segmentations/partial/0_positions_withSkel.h5
+-skn /n/pfister_lab2/Lab/alok/p7_new/segmentations/partial/seg_0_skeleton_spline.h5
+-fn /n/pfister_lab2/Lab/alok/p7_new/segmentations/partial/seg_0_grad_distance_spline.h5
