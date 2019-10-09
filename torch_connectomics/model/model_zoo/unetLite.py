@@ -18,7 +18,7 @@ class unetLite(nn.Module):
         out_channel (int): number of output channels.
         filters (list): number of filters at each u-net stage.
     """
-    def __init__(self, in_channel=1, out_channel=3, filters=[8, 12, 16, 20, 24]):
+    def __init__(self, in_channel=1, out_channel=3, filters=[8, 12, 16, 20, 24], input_sz=None, batch_sz=None, non_linearity=torch.sigmoid):
         super().__init__()
 
         # encoding path
@@ -81,7 +81,7 @@ class unetLite(nn.Module):
         self.conv2 = conv3d_bn_lrelu(filters[2], filters[1], kernel_size=(1,1,1), padding=(0,0,0))
         self.conv3 = conv3d_bn_lrelu(filters[3], filters[2], kernel_size=(1,1,1), padding=(0,0,0))
         self.conv4 = conv3d_bn_lrelu(filters[4], filters[3], kernel_size=(1,1,1), padding=(0,0,0))
-
+        self.non_linearity = non_linearity
         #initialization
         ortho_init(self)
 
@@ -119,5 +119,5 @@ class unetLite(nn.Module):
         x = x + z1
         x = self.layer1_D(x)
 
-        x = torch.sigmoid(x)
+        x = self.non_linearity(x)
         return x
