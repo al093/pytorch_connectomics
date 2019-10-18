@@ -57,13 +57,14 @@ def get_logger(args):
     writer = SummaryWriter(args.output + '/runs/' + date + '_' + time)
     return logger, writer
 
-def setup_model(args, device, model_io_size, exact=True, size_match=True, non_linearity=torch.sigmoid):
+def setup_model(args, device, model_io_size, exact=True, size_match=True, non_linearity=None):
 
     MODEL_MAP = {'unetv0': unetv0,
                  'unetv1': unetv1,
                  'unetv2': unetv2,
                  'unetv3': unetv3,
                  'unetLite': unetLite,
+                 'unetv3DualHead': unetv3DualHead,
                  'fpn': fpn}
 
     assert args.architecture in MODEL_MAP.keys()
@@ -72,7 +73,7 @@ def setup_model(args, device, model_io_size, exact=True, size_match=True, non_li
     else:
         model = MODEL_MAP[args.architecture](in_channel=args.in_channel, out_channel=args.out_channel, input_sz=model_io_size, batch_sz=args.batch_size, non_linearity=non_linearity)
     print('model: ', model.__class__.__name__)
-    # model = DataParallelWithCallback(model, device_ids=range(args.num_gpu))
+    model = DataParallelWithCallback(model, device_ids=range(args.num_gpu))
     model = model.to(device)
 
     if bool(args.load_model):

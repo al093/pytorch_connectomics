@@ -1,0 +1,1 @@
+-dn /n/pfister_lab2/Lab/alok/p7_new/segmentations/im_c1_500.h5

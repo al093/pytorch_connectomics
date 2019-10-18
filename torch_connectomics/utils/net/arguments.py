@@ -98,7 +98,7 @@ def get_args(mode='train'):
     if mode == 'test':
         parser.add_argument('-ta', '--test-augmentation',  type=my_bool, default=False,
                             help='Perform Data Augmentation during inference')
-        parser.add_argument('--scale-input', type=float, default='1.0',
+        parser.add_argument('-si', '--scale-input', type=float, default='1.0',
                             help='Scale factor for entire input volume')
         parser.add_argument('-is', '--initial-seg', type=str, default=None,
                             help='Initial segmentation volume (e.g. neurons)')
@@ -117,9 +117,12 @@ def get_args(mode='train'):
     args = parser.parse_args()
     return args
 
-def save_cmd_line(args):
+def save_cmd_line(args, filepath=None):
     # saving all command line args to file
-    with open('../experimentDetails/' + args.exp_name + '.txt', 'w') as f:
+    if not filepath:
+        filepath = '../experimentDetails/' + args.exp_name
+
+    with open(filepath + '.txt', 'w') as f:
         f.write(str(datetime.datetime.now()))
         f.write(os.uname()[1])
         f.write('\n'.join(sys.argv[1:]))

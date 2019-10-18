@@ -69,19 +69,48 @@ class WeightedMSE(nn.Module):
 
     def forward(self, input, target, weight=None):
         #_assert_no_grad(target)
-        return self.weighted_mse_loss(input, target, weight)  
+        return self.weighted_mse_loss(input, target, weight)
+
+class WeightedL1(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def weighted_l1_loss(self, input, target, weight):
+        s1 = torch.prod(torch.tensor(input.size()[2:]).float())
+        s2 = input.size()[0]
+        norm_term = (s1 * s2).cuda()
+        if weight is not None:
+            return torch.sum(weight*torch.abs(input - target)) / norm_term
+        else:
+            return torch.sum(torch.abs(input - target)) / norm_term
+
+    def forward(self, input, target, weight=None):
+        #_assert_no_grad(target)
+        return self.weighted_l1_loss(input, target, weight)
 
 class WeightedBCE(nn.Module):
     """Weighted binary cross-entropy.
     """
-    def __init__(self, size_average=True, reduce=True):
+    def __init__(self, size_average=True, reduce=True, focal_loss=False):
         super().__init__()
         self.size_average = size_average
         self.reduce = reduce
+        self.focal_loss = focal_loss
 
-    def forward(self, input, target, weight):
-        #_assert_no_grad(target)
-        return F.binary_cross_entropy(input, target, weight, reduction='mean')
+    def forward(self, input, target, weight=None):
+        if self.focal_loss: #TODO CHECK IF CORRECT
+            if input.max() > 1.0 or input.min() < 0.0:
+                print('Output Values are outside [1,0]. Clipping them')
+            fl_weight = torch.clamp(input, min=0.0, max=1.0)
+            fl_weight[target == 0] = 1 - fl_weight[target == 0]
+            fl_weight = torch.pow((1 - fl_weight), 2)
+
+            if weight is not None:
+                weight = fl_weight * weight
+            else:
+                weight = fl_weight
+
+        return F.binary_cross_entropy(input, target, weight.detach(), reduction='mean')
 
 # class WeightedCosineLoss(nn.Module):
 #     def __init__(self):
@@ -151,7 +180,7 @@ class AngularAndScaleLoss(nn.Module):
         # a_loss = self.angular_loss(input, target, scale_i, scale_t, angular_weight, norm_term)
         s_loss = self.scale_loss(scale_i, scale_t, angular_weight)
 
-        return self.alpha*a_loss + (1.0-self.alpha)*s_loss, a_loss, s_loss
+        return self.alpha*a_loss + (1.0-self.alpha)*s_loss, self.alpha*a_loss, (1.0-self.alpha)*s_loss
 
 #. 1. Regularization
 

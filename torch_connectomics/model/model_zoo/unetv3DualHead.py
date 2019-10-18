@@ -10,18 +10,8 @@ from torch_connectomics.model.blocks import *
 
 
 
-class unetv3(nn.Module):
-    """Lightweight U-net with residual blocks (based on [Lee2017]_ with modifications).
+class unetv3DualHead(nn.Module):
 
-    .. [Lee2017] Lee, Kisuk, Jonathan Zung, Peter Li, Viren Jain, and 
-        H. Sebastian Seung. "Superhuman accuracy on the SNEMI3D connectomics 
-        challenge." arXiv preprint arXiv:1706.00120, 2017.
-        
-    Args:
-        in_channel (int): number of input channels.
-        out_channel (int): number of output channels.
-        filters (list): number of filters at each u-net stage.
-    """
     def __init__(self, input_sz, batch_sz, in_channel=1, out_channel=3, filters=[8, 12, 16, 20, 24], non_linearity=(torch.sigmoid)):
         super().__init__()
 
@@ -57,13 +47,22 @@ class unetv3(nn.Module):
         )
 
         # decoding path
-        self.layer1_D = nn.Sequential(
+        self.layer1_D_1 = nn.Sequential(
             conv3d_bn_elu(in_planes=filters[0]+1, out_planes=filters[0],
                           kernel_size=(3,3,3), stride=1, padding=(1,1,1)),
             residual_block_2d(filters[0], filters[0], projection=False),
-            conv3d_bn_non(in_planes=filters[0], out_planes=out_channel, 
+            conv3d_bn_non(in_planes=filters[0], out_planes=out_channel-1,
                           kernel_size=(3,3,3), stride=1, padding=(1,1,1))
         )
+
+        self.layer1_D_2 = nn.Sequential(
+            conv3d_bn_elu(in_planes=filters[0]+1, out_planes=filters[0],
+                          kernel_size=(3,3,3), stride=1, padding=(1,1,1)),
+            residual_block_2d(filters[0], filters[0], projection=False),
+            conv3d_bn_non(in_planes=filters[0], out_planes=1,
+                          kernel_size=(3,3,3), stride=1, padding=(1,1,1))
+        )
+
         self.layer2_D = nn.Sequential(
             conv3d_bn_elu(in_planes=filters[1]+1, out_planes=filters[1],
                           kernel_size=(3,3,3), stride=1, padding=(1,1,1)),
@@ -159,17 +158,22 @@ class unetv3(nn.Module):
 
         x = self.up(self.conv1(x))
         x = x + z1
-        x = self.layer1_D(torch.cat((x, self.attention_layer1D[0:x.shape[0]]), 1))
+        out_1 = self.layer1_D_1(torch.cat((x, self.attention_layer1D[0:x.shape[0]]), 1))
+        out_2 = self.layer1_D_2(torch.cat((x, self.attention_layer1D[0:x.shape[0]]), 1))
 
         if self.non_linearity_2 is None:
-            out = self.non_linearity_1(x)
-        else:
-            out_1 = self.non_linearity_1(x[:, 0:-1])
-            out_2 = self.non_linearity_2(x[:, -1:])
+            out_1 = self.non_linearity_1(out_1)
             out = torch.cat((out_1, out_2), dim=1)
             out.retain_grad()
+        else:
+            out_1 = self.non_linearity_1(out_1)
+            out_2 = self.non_linearity_2(out_2)
+            out = torch.cat((out_1, out_2), dim=1)
+            out.retain_grad()
+
         if torch.isnan(out).any() or torch.isinf(out).any():
             import pdb; pdb.set_trace()
+
         return out
 
 def get_distance_feature(size):
@@ -181,19 +185,3 @@ def get_distance_feature(size):
     Y =  Y.astype(np.int32) - (size[1] // 2)
     X =  X.astype(np.int32) - (size[2] // 2)
     return np.sqrt(Z**2 + Y**2 + X**2, dtype=np.float32)
-
-def normalize(x):
-    norm = torch.sum(x**2, dim=1)
-    return x / (norm.unsqueeze(1) + 1e-10)
-
-def test():
-    model = unetv3()
-    print('model type: ', model.__class__.__name__)
-    num_params = sum([p.data.nelement() for p in model.parameters()])
-    print('number of trainable parameters: ', num_params)
-    x = torch.randn(8, 1, 4, 128, 128)
-    y = model(x)
-    print(x.size(), y.size())
-
-if __name__ == '__main__':
-    test()

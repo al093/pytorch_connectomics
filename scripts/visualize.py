@@ -2,6 +2,37 @@ import neuroglancer
 import numpy as np
 import h5py
 from scipy import ndimage
+
+
+def show_color(path, name, bounds=None, resolution=None):
+    global viewer
+    global res
+
+    if resolution is None:
+        r = res
+    else:
+        r = resolution
+    print('Loading: ' + path)
+    print('as: ' + name)
+    hf = h5py.File(path, 'r')
+    hf_keys = hf.keys()
+    print(list(hf_keys))
+    for key in list(hf_keys):
+        if bounds is not None:
+            data = np.array(hf[key][bounds[0][0]:bounds[0][1], bounds[1][0]:bounds[1][1], bounds[2][0]:bounds[2][1]])
+        else:
+            data = np.array(hf[key])
+
+        with viewer.txn() as s:
+            s.layers['image'] = neuroglancer.ImageLayer(source=neuroglancer.LocalVolume(data, voxel_size=res),
+                                                        shader = """void main()
+                                                                    { 
+                                                                        emitRGB(vec3(toNormalized(getDataValue(0)), 
+                                                                        toNormalized(getDataValue(1)), 
+                                                                        toNormalized(getDataValue(2)))); 
+                                                                    }""",)
+
+
 def show(path, name, bounds=None, is_image=False, resolution=None, normalize=False):
     global viewer
     global res
@@ -231,8 +262,9 @@ res = [6, 6, 30]
 D0 = '/n/pfister_lab2/Lab/alok/snemi/'
 show(D0 + 'train_image.h5', 'im', is_image=True)
 show(D0 + 'skeleton/train_labels_separated_disjointed_removedGlial.h5', 'gt-seg', is_image=False)
-show('/n/pfister_lab2/Lab/alok/snemi/skeleton/skeleton.h5', 'gt-skeleton')
-# show_grad_field('/n/pfister_lab2/Lab/alok/results/snemi/direction_0.h5', 'result_grad', D0 + 'train_labels_separated_disjointed.h5', 12, sparsity=1000, vec_lec=4.0)
+# show('/n/pfister_lab2/Lab/alok/snemi/skeleton/skeleton.h5', 'gt-skeleton')
+# show_grad_field('/n/pfister_lab2/Lab/alok/snemi/skeleton/grad_distance.h5', 'gt_grad', D0 + 'skeleton/train_labels_separated_disjointed_removedGlial.h5', 401, sparsity=1000, vec_lec=2.0)
+# show_grad_field('/n/pfister_lab2/Lab/alok/results/snemi/snemi_complete_AllAug/gradient_0.h5', 'result_grad', D0 + 'skeleton/train_labels_separated_disjointed_removedGlial.h5', 401, sparsity=1000, vec_lec=2.0)
 # # show('/n/pfister_lab2/Lab/alok/snemi/skeleton/temp/(0)seg_0_distance.h5', 'distanceTx', is_image=True, normalize=True)
 # show_grad_field('/n/pfister_lab2/Lab/alok/snemi/skeleton/temp/(0)seg_0_grad_distance.h5', 'grad', D0+'train_labels_separated_disjointed.h5', seg_id=14, sparsity=600, vec_lec=2)
 
@@ -325,6 +357,7 @@ show('/n/pfister_lab2/Lab/alok/snemi/skeleton/skeleton.h5', 'gt-skeleton')
 # show('/n/pfister_lab2/Lab/alok/results/p7/RotBlurEtcEtc/cc_div_direction_0.h5', 'result-div', is_image=False)
 
 # Train volume New P7
+# res = [6, 6, 6]
 # show('/n/pfister_lab2/Lab/alok/p7_new/segmentations/partial/im_0.h5', 'im', is_image=True)
 # show('/n/pfister_lab2/Lab/alok/p7_new/segmentations/partial/seg_0_separated_rem_border.h5', 'seg-gt', is_image=False)
 

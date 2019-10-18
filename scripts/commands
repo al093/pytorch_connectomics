@@ -1,0 +1,19 @@
+ipython --pdb train.py --  -o ~/pytorch_connectomics/outputs/p7/ -lr 0.2e-03 --iteration-total 60000 --iteration-save 500 -mi 64,128,128 -g 1 -c 0 -b 3 -ac unetv3 --argsFile trainArgsP7.txt --task 3 --out-channel 1 --in-channel 1 -en unetv3_LSTM_pretrained -lm True -pm ~/pytorch_connectomics/outputs/p7/unnamed_exp_47000.pth -el False
+
+
+ ipython --pdb trainSkeleton.py -- -o ~/pytorch_connectomics/outputs/p7/ -lr 0.2e-04 --iteration-total 60000 --iteration-save 500 -mi 64,128,128 -g 1 -c 12 -b 14 -ac unetv3 --argsFile trainArgsP7.txt --task 4 --out-channel 3 --in-channel 1 -en unetv3 -en unetv3_gradDistanceTx_im_RotFliBlurMissPart -el False
+
+
+python trainSkeleton.py -o ~/pytorch_connectomics/outputs/p7/ -lr 0.2e-04 --iteration-total 600000 --iteration-save 2000 -mi 64,128,128 -g 1 -c 10 -b 14 -ac unetv3 --argsFile trainArgsP7.txt --task 4 --out-channel 3 --in-channel 1 -en unetv3 -en unetv3_gradDistanceTx_im_RotFlipBlurGrayMissPart -lm True -pm ~/pytorch_connectomics/outputs/p7/unetv3_gradDistanceTx/unetv3_gradDistanceTx_16500.pth
+
+
+ ipython --pdb testSkeleton.py -- -o outputs/p7/result -mi 64,128,128 -g 1 -c 10 -b 12 -ac unetv3 -lm True -pm ~/pytorch_connectomics/outputs/p7/unetv3_gradDistanceTx/unetv3_gradDistanceTx_8000.pth --argsFile ~/pytorch_connectomics/scripts/testArgsP7.txt --task 4
+
+
+python trainSkeleton.py -o ~/pytorch_connectomics/outputs/snemi/ -lr 8e-05 --iteration-total 600000 --iteration-save 2000 -mi 64,128,128 -g 1 -c 10 -b 14 -ac unetv3 --argsFile ../.cmdArgs/trainArgsSNEMISkeleton.txt --task 4 --out-channel 1 --in-channel 1 -en unetv3 -en unetv3_im2Skel -lm True -tgdtx False
+
+
+--pdb testSkeleton.py -- -o /n/pfister_lab2/Lab/alok/results/snemi/ -mi 64,128,128 -g 1 -c 20 -b 20 -ac unetv3 -lm True -
+pm ~/pytorch_connectomics/outputs/snemi/snemi_complete_AllAug/snemi_complete_AllAug_22000.pth -lm_2 True -pm_2 ~/pytorch_connectomics/outputs/snemi/snemi_complete_
+AllAug/snemi_complete_AllAug_second_22000.pth --argsFile ../cmdArgs/testArgsSNEMISkeleton.txt --task 4 -ism True
+
