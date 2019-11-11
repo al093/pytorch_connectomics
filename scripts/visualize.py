@@ -2,9 +2,25 @@ import neuroglancer
 import numpy as np
 import h5py
 from scipy import ndimage
+import random
 
+def write_hf(data, name):
+    with h5py.File(name, 'w') as hf:
+        hf.create_dataset('main', data=data, compression='gzip')
 
-def show_color(path, name, bounds=None, resolution=None):
+def read_hf(name):
+    with h5py.File(name, 'r') as hf:
+        data = np.asarray(hf['main'])
+    return data
+
+def load_dict(h5_path):
+    f_dict = {}
+    h_file = h5py.File(h5_path, 'r')
+    for key in list(h_file):
+        f_dict[int(key)] = np.asarray(h_file[key])
+    return f_dict
+
+def show_grad_as_color(path, name, bounds=None, resolution=None):
     global viewer
     global res
 
@@ -18,13 +34,16 @@ def show_color(path, name, bounds=None, resolution=None):
     hf_keys = hf.keys()
     print(list(hf_keys))
     for key in list(hf_keys):
+
         if bounds is not None:
             data = np.array(hf[key][bounds[0][0]:bounds[0][1], bounds[1][0]:bounds[1][1], bounds[2][0]:bounds[2][1]])
         else:
             data = np.array(hf[key])
 
+        data = grad_to_RGB(data)
+
         with viewer.txn() as s:
-            s.layers['image'] = neuroglancer.ImageLayer(source=neuroglancer.LocalVolume(data, voxel_size=res),
+            s.layers[name] = neuroglancer.ImageLayer(source=neuroglancer.LocalVolume(data, voxel_size=res),
                                                         shader = """void main()
                                                                     { 
                                                                         emitRGB(vec3(toNormalized(getDataValue(0)), 
@@ -32,6 +51,18 @@ def show_color(path, name, bounds=None, resolution=None):
                                                                         toNormalized(getDataValue(2)))); 
                                                                     }""",)
 
+def grad_to_RGB(grad_field):
+    #shape of grad_field is 3, Z, Y, X
+    norm = np.sqrt(np.sum(grad_field**2, axis=1, keepdims=True))
+    mask = (norm < 1e-5)
+    loc_mask = np.nonzero(mask)
+
+    norm[norm <= 1.0] = 1.0
+    n_grad_field = grad_field / (2.0 * norm)
+    n_grad_field += 0.5
+
+    n_grad_field[:, loc_mask[0], loc_mask[1], loc_mask[2]] = 0.0
+    return n_grad_field
 
 def show(path, name, bounds=None, is_image=False, resolution=None, normalize=False):
     global viewer
@@ -51,7 +82,7 @@ def show(path, name, bounds=None, is_image=False, resolution=None, normalize=Fal
             data = np.array(hf[key][bounds[0][0]:bounds[0][1], bounds[1][0]:bounds[1][1], bounds[2][0]:bounds[2][1]])
         else:
             data = np.array(hf[key])
-        
+
         if not is_image:
             volume_type = 'segmentation'
         else:
@@ -97,6 +128,88 @@ def show_vec(direction_vecs_path, vec_lec, name):
                     ))
                 line_id += 1
 
+def show_lines(filepath, name):
+    global viewer
+    global res
+    h5file = h5py.File(filepath, 'r')
+    with viewer.txn() as s:
+        s.layers.append(name='start_' + name,
+                        layer=neuroglancer.AnnotationLayer(voxelSize=res))
+        start = s.layers[-1].annotations
+
+        s.layers.append(name='end_' + name,
+                        layer=neuroglancer.AnnotationLayer(voxelSize=res))
+        end = s.layers[-1].annotations
+        line_id = 0
+        for key in h5file.keys():
+            data = np.asarray(h5file[key])
+            start.append(
+                neuroglancer.LineAnnotation(
+                    id=line_id,
+                    point_a=data[2::-1],
+                    point_b=data[5:2:-1]))
+            end.append(
+                neuroglancer.PointAnnotation(
+                    id=line_id,
+                    point=data[0:3]))
+            line_id += 1
+
+def show_matches_gt_npy(filepath, name):
+    global viewer
+    global res
+    with viewer.txn() as s:
+        npf = np.load(filepath)
+        keys = npf.item().keys()
+        for key in keys:
+            l = np.asarray(npf.item().get(key))
+
+            s.layers.append(name='start_' + name,
+                            layer=neuroglancer.AnnotationLayer(voxelSize=res))
+            start = s.layers[-1].annotations
+
+            s.layers.append(name='end_' + name,
+                            layer=neuroglancer.AnnotationLayer(voxelSize=res))
+            end = s.layers[-1].annotations
+            id = -1
+            for data in l:
+                id += 1
+                start.append(
+                    neuroglancer.LineAnnotation(
+                        id=id,
+                        point_a=data[2][::-1],
+                        point_b=data[3][::-1]))
+                end.append(
+                    neuroglancer.PointAnnotation(
+                        id=id,
+                        point=data[2][::-1]))
+
+
+def show_matches_pred_npy(filepath, name, weight_th=0.80):
+    global viewer
+    global res
+    with viewer.txn() as s:
+        results = np.load(filepath)
+
+        s.layers.append(name='start_' + name,
+                        layer=neuroglancer.AnnotationLayer(voxelSize=res))
+        start = s.layers[-1].annotations
+
+        s.layers.append(name='end_' + name,
+                        layer=neuroglancer.AnnotationLayer(voxelSize=res))
+        end = s.layers[-1].annotations
+        id = -1
+        for data in results:
+            if float(data[5]) > weight_th:
+                id += 1
+                start.append(
+                    neuroglancer.LineAnnotation(
+                        id=id,
+                        point_a=data[2][::-1],
+                        point_b=data[3][::-1]))
+                end.append(
+                    neuroglancer.PointAnnotation(
+                        id=id,
+                        point=data[2][::-1]))
 
 def show_grad(file_path, name, vec_lec=1, downsample_fac=1):
     global viewer
@@ -132,7 +245,7 @@ def show_grad_field(file_path, name, seg_file=None, seg_id=None, vec_lec=1, upsa
     global viewer
     global res
     h5file = h5py.File(file_path, 'r')
-    
+
     if seg_file is not None:
         h5file_seg = h5py.File(seg_file, 'r')
         segs = np.asarray(h5file_seg['main'])
@@ -177,17 +290,41 @@ def show_grad_field(file_path, name, seg_file=None, seg_id=None, vec_lec=1, upsa
                 line_id += 1
 
 
-def show_points(points_file, array_size, name):
+def show_points(points_file, name, resolution=None):
     global viewer
     global res
+    r = resolution if resolution else res
     h5file = h5py.File(points_file, 'r')
-    for key in h5file.keys():
-        data = h5file[key]
-        ar = np.zeros(array_size, dtype=np.uint32)
-        ar[tuple(data[:, 0]), tuple(data[:, 1]), tuple(data[:, 2])] = 1
-        # for idx in range(data.shape[0]):
-        #     ar[data[idx, 0]:data[idx, 0]+4, data[idx, 1]-3:data[idx, 1]+4, data[idx, 2]-3:data[idx, 2]+4] = 1
-        show_array(ar, name, resolution=res)
+    with viewer.txn() as s:
+        for key in h5file.keys():
+            s.layers.append(name=name,
+                            layer=neuroglancer.AnnotationLayer(voxelSize=r))
+            points_layer = s.layers[-1].annotations
+
+            points_ar = np.array(h5file[key])
+            points = [neuroglancer.PointAnnotation(point=points_ar[i, ::-1], id=i) for i in range(points_ar.shape[0])]
+            points_layer.extend(points)
+
+def show_ends_junctions(points_file, name):
+    global viewer
+    global res
+    with h5py.File(points_file, 'r') as h5file:
+        with viewer.txn() as s:
+            s.layers.append(name='ends-' + name,
+                            layer=neuroglancer.AnnotationLayer(voxelSize=res))
+            ends = s.layers[-1].annotations
+
+            s.layers.append(name='junc-' + name,
+                            layer=neuroglancer.AnnotationLayer(voxelSize=res))
+            junctions = s.layers[-1].annotations
+            id = -1
+            for key in h5file.keys():
+                data = np.asarray(h5file[key])
+                if key[0] == 'e': point = ends
+                else: point = junctions
+                for j in range(data.shape[0]):
+                    id += 1
+                    point.append(neuroglancer.PointAnnotation(point=data[j, ::-1], id=id))
 
 def show_array(array, name, bounds=None, resolution=None):
     global viewer
@@ -251,23 +388,90 @@ def show_with_junctions(data_path, name, resolution=None):
                 voxel_size=r,
             ))
 
+def show_zebrafinch(res):
+    global viewer
+    Dd='precomputed://gs://j0126-nature-methods-data/GgwKmcKgrcoNxJccKuGIzRnQqfit9hnfK1ctZzNbnuU/rawdata_realigned'
+    with viewer.txn() as s:
+        s.layers['zf-im'] = neuroglancer.ImageLayer(source=Dd)
+
+class SkeletonSource(neuroglancer.skeleton.SkeletonSource):
+    def __init__(self, vertices, edges):
+        super(SkeletonSource, self).__init__()
+
+        self.vertex_attributes['color'] = neuroglancer.skeleton.VertexAttributeInfo(
+            data_type=np.float32,
+            num_components=1,
+        )
+
+        self.vertices = vertices
+        self.edges = edges
+
+    def get_skeleton(self, i):
+        if i > len(self.vertices):
+            return None
+        else:
+            color = np.full(self.vertices[i].shape[0], float(i)/len(self.vertices), dtype=np.float32)
+            return neuroglancer.skeleton.Skeleton(
+                vertex_positions=self.vertices[i],
+                edges=self.edges[i].flatten(),
+                vertex_attributes=dict(color=color))
+
+def show_skeleton(h5file, name='skeletons', resolution=None):
+    global viewer
+    global res
+    r = resolution if resolution else res
+    hf = h5py.File(h5file, 'r')
+    hf_groups = hf.keys()
+    vertices = []
+    edges = []
+    for g in hf_groups:
+        vertices.append(np.asarray(hf.get(g)['vertices'])[:, ::-1] * np.array(res))
+        if 'edges' in hf.get(g).keys():
+            edges.append(np.asarray(hf.get(g)['edges']))
+        else:
+            edges.append(np.array([], dtype=np.uint16))
+        skeletons = SkeletonSource(vertices, edges)
+
+    with viewer.txn() as s:
+        s.layers.append(
+            name=name,
+            layer=neuroglancer.SegmentationLayer(
+                source=neuroglancer.LocalVolume(data=np.zeros((1,1,1)),
+                                                voxel_size=r,
+                                                skeletons=skeletons),
+                skeleton_shader='void main() { emitRGB(colormapJet(color[0])); }',
+                selected_alpha=0,
+                not_selected_alpha=0,
+            ))
 
 ip='localhost' # or public IP of the machine for sharable display
-port=18779 # change to an unused port number
+port=18771 # change to an unused port number
 neuroglancer.set_server_bind_address(bind_address=ip,bind_port=port)
 viewer=neuroglancer.Viewer()
 
 #### SNEMI #####
 res = [6, 6, 30]
-D0 = '/n/pfister_lab2/Lab/alok/snemi/'
-show(D0 + 'train_image.h5', 'im', is_image=True)
-show(D0 + 'skeleton/train_labels_separated_disjointed_removedGlial.h5', 'gt-seg', is_image=False)
+# D0 = '/n/pfister_lab2/Lab/alok/snemi/'
+# show(D0 + 'train_image.h5', 'im', is_image=True)
+# show(D0 + 'skeleton/train_labels_separated_disjointed_removedGlial.h5', 'gt-seg', is_image=False)
+# show('/n/pfister_lab2/Lab/alok/results/snemi/test_context_L1_22000_14000_denseSupervision/1x/splitted.h5', 'split', is_image=False)
 # show('/n/pfister_lab2/Lab/alok/snemi/skeleton/skeleton.h5', 'gt-skeleton')
 # show_grad_field('/n/pfister_lab2/Lab/alok/snemi/skeleton/grad_distance.h5', 'gt_grad', D0 + 'skeleton/train_labels_separated_disjointed_removedGlial.h5', 401, sparsity=1000, vec_lec=2.0)
 # show_grad_field('/n/pfister_lab2/Lab/alok/results/snemi/snemi_complete_AllAug/gradient_0.h5', 'result_grad', D0 + 'skeleton/train_labels_separated_disjointed_removedGlial.h5', 401, sparsity=1000, vec_lec=2.0)
 # # show('/n/pfister_lab2/Lab/alok/snemi/skeleton/temp/(0)seg_0_distance.h5', 'distanceTx', is_image=True, normalize=True)
 # show_grad_field('/n/pfister_lab2/Lab/alok/snemi/skeleton/temp/(0)seg_0_grad_distance.h5', 'grad', D0+'train_labels_separated_disjointed.h5', seg_id=14, sparsity=600, vec_lec=2)
 
+# Validation
+rp = '/n/pfister_lab2/Lab/alok/results/snemi/snemi_context_pretrained_AllAug_closeCtxWt_elastic/'
+show('/n/pfister_lab2/Lab/alok/snemi/skeleton/val/val_image_half.h5', 'im', is_image=True)
+show('/n/pfister_lab2/Lab/alok/snemi/skeleton/val/val_labels_half.h5', 'val', is_image=False)
+
+# Zebra Finch Skeletons
+# res = [9, 9, 20]
+# show_zebrafinch(res)
+# show_skeleton('/n/pfister_lab2/Lab/vcg_connectomics/zebraFinch/skel/valid_12/skeletons.h5', 'skel')
+# show_skeleton('/n/pfister_lab2/Lab/vcg_connectomics/zebraFinch/skel/valid_12/skeletonsData.h5', 'skel-interpolated')
+# show_skeleton('/n/pfister_lab2/Lab/vcg_connectomics/zebraFinch/skel/valid_12/skeletonsData1.h5', 'skel-context')
 
 ##### JWR #####
 # res = [120, 128, 128]
