@@ -76,7 +76,7 @@ class Rotate(DataAugment):
 
         output = {}
         for key, val in data.items():
-            if key == 'label' or key == 'skeleton':
+            if key == 'label' or key == 'skeleton' or key == 'weight' or key == 'context':
                 output[key] = self.rotate(val, M, self.label_interpolation)
             elif key == 'flux':
                 r_img = self.rotate(val, M, self.image_interpolation)

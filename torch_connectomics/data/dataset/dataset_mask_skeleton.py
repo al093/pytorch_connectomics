@@ -6,14 +6,16 @@ import scipy
 from scipy.ndimage import label as scipy_label
 import scipy.ndimage.morphology as morphology
 from scipy import spatial
+from scipy import ndimage
 import skimage
+import warnings
 
 from .misc import crop_volume, crop_volume_mul, rebalance_binary_class, rebalance_skeleton_weight
 from torch_connectomics.utils.vis import save_data
 
 class MaskAndSkeletonDataset(torch.utils.data.Dataset):
     def __init__(self,
-                 volume, label=None, skeleton=None, flux=None,
+                 volume, label=None, skeleton=None, flux=None, weight=None,
                  sample_input_size=(8, 64, 64),
                  sample_label_size=None,
                  sample_stride=(1, 1, 1),
@@ -31,6 +33,7 @@ class MaskAndSkeletonDataset(torch.utils.data.Dataset):
         self.label = label
         self.skeleton = skeleton
         self.flux = flux
+        self.weight = weight
         self.augmentor = augmentor  # data augmentation
 
         # samples, channels, depths, rows, cols
@@ -45,19 +48,14 @@ class MaskAndSkeletonDataset(torch.utils.data.Dataset):
         self.sample_num_a = np.sum(self.sample_num)
         self.sample_num_c = np.cumsum([0] + list(self.sample_num))
 
-        # specifies if there are multiple segments in the GT, if yes then we need to keep only the central segment while calling get_item
-        self.multisegment_gt = multisegment_gt
-
         self.dilation_sel = scipy.ndimage.generate_binary_structure(3, 1)
-        self.minimum_seg_size = np.prod(self.sample_input_size) // 100
+        self.minimum_seg_size = np.prod(self.sample_input_size) // 500
 
     def __len__(self):  # number of seed points
         return self.sample_num_a
 
     def __getitem__(self, index):
         vol_size = self.sample_input_size
-        valid_mask = None
-
         # Train Mode Specific Operations:
         if self.mode == 'train':
             is_good = False
@@ -77,13 +75,18 @@ class MaskAndSkeletonDataset(torch.utils.data.Dataset):
                 out_input = out_input.copy()
                 out_flux = out_flux.copy()
 
+                if self.weight:
+                    pre_weight = crop_volume(self.weight[pos[0]], vol_size, pos[1:])
+                    pre_weight = pre_weight.astype(np.float32, copy=True)
+
                 # Augmentations
                 if self.augmentor is not None:  # augmentation
                     data = {'image':out_input, 'flux':out_flux.astype(np.float32),
-                            'skeleton':out_skeleton.astype(np.float32), 'label':out_label.astype(np.float32)}
+                            'skeleton':out_skeleton.astype(np.float32), 'context':out_label.astype(np.float32), 'weight':pre_weight}
                     augmented = self.augmentor(data, random_state=seed)
                     out_input, out_flux = augmented['image'], augmented['flux']
-                    out_skeleton, out_label = augmented['skeleton'], augmented['label']
+                    out_skeleton, out_label = augmented['skeleton'], augmented['context']
+                    pre_weight = augmented['weight']
 
                     out_input = out_input.astype(np.float32)
                     out_flux = out_flux.astype(np.float32)
@@ -102,10 +105,13 @@ class MaskAndSkeletonDataset(torch.utils.data.Dataset):
 
             #dilating skeletons for better learning
             out_skeleton = ((out_skeleton > 0) * mask)
-            out_skeleton = morphology.binary_dilation(out_skeleton, structure=np.ones((3, 3, 3)), iterations=1)
-
-            # binarize the label volume
-            # out_seg_2d = self.compute_2d_seg(out_label)
+            # out_skeleton_dilated = morphology.binary_dilation(out_skeleton, structure=np.ones((3, 3, 3)), iterations=1)
+            out_skeleton_blurred = ndimage.morphology.distance_transform_cdt(~out_skeleton)
+            distance_th = 4.0
+            dis_mask = (out_skeleton_blurred <= distance_th)
+            out_skeleton_blurred = (distance_th - out_skeleton_blurred).astype(np.int64)
+            out_skeleton_blurred[~dis_mask] = 0.0
+            out_skeleton_blurred[~mask] = 0.0
 
         # Test Mode Specific Operations:
         elif self.mode == 'test':
@@ -116,31 +122,43 @@ class MaskAndSkeletonDataset(torch.utils.data.Dataset):
 
         if self.mode == 'train':
             # Rebalancing weights for Flux
-            mask = morphology.binary_dilation(out_label > 0, structure=np.ones((1, 3, 3)))
-            flux_weight = self.compute_flux_weights(mask, out_skeleton)
+            # TODO remove this
+            # mask_dilated = morphology.binary_dilation(mask, structure=np.ones((1, 3, 3)), iterations=5)
+            # flux_weight = self.compute_flux_weights(mask_dilated, mask, alpha=1.0)
+            flux_weight = self.compute_flux_weights(np.ones_like(mask), mask, alpha=1.0)
+            # close_context_weight = self.compute_close_context_weights(out_label, alpha=4.0)
+            flux_weight *= pre_weight
             flux_weight = torch.from_numpy(flux_weight)
             flux_weight = flux_weight.unsqueeze(0)
+            # boundary_weight = self.compute_flux_weights(mask|boundary_mask, boundary_mask, alpha=0.25)
+            # boundary_weight = torch.from_numpy(boundary_weight)
+            # boundary_weight = boundary_weight.unsqueeze(0)
 
         out_input = torch.from_numpy(out_input)
         out_input = out_input.unsqueeze(0)
 
         if out_skeleton is not None:
-            out_skeleton = torch.from_numpy(out_skeleton.astype(np.float32))
-            out_skeleton = out_skeleton.unsqueeze(0)
+            out_skeleton_blurred = torch.from_numpy(out_skeleton_blurred.astype(np.int64))
+            out_skeleton_blurred = out_skeleton_blurred
+
+            # boundary_mask = torch.from_numpy(boundary_mask.astype(np.float32))
+            # boundary_mask = boundary_mask.unsqueeze(0)
+
         if out_flux is not None:
             out_flux = torch.from_numpy(out_flux).float()
         if out_label is not None:
             out_label = torch.from_numpy(out_label.astype(np.float32))
             out_label = out_label.unsqueeze(0)
-        # if out_seg_2d is not None:
-        #     out_seg_2d = torch.from_numpy(out_seg_2d.astype(np.float32))
-        #     out_seg_2d = out_seg_2d.unsqueeze(0)
 
         if self.mode == 'train':
             # Rebalancing weights for skeleton and non skel pixels
-            weight = rebalance_skeleton_weight(skeleton_mask=out_skeleton, seg_mask=torch.from_numpy(mask).unsqueeze(0).float())
-
-            return pos, out_input, out_label, out_flux, out_skeleton, weight, flux_weight
+            mask = torch.from_numpy(mask).unsqueeze(0).float()
+            # TODO may Remove this later. Added for uniform weighting outside context
+            skeleton_weight = rebalance_skeleton_weight(skeleton_mask=mask, seg_mask=torch.ones_like(mask), alpha=1.0)
+            skeleton_weight *= torch.from_numpy(pre_weight)
+            #mask = morphology.binary_dilation(mask, structure=np.ones((1, 3, 3)), iterations=2)
+            # skeleton_weight = torch.from_numpy(mask).unsqueeze(0).float()
+            return pos, out_input, out_label, out_flux, out_skeleton_blurred, skeleton_weight, flux_weight
 
         else:
             return pos, out_input
@@ -151,10 +169,9 @@ class MaskAndSkeletonDataset(torch.utils.data.Dataset):
     def get_pos_seed(self, seed, offset=None):
         pos = [0, 0, 0, 0]
         # pick a dataset
-        did = self.get_pos_dataset(seed.randint(self.sample_num_a))
+        did = np.random.choice(len(self.seed_points))  # sample from all datasets equally
         pos[0] = did
-        # pick a mask bin
-        # p = [0.45, 0.15, 0.10, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
+
         size_bin = np.random.choice(len(self.seed_points[did]))
         # pick a index
         idx = np.random.randint(self.seed_points[did][size_bin].shape[0])
@@ -181,27 +198,6 @@ class MaskAndSkeletonDataset(torch.utils.data.Dataset):
     def keep_seg(self, label, seg_id_to_keep):
         return label == seg_id_to_keep
 
-    def remove_non_central_seg(self, label):
-        out_label, _ = scipy_label(label)
-
-        if out_label[tuple(self.half_input_sz)] == 0:
-            print('Center pixel is not inside 2nd inference\'s GT segmentation.')
-            print('This probably happened due to augmentation')
-            # Find nearby segment id and use that for now
-            seg_ids = np.unique(out_label[self.half_input_sz[0]-5:self.half_input_sz[0]+6,
-                                self.half_input_sz[1]-5:self.half_input_sz[1]+6,
-                                self.half_input_sz[2]-5:self.half_input_sz[2]+6])
-            seg_ids = seg_ids[seg_ids > 0]
-            if seg_ids.shape[0] > 1:
-                print('More than 1 disconnected segments near the center. This should have never happened!')
-                print('Using the first segment')
-            c_seg_id = seg_ids[0]
-            out_label = (out_label == c_seg_id)
-        else:
-            out_label = (out_label == out_label[tuple(self.half_input_sz)])
-
-        return out_label
-
     def compute_2d_seg(self, seg_3d):
         seg_2d = (seg_3d > 0).astype(np.uint8)
         return seg_2d
@@ -225,26 +221,30 @@ class MaskAndSkeletonDataset(torch.utils.data.Dataset):
 
         return direction
 
-    # def compute_skeleton(self, segment):
-    #     seg_d = scipy.ndimage.zoom(segment, zoom=[1, 0.20, 0.20], order=3)
-    #     seg_d = (seg_d > 0)
-    #     down_res = seg_d.shape
-    #
-    #     for _ in range(3):
-    #         seg_d = scipy.ndimage.morphology.binary_dilation(seg_d, structure=self.dilation_sel)
-    #
-    #     # Computing Skeleton
-    #     skeleton_downsampled = skimage.morphology.skeletonize_3d(seg_d)
-    #
-    #     # nodes = np.stack(skel_object.get_nodes()).astype(np.uint16)
-
-    def compute_flux_weights(self, label, skeleton):
+    def compute_flux_weights(self, label, skeleton, alpha=1.0):
         weight = np.zeros_like(label, dtype=np.float32)
         total_vol = float(label.sum())
         skl_vol = float((label*skeleton).sum())
         non_skl_vol = total_vol - skl_vol
-        weight[skeleton] = non_skl_vol/skl_vol
+        weight[skeleton] = alpha*non_skl_vol/(skl_vol + 1e-10)
+        np.clip(weight, 0.0, 5e2, out=weight)
         weight[label & ~skeleton] = 1.0
+        return weight
+
+    def compute_close_context_weights(self, context, alpha=2.0):
+        weight = np.ones_like(context, dtype=np.float32)
+        context_padded = np.pad(context.astype(np.float32), ((1, 1), (5, 5), (5, 5)), mode='reflect')
+        context_padded[context_padded==0] = np.nan
+
+        sliding_view = skimage.util.view_as_windows(context_padded, (3, 11, 11), step=1)
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore')
+            min_vals = np.nanmin(sliding_view, axis=(-1, -2, -3))
+            max_vals = np.nanmax(sliding_view, axis=(-1, -2, -3))
+            multi_mask = (min_vals != max_vals)
+            multi_mask[np.isnan(min_vals)] = False
+        multi_mask = morphology.binary_dilation(multi_mask, structure=np.ones((3, 5, 5)))
+        weight[multi_mask] = alpha
         return weight
 
     def relabel_disconnected(self, label):
@@ -272,7 +272,6 @@ class MaskAndSkeletonDataset(torch.utils.data.Dataset):
                     max_seg_id += 1
         return label_new, old_seg_ref, True
 
-
     def remove_small_seg(self, label):
         seg_ids = np.unique(label)
         seg_ids = seg_ids[seg_ids>0]
@@ -285,4 +284,3 @@ class MaskAndSkeletonDataset(torch.utils.data.Dataset):
             return False
         else:
             return True
-

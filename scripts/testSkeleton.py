@@ -4,14 +4,16 @@ import torch
 import h5py, time, itertools, datetime
 from torch_connectomics.utils.net import *
 from torch_connectomics.utils.vis import visualize_aff
+import re
 
-def test(args, test_loader, model, model_2, device, model_io_size, volume_shape, pad_size):
+def test(args, test_loader, model, model_2, device, model_io_size, volume_shape, pad_size, result_path, result_file_pf):
     # switch to eval mode
     model.eval()
     volume_id = 0
     ww = blend(model_io_size)
 
     result_grad = [np.stack([np.zeros(x, dtype=np.float32) for _ in range(3)]) for x in volume_shape]
+    result_side = [np.stack([np.zeros(x, dtype=np.float32) for _ in range(1)]) for x in volume_shape]
     if model_2 is not None:
         result_skel = [np.stack([np.zeros(x, dtype=np.float32) for _ in range(1)]) for x in volume_shape]
     weight = [np.zeros(x, dtype=np.float32) for x in volume_shape]
@@ -25,36 +27,69 @@ def test(args, test_loader, model, model_2, device, model_io_size, volume_shape,
             # for gpu computing
             volume = volume.to(device)
 
-            output_grad = model(volume)
-            if model_2 is not None:
-                output_skel = model_2(output_grad)
+            output = model(volume)
+            if model_2:
+                output_skel = model_2(output)
 
             sz = tuple([3]+list(model_io_size))
-            sz_skel = tuple([1] + list(model_io_size))
-            for idx in range(output_grad.size()[0]):
+            sz_side = tuple([1] + list(model_io_size))
+            for idx in range(output.size()[0]):
                 st = pos[idx]
                 result_grad[st[0]][:, st[1]:st[1] + sz[1], st[2]:st[2] + sz[2], st[3]:st[3] + sz[3]] \
-                    += output_grad[idx].cpu().detach().numpy().reshape(sz) * np.expand_dims(ww, axis=0)
+                    += output[idx, 0:3].cpu().detach().numpy().reshape(sz) * np.expand_dims(ww, axis=0)
+
+                result_side[st[0]][:, st[1]:st[1] + sz[1], st[2]:st[2] + sz[2], st[3]:st[3] + sz[3]] \
+                    += output[idx, 3].cpu().detach().numpy().reshape(sz_side) * np.expand_dims(ww, axis=0)
+
                 weight[st[0]][st[1]:st[1] + sz[1], st[2]:st[2] + sz[2], st[3]:st[3] + sz[3]]\
                     += ww
-                if model_2 is not None:
+                if model_2:
                     result_skel[st[0]][:, st[1]:st[1] + sz[1], st[2]:st[2] + sz[2], st[3]:st[3] + sz[3]] \
-                        += output_skel[idx].cpu().detach().numpy().reshape(sz_skel) * np.expand_dims(ww, axis=0)
+                        += output_skel[idx].cpu().detach().numpy().reshape(sz_side) * np.expand_dims(ww, axis=0)
 
     end = time.time()
     print("prediction time:", (end-start))
 
     for vol_id in range(len(result_grad)):
+        result_grad[vol_id] = result_grad[vol_id] / (weight[vol_id] + np.finfo(np.float32).eps)
         data_grad = result_grad[vol_id]
-
         data_grad = data_grad[:,
                     pad_size[0]:-pad_size[0],
                     pad_size[1]:-pad_size[1],
                     pad_size[2]:-pad_size[2]]
 
-        hf = h5py.File(args.output + '/skeleton_' + str(vol_id) + '.h5', 'w')
+        gradient_path = result_path + 'gradient_' + str(vol_id) + '_' + result_file_pf + '.h5'
+        hf = h5py.File(gradient_path, 'w')
         hf.create_dataset('main', data=data_grad, compression='gzip')
         hf.close()
+        print('Gradient stored at: \n' + gradient_path)
+
+        result_side[vol_id] = result_side[vol_id] / (weight[vol_id] + np.finfo(np.float32).eps)
+        data_side = result_side[vol_id]
+        data_side = data_side[:,
+                    pad_size[0]:-pad_size[0],
+                    pad_size[1]:-pad_size[1],
+                    pad_size[2]:-pad_size[2]]
+
+        side_path = result_path + 'side_' + str(vol_id) + '_' + result_file_pf + '.h5'
+        hf = h5py.File(side_path, 'w')
+        hf.create_dataset('main', data=data_side, compression='gzip')
+        hf.close()
+        print('Second side output stored at: \n' + side_path)
+
+        if model_2:
+            result_skel[vol_id] = result_skel[vol_id] / (weight[vol_id] + np.finfo(np.float32).eps)
+            data_skel = result_skel[vol_id]
+            data_skel = data_skel[:,
+                    pad_size[0]:-pad_size[0],
+                    pad_size[1]:-pad_size[1],
+                    pad_size[2]:-pad_size[2]]
+
+            skeleton_path = result_path + 'skeleton_' + str(vol_id) + '.h5'
+            hf = h5py.File(skeleton_path, 'w')
+            hf.create_dataset('main', data=data_skel, compression='gzip')
+            hf.close()
+            print('Skeleton stored at: \n' + skeleton_path)
 
 def get_augmented(volume):
     # perform 16 Augmentations as mentioned in Kisuks thesis
@@ -120,25 +155,33 @@ def main():
     test_loader, volume_shape, pad_size = get_input(args, model_io_size, 'test')
 
     print('2. setup model')
-    model, _ = setup_model(args, device, model_io_size=model_io_size, exact=True, non_linearity=torch.tanh)
+    model = setup_model(args, device, model_io_size=model_io_size, exact=True, non_linearity=(torch.tanh, torch.sigmoid))
 
-    if not args.only_gradients:
+    if args.init_second_model:
         class ModelArgs(object):
             pass
         args2 = ModelArgs()
         args2.task = args.task
+        args2.num_gpu = args.num_gpu
         args2.architecture = 'unetv3'
         args2.pre_model = args.pre_model_second
         args2.load_model = args.load_model_second
         args2.in_channel = 3
         args2.out_channel = 1
         args2.batch_size = args.batch_size
-        model_2 = setup_model(args2, device, model_io_size=model_io_size, exact=True, non_linearity=torch.sigmoid)
+        model_2 = setup_model(args2, device, model_io_size=model_io_size, exact=True, non_linearity=(torch.sigmoid))
     else:
         model_2 = None
 
+    result_path = args.output + '/' + os.path.basename(os.path.dirname(args.pre_model)) + '/'
+    result_file_pf = re.split('_|.pth', os.path.basename(args.pre_model))[-2]
+    print(result_file_pf)
+    if not os.path.isdir(result_path):
+        os.makedirs(result_path)
+    save_cmd_line(args, result_path + 'commandArgs.txt')  # Saving the command line args with machine name and time for later reference
+
     print('3. start testing')
-    test(args, test_loader, model, model_2, device, model_io_size, volume_shape, pad_size)
+    test(args, test_loader, model, model_2, device, model_io_size, volume_shape, pad_size, result_path, result_file_pf)
   
     print('4. finish testing')
 

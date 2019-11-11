@@ -58,18 +58,20 @@ class WeightedMSE(nn.Module):
     def __init__(self):
         super().__init__()
 
-    def weighted_mse_loss(self, input, target, weight):
-        s1 = torch.prod(torch.tensor(input.size()[2:]).float())
-        s2 = input.size()[0]
-        norm_term = (s1 * s2).cuda()
+    def weighted_mse_loss(self, input, target, weight, norm_term):
+        if norm_term is None:
+            s1 = torch.prod(torch.tensor(input.size()[2:]).float())
+            s2 = input.size()[0]
+            norm_term = (s1 * s2).cuda()
+
         if weight is not None:
             return torch.sum(weight * (input - target) ** 2) / norm_term
         else:
             return torch.sum((input - target) ** 2) / norm_term
 
-    def forward(self, input, target, weight=None):
+    def forward(self, input, target, weight=None, norm_term=None):
         #_assert_no_grad(target)
-        return self.weighted_mse_loss(input, target, weight)
+        return self.weighted_mse_loss(input, target, weight, norm_term)
 
 class WeightedL1(nn.Module):
     def __init__(self):
@@ -141,7 +143,6 @@ class AngularAndScaleLoss(nn.Module):
         scale = torch.sqrt((input**2).sum(dim=1, keepdim=True))
         return scale
 
-
     def angular_loss(self, input, target, norm_i, norm_t, weight, batch_norm_fac):
         inner_p = (input*target).sum(dim=1, keepdim=True)
         den = norm_i*norm_t + 1e-10
@@ -161,24 +162,21 @@ class AngularAndScaleLoss(nn.Module):
 
         return loss.sum()/batch_norm_fac
 
-    def scale_loss(self, norm_i, norm_t, weight):
-        return self.w_mse(norm_i, norm_t, weight)
+    def scale_loss(self, norm_i, norm_t, weight, norm_term):
+        return self.w_mse(norm_i, norm_t, weight, norm_term)
 
-    def forward(self, input, target, scale_weight=None, angular_weight=None):
+    def forward(self, input, target, weight):
         scale_i = self.get_norm(input)
         scale_t = self.get_norm(target)
-        s1 = torch.prod(torch.tensor(input.size()[2:]).float())
-        s2 = input.size()[0]
-        norm_term = (s1 * s2).cuda()
 
         cosine_similarity = self.cos(input, target)
         cosine_loss = 1 - cosine_similarity
-        if angular_weight is not None:
-            cosine_loss = angular_weight*cosine_loss
+        cosine_loss = weight*cosine_loss
+        norm_term = (weight>0).sum()
         a_loss = cosine_loss.sum()/norm_term
 
-        # a_loss = self.angular_loss(input, target, scale_i, scale_t, angular_weight, norm_term)
-        s_loss = self.scale_loss(scale_i, scale_t, angular_weight)
+        # a_loss = self.angular_loss(input, target, scale_i, scale_t, weight, norm_term)
+        s_loss = self.scale_loss(scale_i, scale_t, weight, norm_term)
 
         return self.alpha*a_loss + (1.0-self.alpha)*s_loss, self.alpha*a_loss, (1.0-self.alpha)*s_loss
 

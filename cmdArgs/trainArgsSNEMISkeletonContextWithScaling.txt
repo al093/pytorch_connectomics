@@ -1,0 +1,6 @@
+-dn /n/pfister_lab2/Lab/alok/snemi/skeleton/1x/train_image.h5@/n/pfister_lab2/Lab/alok/snemi/skeleton/1_5x/train_image.h5
+-ln /n/pfister_lab2/Lab/alok/snemi/skeleton/1x/skeleton_context.h5@/n/pfister_lab2/Lab/alok/snemi/skeleton/1_5x/skeleton_context.h5
+-sp /n/pfister_lab2/Lab/alok/snemi/skeleton/1x/context_positions.h5@/n/pfister_lab2/Lab/alok/snemi/skeleton/1_5x/context_positions.h5
+-skn /n/pfister_lab2/Lab/alok/snemi/skeleton/1x/skeleton.h5@/n/pfister_lab2/Lab/alok/snemi/skeleton/1_5x/skeleton.h5
+-fn /n/pfister_lab2/Lab/alok/snemi/skeleton/1x/grad_distance_context.h5@/n/pfister_lab2/Lab/alok/snemi/skeleton/1_5x/grad_distance_context.h5
+-wn /n/pfister_lab2/Lab/alok/snemi/skeleton/1x/close_context_weight.h5@/n/pfister_lab2/Lab/alok/snemi/skeleton/1_5x/close_context_weight.h5

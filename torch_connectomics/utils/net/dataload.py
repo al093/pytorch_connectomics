@@ -6,7 +6,8 @@ import scipy
 import torch
 import torch.utils.data
 
-from torch_connectomics.data.dataset import AffinityDataset, SynapseDataset, MitoDataset, MaskDataset, MaskDatasetDualInput, MaskAndSkeletonDataset
+from torch_connectomics.data.dataset import AffinityDataset, SynapseDataset, MitoDataset, \
+    MaskDataset, MaskDatasetDualInput, MaskAndSkeletonDataset, MatchSkeletonDataset
 from torch_connectomics.data.utils import collate_fn, collate_fn_2, collate_fn_test, collate_fn_var
 from torch_connectomics.data.augmentation import *
 from torch_connectomics.utils.net.serialSampler import SerialSampler
@@ -15,8 +16,8 @@ TASK_MAP = {0: 'neuron segmentation',
             1: 'synapse detection',
             2: 'mitochondria segmentation',
             3: 'mask prediction',
-            4: 'skeleton prediction'}
- 
+            4: 'skeleton prediction',
+            5: 'skeleton matching'}
 
 def get_input(args, model_io_size, mode='train', model=None):
     """Prepare dataloader for training and inference.
@@ -32,18 +33,21 @@ def get_input(args, model_io_size, mode='train', model=None):
         img_name = args.img_name.split('@')
         s_points = [None] * len(img_name)
         skeleton = [None] * len(img_name)
+        skeleton_p = [None] * len(img_name)
         flux = [None] * len(img_name)
+        weight = [None] * len(img_name)
 
-    if mode=='validation':
-        seg_name = args.val_seg_name.split('@')
-    elif mode=='train':
-        seg_name = args.seg_name.split('@')
+    if args.task != 5:
+        if mode=='validation':
+            seg_name = args.val_seg_name.split('@')
+        elif mode=='train':
+            seg_name = args.seg_name.split('@')
 
-    if args.task == 3 or args.task == 4:
+    if args.task == 3 or args.task == 4 or args.task == 5:
         if args.seed_points is not None:
             seed_points_files = args.seed_points.split('@')
 
-    if args.task == 4:
+    if args.task == 4 or args.task == 5:
         skeleton_files = None
         if args.skeleton_name is not None:
             skeleton_files = args.skeleton_name.split('@')
@@ -52,36 +56,47 @@ def get_input(args, model_io_size, mode='train', model=None):
         if args.flux_name is not None:
             flux_files = args.flux_name.split('@')
 
+        weight_files = None
+        if args.weight_name is not None:
+            weight_files = args.weight_name.split('@')
+
+    if args.task == 5:
+        skeleton_p_files = None
+        if args.skeleton_p_name is not None:
+            skeleton_p_files = args.skeleton_p_name.split('@')
+
     # 1. load data
     model_input = [None]*len(img_name)
 
-    if mode=='train' or mode=='validation':
-        assert len(img_name)==len(seg_name)
-        model_label = [None]*len(seg_name)
+    if args.task != 5:
+        if mode=='train' or mode=='validation':
+            assert len(img_name)==len(seg_name)
+            model_label = [None]*len(seg_name)
 
     if mode=='train' or mode=='validation':
         # setup augmentor
+        elastic_augmentor = Elastic(alpha=6.0, p=0.75)
         augmentor = Compose([
                              Rotate(p=1.0),
                              # Rescale(p=0.5),
                              Flip(p=1.0),
-                             # Elastic(alpha=5.0, p=0.75),
+                             elastic_augmentor,
                              Grayscale(p=0.75),
-                             Blur(min_sigma=1, max_sigma=3, min_slices=model_io_size[0]//6, max_slices=model_io_size[0]//4, p=0.4),
-                             MissingParts(p=0.9)
+                             Blur(min_sigma=1, max_sigma=2, min_slices=model_io_size[0]//6, max_slices=model_io_size[0]//4, p=0.4),
+                             MissingParts(p=0.5)
                              # MissingSection(p=0.5),
                              # MisAlignment2(p=1.0, displacement=16)
                              ],
-                             input_size = model_io_size)
-        # augmentor = None # debug
+                             input_size=model_io_size)
+        elastic_augmentor.set_input_sz(augmentor.sample_size)
     else:
         augmentor = None
 
-    print('data augmentation: ', augmentor is not None)
+    print('Data augmentation: ', augmentor is not None)
     SHUFFLE = (mode=='train' or mode=='validation')
-    print('batch size: ', args.batch_size)
+    print('Batch size: ', args.batch_size)
 
-    if mode == 'test':
+    if mode == 'test' and args.task != 5:
         pad_size = np.array(model_io_size//2)
     else:
         pad_size = np.array((0, 0, 0))
@@ -92,18 +107,28 @@ def get_input(args, model_io_size, mode='train', model=None):
 
         model_input[i] = np.array((h5py.File(img_name[i], 'r')['main']))/255.0
 
-        print('Input Data size: ', model_input[i].shape)
-        print(mode)
-        if mode == 'test' and args.scale_input != 1:
-            print('Original volume size: ', model_input[i].shape)
-            model_input[i] = scipy.ndimage.zoom(model_input[i], float(args.scale_input))
-            print('Final volume size: ', model_input[i].shape)
+        if mode == 'test':
+            if args.scale_input != 1 and args.task != 5:
+                print('Original volume size: ', model_input[i].shape)
+                model_input[i] = scipy.ndimage.zoom(model_input[i], [float(args.scale_input), float(args.scale_input), float(args.scale_input)])
+                print('Final volume size: ', model_input[i].shape)
+
+            if args.task == 5:
+                # It must be ensured that all centroid points have enough crop area around them
+                # These Points are the origin.
+                npf = np.load(seed_points_files[i])
+                s_points[i] = [np.vstack([npf.item().get('match')[15000:], npf.item().get('no_match')[15000:]])]
+                # s_points[i] = [npf.item().get('no_match')[0:15000]]
+                skeleton[i] = np.array((h5py.File(skeleton_files[i], 'r')['main']))
+                flux[i] = np.array((h5py.File(flux_files[i], 'r')['main']))
+                skeleton_p[i] = np.array((h5py.File(skeleton_p_files[i], 'r')['main']))[0]
 
         if mode == 'train' or mode == 'validation':
-            model_label[i] = np.array((h5py.File(seg_name[i], 'r')['main']))
+            if args.task != 5:
+                model_label[i] = np.array((h5py.File(seg_name[i], 'r')['main']))
+
             if args.task == 3 or args.task == 4:
                 s_points[i] = load_list_from_h5(seed_points_files[i])
-                # Remove all points which cannot be used to crop a region around it
                 half_aug_sz = augmentor.sample_size//2
                 vol_size = model_input[i].shape
                 new_list = []
@@ -118,45 +143,46 @@ def get_input(args, model_io_size, mode='train', model=None):
                     if b.shape[0] > 0:
                         new_list.append(b)
                 s_points[i] = new_list
+            elif args.task == 5:
+                # TODO it must be ensured that all centroid points have enough crop area around them
+                # TODO Rotation Augmentation is not supported yet
+                # These Points are the origin.
+                npf = np.load(seed_points_files[i])
+                s_points[i] = [npf.item().get('match'), npf.item().get('no_match')]
 
-                #concatenate all the bins together and shuffle them
-                # s_points[i] = [np.concatenate(s_points[i], axis=0)]
-                # np.random.shuffle(s_points[i][0])
+            # load skeletons
+            if skeleton_files is not None:
+                skeleton[i] = np.array((h5py.File(skeleton_files[i], 'r')['main']))
 
-                # load skeletons
-                if skeleton_files is not None:
-                    skeleton[i] = np.array((h5py.File(skeleton_files[i], 'r')['main']))
+            if flux_files is not None:
+                flux[i] = np.array((h5py.File(flux_files[i], 'r')['main']))
 
-                if flux_files is not None:
-                    flux[i] = np.array((h5py.File(flux_files[i], 'r')['main']))
+            #load weight files:
+            if weight_files is not None:
+                weight[i] = np.array((h5py.File(weight_files[i], 'r')['main']))
+
+            if args.task == 5:
+                if skeleton_p_files is not None:
+                    skeleton_p[i] = np.array((h5py.File(skeleton_p_files[i], 'r')['main']))[0]
 
             print(img_name[i])
-            print(seg_name[i])
 
-            # crop input to match with labels
-            label_sz = np.array(model_label[i].shape)
-            input_sz = np.array(model_input[i].shape)
-            diff = input_sz - label_sz
-            if (np.any(diff > 0)):
-                diff = diff // 2
-                model_input[i] = model_input[i][diff[0]:diff[0] + label_sz[0], diff[1]:diff[1] + label_sz[1],
-                                 diff[2]:diff[2] + label_sz[2]]
-
-        model_input[i] = np.pad(model_input[i], ((pad_size[0],pad_size[0]),
-                                                 (pad_size[1],pad_size[1]),
-                                                 (pad_size[2],pad_size[2])), 'reflect')
-        print("volume shape: ", model_input[i].shape)
+        model_input[i] = np.pad(model_input[i], ((pad_size[0], pad_size[0]),
+                                                 (pad_size[1], pad_size[1]),
+                                                 (pad_size[2], pad_size[2])), 'reflect')
+        print("Volume shape: ", model_input[i].shape)
         volume_shape.append(model_input[i].shape)
         model_input[i] = model_input[i].astype(np.float32)
 
-        if mode=='train' or mode=='validation':
-            model_label[i] = np.pad(model_label[i], ((pad_size[0], pad_size[0]),
-                                                           (pad_size[1], pad_size[1]),
-                                                           (pad_size[2], pad_size[2])), 'reflect')
-            model_label[i] = model_label[i]
+        if args.task != 5:
+            if mode=='train' or mode=='validation':
+                model_label[i] = np.pad(model_label[i], ((pad_size[0], pad_size[0]),
+                                                               (pad_size[1], pad_size[1]),
+                                                               (pad_size[2], pad_size[2])), 'reflect')
+                model_label[i] = model_label[i]
 
-            print("label shape: ", model_label[i].shape)
-            assert model_input[i].shape == model_label[i].shape
+                print("label shape: ", model_label[i].shape)
+                assert model_input[i].shape == model_label[i].shape
 
     if mode=='test' and args.task == 3:
         b = np.array(h5py.File(seed_points_files[0], 'r')[str(args.segment_id)])
@@ -170,7 +196,7 @@ def get_input(args, model_io_size, mode='train', model=None):
         if args.initial_seg is not None:
             initial_seg = np.array((h5py.File(args.initial_seg, 'r')['main']))
             # initial_seg = np.array((h5py.File(args.initial_seg, 'r')['main'])[bs[0]:be[0], bs[1]:be[1], bs[2]:be[2]])
-            initial_seg = initial_seg == args.segment_id
+            initial_seg = (initial_seg == args.segment_id)
             initial_seg = np.pad(initial_seg, ((pad_size[0], pad_size[0]),
                                                (pad_size[1], pad_size[1]),
                                                (pad_size[2], pad_size[2])), 'reflect')
@@ -192,7 +218,6 @@ def get_input(args, model_io_size, mode='train', model=None):
                                   sample_label_size=sample_input_size, augmentor=augmentor, mode = 'train')
         elif args.task == 3: # mask prediction
             if args.in_channel == 2:
-
                 augmentor_1 = Compose([Grayscale(p=0.75),
                                        MissingParts(p=0.9)],
                                        input_size=model_io_size)
@@ -200,10 +225,16 @@ def get_input(args, model_io_size, mode='train', model=None):
                                       sample_label_size=sample_input_size, augmentor_pre=augmentor_1, augmentor=augmentor,
                                       mode='train', seed_points=s_points, pad_size=pad_size.astype(np.uint32), model=model)
         elif args.task == 4:  # skeleton/flux prediction
-                dataset = MaskAndSkeletonDataset(volume=model_input, label=model_label, skeleton=skeleton, flux=flux,
-                                                 sample_input_size=sample_input_size, sample_label_size=sample_input_size,
-                                                 augmentor=augmentor, mode='train', seed_points=s_points,
-                                                 pad_size=pad_size.astype(np.uint32))
+            dataset = MaskAndSkeletonDataset(volume=model_input, label=model_label, skeleton=skeleton, flux=flux, weight=weight,
+                                             sample_input_size=sample_input_size, sample_label_size=sample_input_size,
+                                             augmentor=augmentor, mode='train', seed_points=s_points,
+                                             pad_size=pad_size.astype(np.uint32))
+
+        elif args.task == 5:  # skeleton match prediction
+            dataset = MatchSkeletonDataset(image=model_input, skeleton=skeleton, flux=flux, skeleton_p=skeleton_p,
+                                             sample_input_size=sample_input_size, sample_label_size=sample_input_size,
+                                             augmentor=augmentor, mode='train', seed_points=s_points,
+                                             pad_size=pad_size.astype(np.uint32))
 
         c_fn = collate_fn_var
         img_loader = torch.utils.data.DataLoader(
@@ -216,7 +247,7 @@ def get_input(args, model_io_size, mode='train', model=None):
             dataset = AffinityDataset(volume=model_input, label=None, sample_input_size=model_io_size, \
                                       sample_label_size=None, sample_stride=model_io_size // 2, \
                                       augmentor=None, mode='test')
-        elif args.task == 1: 
+        elif args.task == 1:
             dataset = SynapseDataset(volume=model_input, label=None, sample_input_size=model_io_size, \
                                      sample_label_size=None, sample_stride=model_io_size // 2, \
                                      augmentor=None, mode='test')
@@ -229,10 +260,15 @@ def get_input(args, model_io_size, mode='train', model=None):
                                   sample_label_size=None, sample_stride=model_io_size // 2, \
                                   augmentor=None, mode='test', seed_points=s_points,
                                   pad_size=pad_size.astype(np.uint32))
+        elif args.task == 5:
+            dataset = MatchSkeletonDataset(image=model_input, skeleton=skeleton, flux=flux, skeleton_p=skeleton_p,
+                                           sample_input_size=model_io_size, sample_label_size=model_io_size,
+                                           augmentor=None, mode='test', seed_points=s_points,
+                                           pad_size=pad_size.astype(np.uint32))
 
         if args.task != 3:
             img_loader = torch.utils.data.DataLoader(
-                    dataset, batch_size=args.batch_size, shuffle=SHUFFLE, collate_fn=collate_fn_test,
+                    dataset, batch_size=args.batch_size, shuffle=SHUFFLE, collate_fn=collate_fn_var,
                     num_workers=args.num_cpu, pin_memory=True)
             return img_loader, volume_shape, pad_size
         else:

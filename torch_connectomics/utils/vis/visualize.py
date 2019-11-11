@@ -69,9 +69,9 @@ def visualize(volume, label, output, iteration, writer, mode='Train', input_labe
         label_visual = label.detach().cpu()
 
     if input_label is not None:
-        if output.shape[1] == 1:
+        if input_label.shape[1] == 1:
             input_label_visual = input_label.detach().cpu().expand(sz[0], 3, sz[2], sz[3])
-        elif output.shape[1] > 1:
+        elif input_label.shape[1] > 1:
             input_label_visual = input_label.detach().cpu()
 
     if color_data is not None:

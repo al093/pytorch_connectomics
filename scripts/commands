@@ -13,7 +13,20 @@ python trainSkeleton.py -o ~/pytorch_connectomics/outputs/p7/ -lr 0.2e-04 --iter
 python trainSkeleton.py -o ~/pytorch_connectomics/outputs/snemi/ -lr 8e-05 --iteration-total 600000 --iteration-save 2000 -mi 64,128,128 -g 1 -c 10 -b 14 -ac unetv3 --argsFile ../.cmdArgs/trainArgsSNEMISkeleton.txt --task 4 --out-channel 1 --in-channel 1 -en unetv3 -en unetv3_im2Skel -lm True -tgdtx False
 
 
---pdb testSkeleton.py -- -o /n/pfister_lab2/Lab/alok/results/snemi/ -mi 64,128,128 -g 1 -c 20 -b 20 -ac unetv3 -lm True -
-pm ~/pytorch_connectomics/outputs/snemi/snemi_complete_AllAug/snemi_complete_AllAug_22000.pth -lm_2 True -pm_2 ~/pytorch_connectomics/outputs/snemi/snemi_complete_
-AllAug/snemi_complete_AllAug_second_22000.pth --argsFile ../cmdArgs/testArgsSNEMISkeleton.txt --task 4 -ism True
 
+
+--pdb testSkeleton.py -- -o /n/pfister_lab2/Lab/alok/results/snemi/ -mi 64,128,128 -g 1 -c 20 -b 20 -ac unetv3 -lm True -pm ~/pytorch_connectomics/outputs/snemi/snemi_complete_AllAug/snemi_complete_AllAug_22000.pth -lm_2 True -pm_2 ~/pytorch_connectomics/outputs/snemi/snemi_complete_AllAug/snemi_complete_AllAug_second_22000.pth --argsFile ../cmdArgs/testArgsSNEMISkeleton.txt --task 4 -ism True
+
+
+
+python trainSkeleton.py -o ~/pytorch_connectomics/outputs/snemi/ -lr 8e-05 --iteration-total 600000 --iteration-save 2000 -mi 64,256,256 -g 2 -c 10 -b 12 -ac unetv3 --argsFile trainArgsP7.txt --task 4 --out-channel 3 --in-channel 1 -en snemi_complete_largeFOV_256
+
+
+
+ipython --pdb testSkeleton.py -- -o /n/pfister_lab2/Lab/alok/results/snemi/ -mi 64,192,192 -g 1 -c 20 -b 12 -ac unetv3 -lm True -pm ~/pytorch_connectomics/outputs/snemi/snemi_complete_AllAug_LargeFov/snemi_complete_AllAug_LargeFov_30000.pth -lm_2 True -pm_2 ~/pytorch_connectomics/outputs/snemi/snemi_complete_AllAug_LargeFov/snemi_complete_AllAug_LargeFov_second_30000.pth --argsFile ../cmdArgs/testArgsSNEMISkeleton.txt --task 4 -ism True
+
+ ipython --pdb trainSkeletonDualHead.py -- -o ~/pytorch_connectomics/outputs/snemi/ -lr 8e-05 --iteration-total 600000 --iteration-save 2000 -mi 64,192,192 -g 2 -c 10 -b 16 -ac unetv3DualHead --argsFile ../cmdArgs/trainArgsSNEMISkeletonContextWithScaling.txt --task 4 --out-channel 4 --in-channel 1 -en snemi_cotext_pretrained_AllAug_closeCtxWt -lm True -pm ../outputs/snemi/test_context_L1_22000_14000_denseSupervision/test_context_L1_22000_14000_denseSupervision_42000.pth 
+
+
+
+ipython --pdb trainSkeletonMatching.py -- -o ~/pytorch_connectomics/outputs/snemi/ -lr 8e-05 --iteration-total 600000 --iteration-save 2000 -mi 64,192,192 -g 3 -c 10 -b 22 -ac cNet --argsFile ../cmdArgs/trainArgsSNEMISkeletonMatching.txt --task 5 --out-channel 1 --in-channel 7 -en skelmatching_noRot
