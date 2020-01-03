@@ -146,5 +146,3 @@ def calculate_error_metric(pred_skel, gt_skel, gt_context, save_data=False):
     print('Mean Connectivity: ', mean_connectivity)
     return (precision, recall, f_score, mean_connectivity)
 
-# if __name__ == '__main__':
-#     calculateErrorMetric()

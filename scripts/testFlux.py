@@ -3,46 +3,55 @@ import numpy as np
 import torch
 import h5py, time, itertools, datetime
 from torch_connectomics.utils.net import *
-from torch_connectomics.utils.vis import visualize_aff, save_data
+from torch_connectomics.utils.vis import visualize_aff
+from tqdm import tqdm
 import re
 
-def test(args, test_loader, model, device, result_path, result_file_pf, input_file_name):
+def test(args, test_loader, model, device, model_io_size, volume_shape, pad_size, result_path, result_file_pf, input_file_names):
     # switch to eval mode
     model.eval()
-    volume_id = 0
+    ww = blend(model_io_size)
+    result_grad = [np.stack([np.zeros(x, dtype=np.float32) for _ in range(3)]) for x in volume_shape]
+    weight = [np.zeros(x, dtype=np.float32) for x in volume_shape]
+    sz = tuple([3] + list(model_io_size))
 
     start = time.time()
-    results = []
     with torch.no_grad():
-        for i, (key, volume, out_skeleton_1, out_skeleton_2, out_flux) in enumerate(test_loader):
-            volume_id += args.batch_size
-            print('processing:', volume_id)
-
-            # for gpu computing
+        for i, (pos, volume) in tqdm(enumerate(test_loader)):
             volume = volume.to(device)
-            out_skeleton_1, out_skeleton_2 = out_skeleton_1.to(device), out_skeleton_2.to(device)
-            out_flux = out_flux.to(device)
 
-            output = model(torch.cat((volume, out_skeleton_1, out_skeleton_2, out_flux), dim=1))
+            output = model(volume)
 
-            for idx in range(output.shape[0]):
-                results.append((key[idx][0][0], key[idx][0][1], key[idx][0][2], key[idx][0][3], key[idx][0][4], key[idx][1], output[idx].detach().cpu().item()))
-                #key is a tuple of 2 values
-                # 1) [seg_id1, seg_id2, ep1, ep2, crop_origin]
-                # 2) list index value of the input, for later error metric evaluation
+            for idx in range(output.size()[0]):
+                st = pos[idx]
+                result_grad[st[0]][:, st[1]:st[1] + sz[1], st[2]:st[2] + sz[2], st[3]:st[3] + sz[3]] \
+                    += output[idx, 0:3].cpu().detach().numpy().reshape(sz) * np.expand_dims(ww, axis=0)
+
+                weight[st[0]][st[1]:st[1] + sz[1], st[2]:st[2] + sz[2], st[3]:st[3] + sz[3]]\
+                    += ww
 
     end = time.time()
-    print("prediction time:", (end-start))
+    print("Prediction time:", (end-start))
 
-    result_path = result_path + input_file_name + '_' + result_file_pf
-    np.save(file=result_path, arr=results)
-    print('matching results stored at: \n' + result_path)
+    for vol_id in range(len(result_grad)):
+        result_grad[vol_id] = result_grad[vol_id] / (weight[vol_id] + np.finfo(np.float32).eps)
+        data_grad = result_grad[vol_id]
+        data_grad = data_grad[:,
+                    pad_size[0]:-pad_size[0],
+                    pad_size[1]:-pad_size[1],
+                    pad_size[2]:-pad_size[2]]
+
+        gradient_path = result_path + 'gradient_' + input_file_names[vol_id] + '_' + result_file_pf + '.h5'
+        hf = h5py.File(gradient_path, 'w')
+        hf.create_dataset('main', data=data_grad, compression='gzip')
+        hf.close()
+        print('Gradient stored at: \n' + gradient_path)
 
 def get_augmented(volume):
     # perform 16 Augmentations as mentioned in Kisuks thesis
     vol0    = volume
     vol90   = torch.rot90(vol0, 1, [3, 4])
-    vol180  = torch.rot90(vol90,  1, [3, 4])
+    vol180  = torch.rot90(vol90,  1,  [3, 4])
     vol270  = torch.rot90(vol180, 1, [3, 4])
 
     vol0f   = torch.flip(vol0,   [3])
@@ -95,26 +104,27 @@ def main():
     args = get_args(mode='test')
 
     print('0. initial setup')
-    torch.backends.cudnn.enabled = False
     model_io_size, device = init(args)
-    print('model I/O size:', model_io_size)
+    print('model I/O size:', model_io_size) 
 
     print('1. setup data')
     test_loader, volume_shape, pad_size = get_input(args, model_io_size, 'test')
 
     print('2. setup model')
-    model = setup_model(args, device, model_io_size=model_io_size, exact=True, non_linearity=(torch.sigmoid, ))
+    model = setup_model(args, device, model_io_size=model_io_size, exact=True, non_linearity=(torch.tanh,))
 
     result_path = args.output + '/' + args.exp_name + '/'
     result_file_pf = re.split('_|.pth', os.path.basename(args.pre_model))[-2]
+    print(result_file_pf)
     if not os.path.isdir(result_path):
         os.makedirs(result_path)
     save_cmd_line(args, result_path + 'commandArgs.txt')  # Saving the command line args with machine name and time for later reference
-    input_file_names = [os.path.basename(input_image)[:-3] for input_image in args.img_name.split('@')]
+
+    input_file_name = [os.path.basename(input_image)[:-3] for input_image in args.img_name.split('@')]
 
     print('3. start testing')
-    test(args, test_loader, model, device, result_path, result_file_pf, input_file_names[0])
-
+    test(args, test_loader, model, device, model_io_size, volume_shape, pad_size, result_path, result_file_pf, input_file_name)
+  
     print('4. finish testing')
 
 if __name__ == "__main__":

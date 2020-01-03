@@ -30,13 +30,13 @@ def train(args, train_loader, val_loader, model, device, criterion, optimizer, s
                 print('time taken for itr: ', time.time() - start)
                 start = time.time()
 
-            _, volume, out_skeleton_1, out_skeleton_2, out_skeleton_p, out_flux, match = data
+            _, volume, out_skeleton_1, out_skeleton_2, out_flux, match = data
 
             volume = volume.to(device)
             out_skeleton_1, out_skeleton_2 = out_skeleton_1.to(device), out_skeleton_2.to(device)
-            out_skeleton_p, out_flux, match = out_skeleton_p.to(device), out_flux.to(device), match.to(device)
+            out_flux, match = out_flux.to(device), match.to(device)
 
-            output = model(torch.cat((volume, out_skeleton_1, out_skeleton_2, out_skeleton_p, out_flux), dim=1))
+            output = model(torch.cat((volume, out_skeleton_1, out_skeleton_2, out_flux), dim=1))
             loss = criterion(output, match)
             record.update(loss, args.batch_size)
 
