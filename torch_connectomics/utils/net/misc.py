@@ -66,6 +66,7 @@ def setup_model(args, device, model_io_size, exact=True, size_match=True, non_li
                  'unetLite': unetLite,
                  'unetv3DualHead': unetv3DualHead,
                  'cNet': ClassificationNet,
+                 'fluxNet': FluxNet,
                  'fpn': fpn}
 
     assert args.architecture in MODEL_MAP.keys()

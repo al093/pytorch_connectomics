@@ -14,7 +14,7 @@ from torch_connectomics.utils.vis import save_data
 
 class MatchSkeletonDataset(torch.utils.data.Dataset):
     def __init__(self,
-                 image, skeleton, flux, skeleton_p,
+                 image, skeleton, flux,
                  sample_input_size=(8, 64, 64),
                  sample_label_size=None,
                  sample_stride=(1, 1, 1),
@@ -29,7 +29,6 @@ class MatchSkeletonDataset(torch.utils.data.Dataset):
 
         self.mode = mode
         self.image = image  # image
-        self.skeleton_p = skeleton_p  # output from last network
         self.skeleton = skeleton  # output after CC
         self.flux = flux  # output of last layer
         self.augmentor = augmentor  # data augmentation
@@ -63,26 +62,23 @@ class MatchSkeletonDataset(torch.utils.data.Dataset):
             pos, skel_id1, skel_id2, match = self.get_pos_seed(seed)
             out_image = crop_volume(self.image[pos[0]], vol_size, pos[1:])
             out_skeleton = crop_volume(self.skeleton[pos[0]], vol_size, pos[1:])
-            out_skeleton_p = crop_volume(self.skeleton_p[pos[0]], vol_size, pos[1:])
             out_flux = crop_volume_mul(self.flux[pos[0]], vol_size, pos[1:])
 
             out_image = out_image.copy()
             out_skeleton = out_skeleton.copy()
-            out_skeleton_p = out_skeleton_p.copy()
             out_flux = out_flux.copy()
 
             # Augmentations
             if self.augmentor is not None:  # augmentation
                 data = {'image':out_image, 'flux':out_flux.astype(np.float32),
-                        'skeleton':out_skeleton.astype(np.float32), 'skeleton_p':out_skeleton_p.astype(np.float32)}
+                        'skeleton':out_skeleton.astype(np.float32)}
                 augmented = self.augmentor(data, random_state=seed)
                 out_image, out_flux = augmented['image'], augmented['flux']
-                out_skeleton, out_skeleton_p = augmented['skeleton'], augmented['skeleton_p']
+                out_skeleton = augmented['skeleton']
 
                 out_image = out_image.astype(np.float32)
                 out_flux = out_flux.astype(np.float32)
                 out_skeleton = out_skeleton.astype(np.float)
-                out_skeleton_p = out_skeleton_p.astype(np.float)
 
             #keep the two selected skeletons into 2 separate volumes, erase rest
             out_skeleton_1 = out_skeleton.copy()
@@ -99,7 +95,6 @@ class MatchSkeletonDataset(torch.utils.data.Dataset):
             pos, skel_id1, skel_id2, key = self.get_pos_test(index)
             out_image = crop_volume(self.image[pos[0]], vol_size, pos[1:])
             out_skeleton = crop_volume(self.skeleton[pos[0]], vol_size, pos[1:])
-            out_skeleton_p = crop_volume(self.skeleton_p[pos[0]], vol_size, pos[1:])
             out_flux = crop_volume_mul(self.flux[pos[0]], vol_size, pos[1:])
 
             out_skeleton_1 = out_skeleton.copy()
@@ -110,7 +105,6 @@ class MatchSkeletonDataset(torch.utils.data.Dataset):
             out_skeleton_2 = (out_skeleton_2 > 0)
 
             out_image = out_image.copy()
-            out_skeleton_p = out_skeleton_p.copy()
             out_flux = out_flux.copy()
 
         out_image = torch.from_numpy(out_image.astype(np.float32, copy=False))
@@ -122,15 +116,12 @@ class MatchSkeletonDataset(torch.utils.data.Dataset):
         out_skeleton_2 = torch.from_numpy(out_skeleton_2.astype(np.float32, copy=False))
         out_skeleton_2 = out_skeleton_2.unsqueeze(0)
 
-        out_skeleton_p = torch.from_numpy(out_skeleton_p.astype(np.float32, copy=False))
-        out_skeleton_p = out_skeleton_p.unsqueeze(0)
-
         out_flux = torch.from_numpy(out_flux.astype(np.float32, copy=False))
 
         if self.mode == 'train':
-            return pos, out_image, out_skeleton_1, out_skeleton_2, out_skeleton_p, out_flux, match
+            return pos, out_image, out_skeleton_1, out_skeleton_2, out_flux, match
         else:
-            return key, out_image, out_skeleton_1, out_skeleton_2, out_skeleton_p, out_flux
+            return key, out_image, out_skeleton_1, out_skeleton_2, out_flux
 
     def get_pos_dataset(self, index):
         return np.argmax(index < self.sample_num_c) - 1  # which dataset
@@ -150,6 +141,14 @@ class MatchSkeletonDataset(torch.utils.data.Dataset):
             pos[1:] = self.seed_points[did][size_bin][idx][4] + self.seed_points_offset
         else:
             pos[1:] = self.seed_points[did][size_bin][idx][4] + offset
+
+        if np.random.rand() >= 0.5:
+            skel_id_1 = self.seed_points[did][size_bin][idx][0]
+            skel_id_2 = self.seed_points[did][size_bin][idx][1]
+        else:
+            skel_id_1 = self.seed_points[did][size_bin][idx][1]
+            skel_id_2 = self.seed_points[did][size_bin][idx][0]
+
         return pos, self.seed_points[did][size_bin][idx][0], self.seed_points[did][size_bin][idx][1], float(size_bin == 0)
 
     def get_pos_test(self, index):
@@ -159,7 +158,7 @@ class MatchSkeletonDataset(torch.utils.data.Dataset):
         pos = pos + self.seed_points_offset
         seg_id_1 = self.seed_points[did][0][idx][0]
         seg_id_2 = self.seed_points[did][0][idx][1]
-        return np.concatenate(([did], pos)), seg_id_1, seg_id_2, self.seed_points[did][0][idx]
+        return np.concatenate(([did], pos)), seg_id_1, seg_id_2, (self.seed_points[did][0][idx], idx)
 
     def get_vol(self, pos):
         out_input = crop_volume(self.input[pos[0]], self.sample_input_size, pos[1:])

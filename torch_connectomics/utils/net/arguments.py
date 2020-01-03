@@ -65,9 +65,6 @@ def get_args(mode='train'):
                         help='File path for seed points which need to be trained or tested on')
 
     if mode == 'train':
-        parser.add_argument('-en','--exp-name', type=str, default='unnamed_exp',
-                            help='Name of the model files to be saved')
-
         parser.add_argument('-ln','--seg-name',  default='seg-groundtruth2-malis.h5',
                             help='Ground-truth label path')
 
@@ -104,14 +101,14 @@ def get_args(mode='train'):
         parser.add_argument('-sid', '--segment-id', type=int, default=1,
                             help='segmentation id of the neuron to be segmented')
 
+    parser.add_argument('-en', '--exp-name', type=str, default=None,
+                        help='Name of the model files to be saved while training, for testing name for the folder to save the output files')
+
     parser.add_argument('-skn','--skeleton-name', type=str, default=None,
                         help='Ground-truth skeleton path')
 
     parser.add_argument('-fn','--flux-name', type=str, default=None,
                         help='Ground-truth Flux path')
-
-    parser.add_argument('-spn', '--skeleton-p-name', type=str, default=None,
-                        help='Predicted skeleton heat map from previous network.')
 
     parser.add_argument('-wn', '--weight-name', type=str, default=None,
                         help='Weight array to be used for loss calculations.')

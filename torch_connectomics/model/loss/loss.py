@@ -132,11 +132,11 @@ class WeightedBCE(nn.Module):
 #         return cosine_loss
 
 class AngularAndScaleLoss(nn.Module):
-    def __init__(self, alpha):
+    def __init__(self, alpha, dim=1):
         super().__init__()
         self.w_mse = WeightedMSE()
         self.alpha = alpha
-        self.cos = nn.CosineSimilarity(dim=1, eps=1e-6)
+        self.cos = nn.CosineSimilarity(dim=dim, eps=1e-6)
 
     def get_norm(self, input):
         # input b, c, z, y, x

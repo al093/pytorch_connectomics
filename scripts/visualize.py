@@ -64,7 +64,7 @@ def grad_to_RGB(grad_field):
     n_grad_field[:, loc_mask[0], loc_mask[1], loc_mask[2]] = 0.0
     return n_grad_field
 
-def show(path, name, bounds=None, is_image=False, resolution=None, normalize=False):
+def show(path, name, bounds=None, is_image=False, resolution=None, normalize=False, bb=False):
     global viewer
     global res
     if resolution is None:
@@ -103,6 +103,9 @@ def show(path, name, bounds=None, is_image=False, resolution=None, normalize=Fal
                     volume_type=volume_type
                 ))
 
+        if bb:
+            show_bbox([0, 0, 0], data.shape, name)
+
 def show_vec(direction_vecs_path, vec_lec, name):
     global viewer
     global res
@@ -127,6 +130,48 @@ def show_vec(direction_vecs_path, vec_lec, name):
                         point=(data[i])[::-1],
                     ))
                 line_id += 1
+
+
+def show_vec_2(direction_vecs_path, vec_lec, name):
+    global viewer
+    global res
+    h5file = h5py.File(direction_vecs_path, 'r')
+    for key in h5file.keys():
+        line_id = 0
+        data = h5file[key]
+        with viewer.txn() as s:
+            s.layers.append(name='dir_' + key,
+                            layer=neuroglancer.AnnotationLayer(voxelSize=res))
+            annotations = s.layers[-1].annotations
+            for i in range(data.shape[0]):
+                annotations.append(
+                    neuroglancer.LineAnnotation(
+                        id=line_id,
+                        point_a=data[i][2::-1],
+                        point_b=data[i][2::-1] + vec_lec*data[i][5:2:-1]
+                    ))
+                annotations.append(
+                    neuroglancer.PointAnnotation(
+                        id=line_id+500000,
+                        point=data[i][2::-1] + vec_lec*data[i][5:2:-1]
+                    ))
+                line_id += 1
+
+
+def show_bbox(pointa, pointb, name):
+    global viewer
+    global res
+    pointa = np.asarray(pointa)
+    pointb = np.asarray(pointb)
+    with viewer.txn() as s:
+        s.layers.append(name='bb_' + name,
+                        layer=neuroglancer.AnnotationLayer(voxelSize=res))
+        s.layers[-1].annotations.append(
+            neuroglancer.AxisAlignedBoundingBoxAnnotation(
+                id=0,
+                point_a=(pointa)[::-1],
+                point_b=(pointb)[::-1]
+            ))
 
 def show_lines(filepath, name):
     global viewer
@@ -445,14 +490,14 @@ def show_skeleton(h5file, name='skeletons', resolution=None):
             ))
 
 ip='localhost' # or public IP of the machine for sharable display
-port=18771 # change to an unused port number
+port=18779 # change to an unused port number
 neuroglancer.set_server_bind_address(bind_address=ip,bind_port=port)
 viewer=neuroglancer.Viewer()
 
 #### SNEMI #####
 res = [6, 6, 30]
-# D0 = '/n/pfister_lab2/Lab/alok/snemi/'
-# show(D0 + 'train_image.h5', 'im', is_image=True)
+D0 = '/n/pfister_lab2/Lab/alok/snemi/'
+show(D0 + 'train_image.h5', 'im', is_image=True)
 # show(D0 + 'skeleton/train_labels_separated_disjointed_removedGlial.h5', 'gt-seg', is_image=False)
 # show('/n/pfister_lab2/Lab/alok/results/snemi/test_context_L1_22000_14000_denseSupervision/1x/splitted.h5', 'split', is_image=False)
 # show('/n/pfister_lab2/Lab/alok/snemi/skeleton/skeleton.h5', 'gt-skeleton')
@@ -462,9 +507,8 @@ res = [6, 6, 30]
 # show_grad_field('/n/pfister_lab2/Lab/alok/snemi/skeleton/temp/(0)seg_0_grad_distance.h5', 'grad', D0+'train_labels_separated_disjointed.h5', seg_id=14, sparsity=600, vec_lec=2)
 
 # Validation
-rp = '/n/pfister_lab2/Lab/alok/results/snemi/snemi_context_pretrained_AllAug_closeCtxWt_elastic/'
-show('/n/pfister_lab2/Lab/alok/snemi/skeleton/val/val_image_half.h5', 'im', is_image=True)
-show('/n/pfister_lab2/Lab/alok/snemi/skeleton/val/val_labels_half.h5', 'val', is_image=False)
+# show('/n/pfister_lab2/Lab/alok/snemi/skeleton/val/val_image_half.h5', 'im', is_image=True)
+# show('/n/pfister_lab2/Lab/alok/snemi/skeleton/val/val_labels_half_relabelled.h5', 'val', is_image=False)
 
 # Zebra Finch Skeletons
 # res = [9, 9, 20]
@@ -539,7 +583,7 @@ show('/n/pfister_lab2/Lab/alok/snemi/skeleton/val/val_labels_half.h5', 'val', is
 
 
 #Parallel fibers P7
-# res = [6, 6, 6]
+# res = [6, 6, 30]
 
 # bs = [0, 2300, 2900]
 # be = [500, 5000, 5200]
@@ -561,11 +605,17 @@ show('/n/pfister_lab2/Lab/alok/snemi/skeleton/val/val_labels_half.h5', 'val', is
 # show('/n/pfister_lab2/Lab/alok/results/p7/RotBlurEtcEtc/cc_div_direction_0.h5', 'result-div', is_image=False)
 
 # Train volume New P7
-# res = [6, 6, 6]
+# res = [6, 6, 30]
 # show('/n/pfister_lab2/Lab/alok/p7_new/segmentations/partial/im_0.h5', 'im', is_image=True)
 # show('/n/pfister_lab2/Lab/alok/p7_new/segmentations/partial/seg_0_separated_rem_border.h5', 'seg-gt', is_image=False)
+# show('/n/pfister_lab2/Lab/alok/p7_new/segmentations/partial/seg_0_skeleton_spline.h5', 'skel_spine', is_image=False)
 
 
+#liver
+res=[5,5,5]
+show('/n/pfister_lab2/Lab/alok/liver/resampled/labels/0.h5', 'labels', is_image=0) 
+show('/n/pfister_lab2/Lab/alok/results/liver/liver_0/skel_large_merged.h5', 'skel-merged', is_image=0)
+# show_vec_2('/n/pfister_lab2/Lab/alok/results/liver/liver_0/end_directions.h5', 2, 'directions')
 
 
 print(viewer)

@@ -6,5 +6,6 @@ from .unetLite import unetLite
 from .unetv3DualHead import unetv3DualHead
 from .fpn import fpn
 from .lstmHead import LSTMHead
-from.classificationNet import ClassificationNet
-__all__ = ['unetv0', 'unetv1', 'unetv2', 'unetv3', 'unetLite', 'fpn', 'LSTMHead', 'unetv3DualHead', 'ClassificationNet']
+from .classificationNet import ClassificationNet
+from .fluxNet import FluxNet
+__all__ = ['unetv0', 'unetv1', 'unetv2', 'unetv3', 'unetLite', 'fpn', 'LSTMHead', 'unetv3DualHead', 'ClassificationNet', 'FluxNet']

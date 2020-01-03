@@ -33,7 +33,6 @@ def get_input(args, model_io_size, mode='train', model=None):
         img_name = args.img_name.split('@')
         s_points = [None] * len(img_name)
         skeleton = [None] * len(img_name)
-        skeleton_p = [None] * len(img_name)
         flux = [None] * len(img_name)
         weight = [None] * len(img_name)
 
@@ -59,11 +58,6 @@ def get_input(args, model_io_size, mode='train', model=None):
         weight_files = None
         if args.weight_name is not None:
             weight_files = args.weight_name.split('@')
-
-    if args.task == 5:
-        skeleton_p_files = None
-        if args.skeleton_p_name is not None:
-            skeleton_p_files = args.skeleton_p_name.split('@')
 
     # 1. load data
     model_input = [None]*len(img_name)
@@ -105,7 +99,14 @@ def get_input(args, model_io_size, mode='train', model=None):
 
     for i in range(len(img_name)):
 
-        model_input[i] = np.array((h5py.File(img_name[i], 'r')['main']))/255.0
+
+        image = np.array((h5py.File(img_name[i], 'r')['main']))
+        if image.dtype == np.float32 or image.dtype == np.float64:
+            model_input[i] = np.array(image, copy=False, dtype=np.float32)
+        elif image.dtype == np.uint8:
+            model_input[i] = np.array(image/np.float32(255.0), copy=False, dtype=np.float32)
+        else:
+            raise Exception('Image datatype was not uint8 or float, not sure how to normalize.')
 
         if mode == 'test':
             if args.scale_input != 1 and args.task != 5:
@@ -116,12 +117,11 @@ def get_input(args, model_io_size, mode='train', model=None):
             if args.task == 5:
                 # It must be ensured that all centroid points have enough crop area around them
                 # These Points are the origin.
-                npf = np.load(seed_points_files[i])
-                s_points[i] = [np.vstack([npf.item().get('match')[15000:], npf.item().get('no_match')[15000:]])]
+                npf = np.load(seed_points_files[i], allow_pickle=True)
+                s_points[i] = [np.vstack([npf.item().get('match'), npf.item().get('no_match')])]
                 # s_points[i] = [npf.item().get('no_match')[0:15000]]
                 skeleton[i] = np.array((h5py.File(skeleton_files[i], 'r')['main']))
                 flux[i] = np.array((h5py.File(flux_files[i], 'r')['main']))
-                skeleton_p[i] = np.array((h5py.File(skeleton_p_files[i], 'r')['main']))[0]
 
         if mode == 'train' or mode == 'validation':
             if args.task != 5:
@@ -147,7 +147,7 @@ def get_input(args, model_io_size, mode='train', model=None):
                 # TODO it must be ensured that all centroid points have enough crop area around them
                 # TODO Rotation Augmentation is not supported yet
                 # These Points are the origin.
-                npf = np.load(seed_points_files[i])
+                npf = np.load(seed_points_files[i], allow_pickle=True)
                 s_points[i] = [npf.item().get('match'), npf.item().get('no_match')]
 
             # load skeletons
@@ -160,10 +160,6 @@ def get_input(args, model_io_size, mode='train', model=None):
             #load weight files:
             if weight_files is not None:
                 weight[i] = np.array((h5py.File(weight_files[i], 'r')['main']))
-
-            if args.task == 5:
-                if skeleton_p_files is not None:
-                    skeleton_p[i] = np.array((h5py.File(skeleton_p_files[i], 'r')['main']))[0]
 
             print(img_name[i])
 
@@ -231,7 +227,7 @@ def get_input(args, model_io_size, mode='train', model=None):
                                              pad_size=pad_size.astype(np.uint32))
 
         elif args.task == 5:  # skeleton match prediction
-            dataset = MatchSkeletonDataset(image=model_input, skeleton=skeleton, flux=flux, skeleton_p=skeleton_p,
+            dataset = MatchSkeletonDataset(image=model_input, skeleton=skeleton, flux=flux,
                                              sample_input_size=sample_input_size, sample_label_size=sample_input_size,
                                              augmentor=augmentor, mode='train', seed_points=s_points,
                                              pad_size=pad_size.astype(np.uint32))
@@ -261,7 +257,7 @@ def get_input(args, model_io_size, mode='train', model=None):
                                   augmentor=None, mode='test', seed_points=s_points,
                                   pad_size=pad_size.astype(np.uint32))
         elif args.task == 5:
-            dataset = MatchSkeletonDataset(image=model_input, skeleton=skeleton, flux=flux, skeleton_p=skeleton_p,
+            dataset = MatchSkeletonDataset(image=model_input, skeleton=skeleton, flux=flux,
                                            sample_input_size=model_io_size, sample_label_size=model_io_size,
                                            augmentor=None, mode='test', seed_points=s_points,
                                            pad_size=pad_size.astype(np.uint32))

@@ -18,21 +18,25 @@ def prepare_data(volume, label, output, input_label=None, color_data=None):
             start_slice_number = volume.shape[2]//2 - int(N/min_batch)//2
             volume = volume[:min_batch, :, start_slice_number:start_slice_number+int(N/min_batch), :, :].permute(0, 2, 1, 3, 4).contiguous().view(-1, volume.shape[1], volume.shape[3], volume.shape[4])
             label = label[:min_batch,   :, start_slice_number:start_slice_number+int(N/min_batch), :, :].permute(0, 2, 1, 3, 4).contiguous().view(-1, label.shape[1], label.shape[3], label.shape[4])
-            output = output[:min_batch, :, start_slice_number:start_slice_number+int(N/min_batch), :, :].permute(0, 2, 1, 3, 4).contiguous().view(-1, output.shape[1], output.shape[3], output.shape[4])
+
+            if output is not None:
+                output = output[:min_batch, :, start_slice_number:start_slice_number+int(N/min_batch), :, :].permute(0, 2, 1, 3, 4).contiguous().view(-1, output.shape[1], output.shape[3], output.shape[4])
             if input_label is not None:
                 input_label = input_label[:min_batch,   :, start_slice_number:start_slice_number+int(N/min_batch), :, :].permute(0, 2, 1, 3, 4).contiguous().view(-1, input_label.shape[1], input_label.shape[3], input_label.shape[4])
-
             if color_data is not None:
                 color_data = color_data[:min_batch, :, start_slice_number:start_slice_number+int(N/min_batch), :, :].permute(0, 2, 1, 3, 4).contiguous().view(-1, color_data.shape[1], color_data.shape[3], color_data.shape[4])
         else:
-            volume, label, output = volume[0].permute(1,0,2,3), label[0].permute(1,0,2,3), output[0].permute(1,0,2,3)
+            volume, label = volume[0].permute(1,0,2,3), label[0].permute(1,0,2,3)
+            if output is not None:
+                output = output[0].permute(1, 0, 2, 3)
             if input_label is not None:
                 input_label = input_label[0].permute(1, 0, 2, 3)
             if color_data is not None:
                 color_data = color_data[0].permute(1, 0, 2, 3)
 
         if volume.size()[0] > N:
-            ret_list = [volume[:N], label[:N], output[:N]]
+            ret_list = [volume[:N], label[:N]]
+            ret_list.append(output[:N] if output is not None else None)
             if input_label is not None:
                 ret_list.append(input_label[:N])
             if color_data is not None:
@@ -61,11 +65,11 @@ def visualize(volume, label, output, iteration, writer, mode='Train', input_labe
 
     sz = volume.size() # z,c,y,x
     volume_visual = volume.detach().cpu().expand(sz[0], 3, sz[2], sz[3])
-    if output.shape[1] == 1:
-        output_visual = output.detach().cpu().expand(sz[0], 3, sz[2], sz[3])
+    if volume.shape[1] == 1:
+        output_visual = output.detach().cpu().expand(sz[0], 3, sz[2], sz[3]) if output is not None else None
         label_visual = label.detach().cpu().expand(sz[0], 3, sz[2], sz[3])
-    elif output.shape[1] > 1:
-        output_visual = output.detach().cpu()
+    elif volume.shape[1] > 1:
+        output_visual = output.detach().cpu() if output is not None else None
         label_visual = label.detach().cpu()
 
     if input_label is not None:
@@ -88,35 +92,27 @@ def visualize(volume, label, output, iteration, writer, mode='Train', input_labe
                 for i in range(input_label_visual.shape[1]):
                     canvas.append(input_label_visual[idx, i:i+1].expand(3, sz[2], sz[3]))
 
-        if output.shape[1] == 1:
-            canvas.append(output_visual[idx])
+        if volume.shape[1] == 1:
             canvas.append(label_visual[idx])
-        elif output.shape[1] > 1:
+            if output is not None:
+                canvas.append(output_visual[idx])
+        elif volume.shape[1] > 1:
             for i in range(output.shape[1]):
-                canvas.append(output_visual[idx, i:i+1].expand(3, sz[2], sz[3]))
                 canvas.append(label_visual[idx, i:i+1].expand(3, sz[2], sz[3]))
-
+                if output is not None:
+                    canvas.append(output_visual[idx, i:i+1].expand(3, sz[2], sz[3]))
         if color_data is not None:
             for i in range(color_data_visual.shape[1] // 3):
                 canvas.append(color_data_visual[idx, i*3:(i+1)*3])
 
-    nrow = volume.shape[1] + label.shape[1] + output.shape[1]
-    if input_label is not None:
-        nrow += input_label.shape[1]
-
-    if color_data is not None:
-        nrow += color_data.shape[1] // 3
+    nrow = volume.shape[1] + label.shape[1] \
+        + (output.shape[1] if output is not None else 0) \
+        + (input_label.shape[1] if input_label is not None else 0) \
+        + (color_data.shape[1] // 3 if color_data  is not None else 0)
 
     canvas_show = vutils.make_grid(canvas, nrow=nrow, normalize=False, scale_each=False)
 
     writer.add_image(mode + ' Mask', canvas_show, iteration)
-
-    # volume_show = vutils.make_grid(volume_visual, nrow=N, normalize=False, scale_each=True)
-    # output_show = vutils.make_grid(output_visual, nrow=N, normalize=False, scale_each=True)
-    # label_show = vutils.make_grid(label_visual, nrow=N, normalize=False, scale_each=True)
-    # writer.add_image('Input', volume_show, iteration)
-    # writer.add_image('Label', label_show, iteration)
-    # writer.add_image('Output', output_show, iteration)
 
 def visualize_aff(volume, label, output, iteration, writer, mode='Train'):
     volume, label, output = prepare_data(volume, label, output)
