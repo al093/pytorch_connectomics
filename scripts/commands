@@ -22,6 +22,7 @@ python trainSkeleton.py -o ~/pytorch_connectomics/outputs/snemi/ -lr 8e-05 --ite
 python trainSkeleton.py -o ~/pytorch_connectomics/outputs/liver/ -lr 8e-05 --iteration-total 600000 --iteration-save 2000 -mi 64,192,192 -g 1 -c 1 -b 4 -ac unetv3 --argsFile ../cmdArgs/trainArgsLiverSkeleton.txt --task 4 --out-channel 3 --in-channel 1 -en liver_allAug
 
 
+python trainSkeleton.py -o ~/pytorch_connectomics/outputs/liver/ -lr 8e-05 --iteration-total 600000 --iteration-save 2000 -mi 64,192,192 -g 2 -c 10 -b 12 -ac fluxNet --argsFile ../cmdArgs/trainArgsSNEMISkelAbStudyDeepFlux.txt --task 4 --out-channel 3 --in-channel 1 -en snemi_abStudy_interpolated+direction
 
 ipython --pdb testSkeleton.py -- -o /n/pfister_lab2/Lab/alok/results/snemi/ -mi 64,192,192 -g 1 -c 20 -b 12 -ac unetv3 -lm True -pm ~/pytorch_connectomics/outputs/snemi/snemi_complete_AllAug_LargeFov/snemi_complete_AllAug_LargeFov_30000.pth -lm_2 True -pm_2 ~/pytorch_connectomics/outputs/snemi/snemi_complete_AllAug_LargeFov/snemi_complete_AllAug_LargeFov_second_30000.pth --argsFile ../cmdArgs/testArgsSNEMISkeleton.txt --task 4 -ism True
 
@@ -38,3 +39,12 @@ tensorboard --logdir=a:~/pytorch_connectomics/outputs/snemi/,b:/n/pfister_lab2/L
 python testFlux.py -o /n/pfister_lab2/Lab/alok/results/zebraFinch/ -mi 64,144,144 -g 1 -c 12 -b 20 -ac fluxNet -lm True --task 4 --in-channel 1 --out-channel 3 -pm /n/home11/averma/pytorch_connectomics/outputs/zebraFinch/zebraFinch_noRot_noElastic/zebraFinch_noRot_noElastic_70000.pth --argsFile ../cmdArgs/valZFSkeletons.txt
 
 python testFlux.py -o /n/pfister_lab2/Lab/alok/results/snemi/ -mi 64,192,192 -g 1 -c 12 -b 12 -ac fluxNet -lm True --task 4 --in-channel 1 --out-channel 3 -pm /n/home11/averma/pytorch_connectomics/outputs/snemi/snemi_onlyFlux_moreFilters_highDR_moreElastic/snemi_onlyFlux_moreFilters_highDR_moreElastic_114000.pth -dn /n/pfister_lab2/Lab/alok/snemi/train_image.h5 -en trainVolumeResult
+
+python testFlux.py -o /n/pfister_lab2/Lab/alok/results/liver/ -mi 64,192,192 -g 1 -c 12 -b 12 -ac fluxNet -lm True --task 4 --in-channel 1 --out-channel 3 -pm /n/home11/averma/pytorch_connectomics/outputs/liver/liver_1_25xScaling/liver_1_25xScaling_180000.pth -dn /n/pfister_lab2/Lab/alok/liver/resampled/images/1x/0.h5 -en liver_0
+
+
+
+
+
+show_vec_2('/n/pfister_lab2/Lab/alok/results/liver/liver_0/end_directions.h5', 2, 'directions')
+show('/n/pfister_lab2/Lab/alok/results/liver/liver_0/75_3_gradient_0_180000_skel_large.h5', 'skel', is_image=0)  
