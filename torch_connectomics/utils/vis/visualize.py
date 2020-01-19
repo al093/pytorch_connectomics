@@ -164,3 +164,7 @@ def save_all(input, gt_label, gt_flux, gt_skeleton, out_flux, out_mask, data_nam
     save_data(gt_skeleton.cpu().detach().numpy().astype(np.uint16), path + '/gt_skeleton_' + data_name_prefix + '.h5')
     save_data(out_flux.cpu().detach().numpy(), path + '/out_flux_' + data_name_prefix + '.h5')
     save_data(out_mask.cpu().detach().numpy().astype(np.uint16), path + '/in_2d_mask' + data_name_prefix + '.h5')
+
+def save_volumes_in_dict(volumes_dict, base_path):
+    for key, vol in volumes_dict.items():
+        save_data(vol, base_path + '/' + key)

@@ -16,6 +16,17 @@ def crop_volume(data, sz, st=(0, 0, 0)):  # C*D*W*H, C=1
 def crop_volume_mul(data, sz, st=(0, 0, 0)):  # C*D*W*H, for multi-channel input
     return data[:, st[0]:st[0]+sz[0], st[1]:st[1]+sz[1], st[2]:st[2]+sz[2]]
 
+def check_cropable(data, sz, st):
+    # check if any postion is negative
+    if np.any(st<0):
+        return False
+
+    # check if the crop exceeds image bounds
+    if (st[0] + sz[0] <= data.shape[-3]) and (st[1] + sz[1] <= data.shape[-2]) and (st[2] + sz[2] <= data.shape[-1]):
+        return True
+    else:
+        return False
+
 ####################################################################
 ## Rebalancing.
 ####################################################################

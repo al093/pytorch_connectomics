@@ -4,6 +4,7 @@ from .convlstm import ConvLSTM
 from .convlstmcenter import ConvLSTMCenter
 from .slicelstm import SliceLSTM
 from .slicelstmconv import SliceLSTMConv
+from .convLSTMCell3D import ConvLSTMCell3D
 
 __all__ = ['conv2d_pad',
            'conv2d_bn_non',
@@ -23,4 +24,5 @@ __all__ = ['conv2d_pad',
            'ConvLSTMCenter',
            'ConvLSTM',
            'SliceLSTM',
-           'SliceLSTMConv']
+           'SliceLSTMConv',
+           'ConvLSTMCell3D']

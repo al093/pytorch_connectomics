@@ -39,7 +39,6 @@ def train(args, train_loader, val_loader, model, model_2, device, criterion,
         if args.train_grad_dtx:
             volume = volume.to(device)
             flux, flux_weight = flux.to(device), flux_weight.to(device)
-            # boundary_mask, boundary_weight = boundary_mask.to(device), boundary_weight.to(device)
             skeleton_weight = skeleton_weight.to(device)
 
             output = model(volume)

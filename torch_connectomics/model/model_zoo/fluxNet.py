@@ -94,7 +94,7 @@ class FluxNet(nn.Module):
         #initialization
         ortho_init(self)
 
-    def forward(self, x):
+    def forward(self, x, get_penultimate_layer=False):
 
         # encoding path
         z1 = self.layer1_E(x)
@@ -131,10 +131,14 @@ class FluxNet(nn.Module):
 
         x = self.up(self.conv1(x))
         x = x + z1
+        p_out = x
         out = self.layer1_D(x)
         out = self.non_linearity_1(out)
 
         if torch.isnan(out).any() or torch.isinf(out).any():
             import pdb; pdb.set_trace()
 
-        return out
+        if get_penultimate_layer:
+            return out, p_out
+        else:
+            return out

@@ -67,11 +67,15 @@ def setup_model(args, device, model_io_size, exact=True, size_match=True, non_li
                  'unetv3DualHead': unetv3DualHead,
                  'cNet': ClassificationNet,
                  'fluxNet': FluxNet,
+                 'directionNet': DirectionNet,
                  'fpn': fpn}
 
     assert args.architecture in MODEL_MAP.keys()
     if args.task == 2:
         model = MODEL_MAP[args.architecture](in_channel=1, out_channel=args.out_channel, act='tanh')
+    if args.task == 6:
+        assert args.architecture == 'directionNet'
+        model = MODEL_MAP[args.architecture](in_channel=args.in_channel, input_sz=model_io_size)
     else:
         model = MODEL_MAP[args.architecture](in_channel=args.in_channel, out_channel=args.out_channel, input_sz=model_io_size, batch_sz=args.batch_size, non_linearity=non_linearity)
     print('model: ', model.__class__.__name__)

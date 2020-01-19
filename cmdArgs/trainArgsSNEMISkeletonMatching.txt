@@ -1,5 +1,4 @@
--dn /n/pfister_lab2/Lab/alok/snemi/train_image.h5
--sp /n/pfister_lab2/Lab/alok/results/snemi/test_context_L1_22000_14000_denseSupervision/1x/training_splits.npy
--skn /n/pfister_lab2/Lab/alok/results/snemi/test_context_L1_22000_14000_denseSupervision/1x/splitted.h5
--spn /n/pfister_lab2/Lab/alok/results/snemi/test_context_L1_22000_14000_denseSupervision/1x/side_0.h5
--fn /n/pfister_lab2/Lab/alok/results/snemi/test_context_L1_22000_14000_denseSupervision/1x/gradient_0.h5
+-dn /n/pfister_lab2/Lab/alok/snemi/train_image.h5@/n/pfister_lab2/Lab/alok/snemi/train_image.h5@/n/pfister_lab2/Lab/alok/snemi/train_image.h5
+-fn /n/pfister_lab2/Lab/alok/results/snemi/trainVolumeResult/gradient_train_image_114000.h5@/n/pfister_lab2/Lab/alok/results/snemi/trainVolumeResult/gradient_train_image_114000.h5@/n/pfister_lab2/Lab/alok/results/snemi/trainVolumeResult/gradient_train_image_114000.h5
+-sp /n/pfister_lab2/Lab/alok/results/snemi/trainVolumeResult/50_3_splittedtraining_splits.npy@/n/pfister_lab2/Lab/alok/results/snemi/trainVolumeResult/55_3_splittedtraining_splits.npy@/n/pfister_lab2/Lab/alok/results/snemi/trainVolumeResult/60_3_splittedtraining_splits.npy
+-skn /n/pfister_lab2/Lab/alok/results/snemi/trainVolumeResult/50_3_splitted.h5@/n/pfister_lab2/Lab/alok/results/snemi/trainVolumeResult/55_3_splitted.h5@/n/pfister_lab2/Lab/alok/results/snemi/trainVolumeResult/60_3_splitted.h5

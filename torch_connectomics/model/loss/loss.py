@@ -143,37 +143,41 @@ class AngularAndScaleLoss(nn.Module):
         scale = torch.sqrt((input**2).sum(dim=1, keepdim=True))
         return scale
 
-    def angular_loss(self, input, target, norm_i, norm_t, weight, batch_norm_fac):
-        inner_p = (input*target).sum(dim=1, keepdim=True)
-        den = norm_i*norm_t + 1e-10
-        inner_p = inner_p/den
-        if torch.isnan(inner_p).any() or torch.isinf(inner_p).any():
-            import pdb; pdb.set_trace()
-
-        inner_p[inner_p > 1.0] = 1.0
-        inner_p[inner_p < -1.0] = -1.0
-        loss = torch.acos(inner_p)
-
-        if torch.isnan(loss).any() or torch.isinf(loss).any():
-            import pdb; pdb.set_trace()
-
-        if weight is not None:
-            loss = weight * loss
-
-        return loss.sum()/batch_norm_fac
+    # def angular_loss(self, input, target, norm_i, norm_t, weight, batch_norm_fac):
+    #     inner_p = (input*target).sum(dim=1, keepdim=True)
+    #     den = norm_i*norm_t + 1e-10
+    #     inner_p = inner_p/den
+    #     if torch.isnan(inner_p).any() or torch.isinf(inner_p).any():
+    #         import pdb; pdb.set_trace()
+    #
+    #     inner_p[inner_p > 1.0] = 1.0
+    #     inner_p[inner_p < -1.0] = -1.0
+    #     loss = torch.acos(inner_p)
+    #
+    #     if torch.isnan(loss).any() or torch.isinf(loss).any():
+    #         import pdb; pdb.set_trace()
+    #
+    #     if weight is not None:
+    #         loss = weight * loss
+    #
+    #     return loss.sum()/batch_norm_fac
 
     def scale_loss(self, norm_i, norm_t, weight, norm_term):
         return self.w_mse(norm_i, norm_t, weight, norm_term)
 
-    def forward(self, input, target, weight):
+    def forward(self, input, target, weight=None):
         scale_i = self.get_norm(input)
         scale_t = self.get_norm(target)
 
         cosine_similarity = self.cos(input, target)
         cosine_loss = 1 - cosine_similarity
-        cosine_loss = weight*cosine_loss
-        norm_term = (weight>0).sum()
-        a_loss = cosine_loss.sum()/norm_term
+        if weight:
+            cosine_loss = weight*cosine_loss
+            norm_term = (weight>0).sum()
+            a_loss = cosine_loss.sum()/norm_term
+        else:
+            norm_term = torch.prod(torch.tensor(cosine_loss.size(), dtype=torch.float32))
+            a_loss = cosine_loss.sum()/norm_term
 
         # a_loss = self.angular_loss(input, target, scale_i, scale_t, weight, norm_term)
         s_loss = self.scale_loss(scale_i, scale_t, weight, norm_term)

@@ -452,42 +452,43 @@ class SkeletonSource(neuroglancer.skeleton.SkeletonSource):
         self.edges = edges
 
     def get_skeleton(self, i):
-        if i > len(self.vertices):
+        i = str(i)
+        if i not in self.vertices.keys():
             return None
         else:
             color = np.full(self.vertices[i].shape[0], float(i)/len(self.vertices), dtype=np.float32)
             return neuroglancer.skeleton.Skeleton(
                 vertex_positions=self.vertices[i],
-                edges=self.edges[i].flatten(),
+                edges=self.edges[i],
                 vertex_attributes=dict(color=color))
 
 def show_skeleton(h5file, name='skeletons', resolution=None):
     global viewer
     global res
     r = resolution if resolution else res
-    hf = h5py.File(h5file, 'r')
-    hf_groups = hf.keys()
-    vertices = []
-    edges = []
-    for g in hf_groups:
-        vertices.append(np.asarray(hf.get(g)['vertices'])[:, ::-1] * np.array(res))
-        if 'edges' in hf.get(g).keys():
-            edges.append(np.asarray(hf.get(g)['edges']))
-        else:
-            edges.append(np.array([], dtype=np.uint16))
+    with h5py.File(h5file, 'r') as hf:
+        vertices = {}
+        edges = {}
+        for g in hf.keys():
+            vertices[g] = np.asarray(hf.get(g)['vertices'])[:, ::-1] * np.array(r)
+            if 'edges' in hf.get(g).keys():
+                edges[g] = np.asarray(hf.get(g)['edges'])
+            else:
+                edges[g] = np.array([], dtype=np.uint16)
+    
         skeletons = SkeletonSource(vertices, edges)
 
-    with viewer.txn() as s:
-        s.layers.append(
-            name=name,
-            layer=neuroglancer.SegmentationLayer(
-                source=neuroglancer.LocalVolume(data=np.zeros((1,1,1)),
-                                                voxel_size=r,
-                                                skeletons=skeletons),
-                skeleton_shader='void main() { emitRGB(colormapJet(color[0])); }',
-                selected_alpha=0,
-                not_selected_alpha=0,
-            ))
+        with viewer.txn() as s:
+            s.layers.append(
+                name=name,
+                layer=neuroglancer.SegmentationLayer(
+                    source=neuroglancer.LocalVolume(data=np.zeros((1,1,1)),
+                                                    voxel_size=r,
+                                                    skeletons=skeletons),
+                    skeleton_shader='void main() { emitRGB(colormapJet(color[0])); }',
+                    selected_alpha=0,
+                    not_selected_alpha=0,
+                ))
 
 ip='localhost' # or public IP of the machine for sharable display
 port=18779 # change to an unused port number
@@ -497,8 +498,8 @@ viewer=neuroglancer.Viewer()
 #### SNEMI #####
 res = [6, 6, 30]
 D0 = '/n/pfister_lab2/Lab/alok/snemi/'
-show(D0 + 'train_image.h5', 'im', is_image=True)
-# show(D0 + 'skeleton/train_labels_separated_disjointed_removedGlial.h5', 'gt-seg', is_image=False)
+# show(D0 + 'train_image.h5', 'im', is_image=True)
+show(D0 + 'skeleton/train_labels_separated_disjointed_removedGlial.h5', 'gt-seg', is_image=False)
 # show('/n/pfister_lab2/Lab/alok/results/snemi/test_context_L1_22000_14000_denseSupervision/1x/splitted.h5', 'split', is_image=False)
 # show('/n/pfister_lab2/Lab/alok/snemi/skeleton/skeleton.h5', 'gt-skeleton')
 # show_grad_field('/n/pfister_lab2/Lab/alok/snemi/skeleton/grad_distance.h5', 'gt_grad', D0 + 'skeleton/train_labels_separated_disjointed_removedGlial.h5', 401, sparsity=1000, vec_lec=2.0)
@@ -612,9 +613,9 @@ show(D0 + 'train_image.h5', 'im', is_image=True)
 
 
 #liver
-res=[5,5,5]
-show('/n/pfister_lab2/Lab/alok/liver/resampled/labels/0.h5', 'labels', is_image=0) 
-show('/n/pfister_lab2/Lab/alok/results/liver/liver_0/skel_large_merged.h5', 'skel-merged', is_image=0)
+# res=[5,5,5]
+# show('/n/pfister_lab2/Lab/alok/liver/resampled/labels/0.h5', 'labels', is_image=0) 
+# show('/n/pfister_lab2/Lab/alok/results/liver/liver_0/skel_large_merged.h5', 'skel-merged', is_image=0)
 # show_vec_2('/n/pfister_lab2/Lab/alok/results/liver/liver_0/end_directions.h5', 2, 'directions')
 
 

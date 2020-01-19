@@ -7,8 +7,8 @@ import torch
 import torch.utils.data
 
 from torch_connectomics.data.dataset import AffinityDataset, SynapseDataset, MitoDataset, \
-    MaskDataset, MaskDatasetDualInput, MaskAndSkeletonDataset, MatchSkeletonDataset
-from torch_connectomics.data.utils import collate_fn, collate_fn_2, collate_fn_test, collate_fn_var
+    MaskDataset, MaskDatasetDualInput, MaskAndSkeletonDataset, MatchSkeletonDataset, SkeletonGrowingDataset
+from torch_connectomics.data.utils import collate_fn_growing, collate_fn_test, collate_fn_var
 from torch_connectomics.data.augmentation import *
 from torch_connectomics.utils.net.serialSampler import SerialSampler
 
@@ -17,7 +17,8 @@ TASK_MAP = {0: 'neuron segmentation',
             2: 'mitochondria segmentation',
             3: 'mask prediction',
             4: 'skeleton prediction',
-            5: 'skeleton matching'}
+            5: 'skeleton matching',
+            6: 'skeleton growing'}
 
 def get_input(args, model_io_size, mode='train', model=None):
     """Prepare dataloader for training and inference.
@@ -36,17 +37,17 @@ def get_input(args, model_io_size, mode='train', model=None):
         flux = [None] * len(img_name)
         weight = [None] * len(img_name)
 
-    if args.task != 5:
+    if args.task != 5 and args.task != 6 :
         if mode=='validation':
             seg_name = args.val_seg_name.split('@')
         elif mode=='train':
             seg_name = args.seg_name.split('@')
 
-    if args.task == 3 or args.task == 4 or args.task == 5:
+    if args.task == 3 or args.task == 4 or args.task == 5 or args.task == 6:
         if args.seed_points is not None:
             seed_points_files = args.seed_points.split('@')
 
-    if args.task == 4 or args.task == 5:
+    if args.task == 4 or args.task == 5 or args.task == 6:
         skeleton_files = None
         if args.skeleton_name is not None:
             skeleton_files = args.skeleton_name.split('@')
@@ -62,7 +63,7 @@ def get_input(args, model_io_size, mode='train', model=None):
     # 1. load data
     model_input = [None]*len(img_name)
 
-    if args.task != 5:
+    if args.task != 5 and args.task != 6:
         if mode=='train' or mode=='validation':
             assert len(img_name)==len(seg_name)
             model_label = [None]*len(seg_name)
@@ -90,7 +91,7 @@ def get_input(args, model_io_size, mode='train', model=None):
     SHUFFLE = (mode=='train' or mode=='validation')
     print('Batch size: ', args.batch_size)
 
-    if mode == 'test' and args.task != 5:
+    if mode == 'test' and (args.task != 5 and args.task != 6):
         pad_size = np.array(model_io_size//2)
     else:
         pad_size = np.array((0, 0, 0))
@@ -98,8 +99,6 @@ def get_input(args, model_io_size, mode='train', model=None):
     pad_size = pad_size.astype(np.int64)
 
     for i in range(len(img_name)):
-
-
         image = np.array((h5py.File(img_name[i], 'r')['main']))
         if image.dtype == np.float32 or image.dtype == np.float64:
             model_input[i] = np.array(image, copy=False, dtype=np.float32)
@@ -122,9 +121,11 @@ def get_input(args, model_io_size, mode='train', model=None):
                 # s_points[i] = [npf.item().get('no_match')[0:15000]]
                 skeleton[i] = np.array((h5py.File(skeleton_files[i], 'r')['main']))
                 flux[i] = np.array((h5py.File(flux_files[i], 'r')['main']))
+            elif args.task == 6:
+                raise Exception('Not implemented')
 
         if mode == 'train' or mode == 'validation':
-            if args.task != 5:
+            if args.task != 5 and args.task != 6:
                 model_label[i] = np.array((h5py.File(seg_name[i], 'r')['main']))
 
             if args.task == 3 or args.task == 4:
@@ -144,11 +145,24 @@ def get_input(args, model_io_size, mode='train', model=None):
                         new_list.append(b)
                 s_points[i] = new_list
             elif args.task == 5:
-                # TODO it must be ensured that all centroid points have enough crop area around them
-                # TODO Rotation Augmentation is not supported yet
-                # These Points are the origin.
+                # TODO it must be ensured externally that all centroid points have enough crop area around them,
+                #  no check is done here. Rotation Augmentation is not supported yet
+                #  These Points are the origin.
                 npf = np.load(seed_points_files[i], allow_pickle=True)
                 s_points[i] = [npf.item().get('match'), npf.item().get('no_match')]
+
+            elif args.task == 6:
+                # load the skeleton growing datasets
+                data = []
+                with h5py.File(seed_points_files[i], 'r') as hf:
+                    for g in hf.keys():
+                        d = {}
+                        d['path'] = np.asarray(hf.get(g)['vertices'])
+                        if d['path'].shape[0] <= 2:
+                            continue
+                        d['sids'] = np.asarray(hf.get(g)['sids'])
+                        data.append(d)
+                s_points[i] = data
 
             # load skeletons
             if skeleton_files is not None:
@@ -170,7 +184,7 @@ def get_input(args, model_io_size, mode='train', model=None):
         volume_shape.append(model_input[i].shape)
         model_input[i] = model_input[i].astype(np.float32)
 
-        if args.task != 5:
+        if args.task != 5 and args.task != 6:
             if mode=='train' or mode=='validation':
                 model_label[i] = np.pad(model_label[i], ((pad_size[0], pad_size[0]),
                                                                (pad_size[1], pad_size[1]),
@@ -232,10 +246,22 @@ def get_input(args, model_io_size, mode='train', model=None):
                                              augmentor=augmentor, mode='train', seed_points=s_points,
                                              pad_size=pad_size.astype(np.uint32))
 
-        c_fn = collate_fn_var
+        elif args.task == 6:  # skeleton match prediction
+            dataset = SkeletonGrowingDataset(image=model_input, skeleton=skeleton, flux=flux,
+                                             growing_data=s_points, sample_input_size=sample_input_size,
+                                             augmentor=augmentor, mode='train')
+
+        if args.task == 6:
+            c_fn = collate_fn_growing
+            pin_memory = False
+        else:
+            c_fn = collate_fn_var
+            pin_memory = True
+
         img_loader = torch.utils.data.DataLoader(
               dataset, batch_size=args.batch_size, shuffle=SHUFFLE, collate_fn=c_fn,
-              num_workers=args.num_cpu, pin_memory=True)
+              num_workers=args.num_cpu, pin_memory=pin_memory)
+
         return img_loader
 
     else:
@@ -261,6 +287,8 @@ def get_input(args, model_io_size, mode='train', model=None):
                                            sample_input_size=model_io_size, sample_label_size=model_io_size,
                                            augmentor=None, mode='test', seed_points=s_points,
                                            pad_size=pad_size.astype(np.uint32))
+        elif args.task == 6:
+            raise Exception('Not Implemented')
 
         if args.task != 3:
             img_loader = torch.utils.data.DataLoader(
