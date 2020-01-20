@@ -12,7 +12,6 @@ def train(args, train_loader, val_loader, model, device, criterion, optimizer, s
 
     model.train()
 
-    count = 0
     start = time.time()
     iteration = 0
     for epoch in range(100000):
@@ -33,7 +32,14 @@ def train(args, train_loader, val_loader, model, device, criterion, optimizer, s
             # Get data from samplers and drop sampler which are not required to continue
             loss = torch.zeros((1,), dtype=torch.float32, device=device, requires_grad=True)
             continue_samplers = list(range(batch_size))
+            no_data_for_forward = False
+            do_not_log = False
             for t in range(100):
+
+                if no_data_for_forward:
+                    # if no forward pass could be made in last iteration then break
+                    break
+
                 input_image, input_flux = [], []
                 start_skeleton_mask, other_skeleton_mask = [], []
                 gt_direction, gt_state, center_pos = [], [], []
@@ -102,16 +108,20 @@ def train(args, train_loader, val_loader, model, device, criterion, optimizer, s
                     # loss
                     flux_loss, angular_l, scale_l = criterion(output_direction, gt_direction)
                     loss = loss + flux_loss
+                    do_backpropagate = True
                 else:
                     # no data from any sampler
-                    break
+                    no_data_for_forward = True
+                    if t == 0:
+                        # do not log this if in the first iteration no data could be collected for forward pass
+                        do_not_log = True
 
-                #after every 5 steps backpropagate and reset loss
-                if (t + 1) % 20 == 0:
+                #after every 5 steps backpropagate or do it before exiting the for loop because no forward passes could be made
+                if (t + 1) % 10 == 0 or (do_backpropagate and no_data_for_forward):
                     optimizer.zero_grad()
                     loss.backward()
                     optimizer.step()
-
+                    do_backpropagate = False
                     print('- [Steps: %d] train_loss=%0.4f lr=%.6f' % ( t+1, loss.item(), optimizer.param_groups[0]['lr']))
 
                     # Remove computation graph
@@ -123,23 +133,27 @@ def train(args, train_loader, val_loader, model, device, criterion, optimizer, s
 
                 # Using the predicted directions calculate next positions, samplers will update their state
                 for i, sampler_idx in enumerate(continue_samplers):
-                    next_pos = samplers[sampler_idx].jump_to_next_position(output_direction[i, :])
+                    next_pos = samplers[sampler_idx].jump_to_next_position(output_direction[i])
                     # print('--------------------')
                     # print('Previous pos: ', center_pos[i])
-                    # print('Predicted Direction: ', direction[i])
+                    # print('Predicted Direction: ', output_direction[i])
                     # print ('New Pos:', next_pos)
 
-            print('[Iteration %d] train_loss=%0.4f lr=%.6f' % (iteration, iteration_loss, optimizer.param_groups[0]['lr']))
-            if logger and writer:
+            # normalize logged loss by the number of steps taken
+            iteration_loss /= t
+            if logger and writer and ~do_not_log:
+                print('[Iteration %d] train_loss=%0.4f lr=%.6f' % (
+                iteration, iteration_loss, optimizer.param_groups[0]['lr']))
                 logger.write("[Volume %d] train_loss=%0.4f lr=%.5f\n" % (iteration,
-                                                                         loss.item(),
+                                                                         iteration_loss,
                                                                          optimizer.param_groups[0]['lr']))
-                writer.add_scalars('Loss', {'Overall Loss': loss.item()}, iteration)
+                writer.add_scalars('Loss', {'Overall Loss': iteration_loss}, iteration)
 
             # save the predcited path for debugging
-            if iteration % 100 == 0:
+            if iteration % 20 == 0:
                 try:
-                    with h5py.File('predicted_paths.h5', 'w') as predicted_h5:
+                    with h5py.File(args.output + 'predicted_paths.h5', 'w') as predicted_h5:
+                        count = 0
                         for sampler in samplers:
                             hg = predicted_h5.create_group(str(count))
                             count += 1
@@ -149,6 +163,7 @@ def train(args, train_loader, val_loader, model, device, criterion, optimizer, s
                             edges[1::2] = np.arange(1, path.shape[0])
                             edges[2:-1:2] = np.arange(1, path.shape[0] - 1)
                             hg.create_dataset('edges', data=edges)
+                        print('Saved paths: ', np.arange(count))
                 except:
                     print('Exception catched while writing path to h5')
 
