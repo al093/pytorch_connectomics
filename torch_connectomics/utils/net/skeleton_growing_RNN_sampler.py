@@ -12,7 +12,7 @@ path_state = {'STOP':0.0, 'CONTINUE':1.0}
 class SkeletonGrowingRNNSampler:
 
     def __init__(self, image, skeleton, flux, path,
-                 start_pos, stop_pos, start_sid, stop_sid,
+                 start_pos, stop_pos, start_sid, stop_sid, ft_params,
                  sample_input_size, stride, anisotropy, d_avg):
         self.image = image
         self.skeleton = skeleton
@@ -22,6 +22,7 @@ class SkeletonGrowingRNNSampler:
         self.stop_pos = stop_pos
         self.start_sid = start_sid
         self.stop_sid = stop_sid
+        self.ft_params = ft_params
         self.sample_input_size = sample_input_size
         self.stride = stride
         self.anisotropy = np.array(anisotropy, dtype=np.float32)
@@ -30,6 +31,10 @@ class SkeletonGrowingRNNSampler:
         self.image_size = np.array(self.image.shape)
         self.sample_input_size = np.array(sample_input_size)  # model input size
         self.half_input_sz = self.sample_input_size//2
+
+        # flip all data except flux
+        self.flip_transpose_volumes()
+
         self.current_pos = np.array(self.start_pos, copy=True, dtype=np.float32)
         self.predicted_path = [self.current_pos.copy()]
 
@@ -48,13 +53,17 @@ class SkeletonGrowingRNNSampler:
             return False, None, None, None, None, None, None, None
 
         input_image = crop_volume(self.image, input_size, corner_pos)
-        input_flux = crop_volume_mul(self.flux, input_size, corner_pos)
         cropped_skeleton = crop_volume(self.skeleton, input_size, corner_pos)
         start_skeleton_mask = (cropped_skeleton == self.start_sid).astype(np.float32)
         other_skeleton_mask = ((cropped_skeleton != self.start_sid) & (cropped_skeleton != 0)).astype(np.float32)
 
-        input_image = torch.from_numpy(input_image).unsqueeze(0)
-        input_flux = torch.from_numpy(input_flux)
+        input_flux = crop_volume_mul(self.flux, input_size, corner_pos)
+        # flux vectors need to be flipped or transposed as per the ft_params.
+        # ensure a copy is passed.
+        input_flux = self.flip_transpose_flux_vectors(input_flux.copy())
+
+        input_image = torch.from_numpy(input_image.copy()).unsqueeze(0)
+        input_flux = torch.from_numpy(input_flux.copy())
         start_skeleton_mask = torch.from_numpy(start_skeleton_mask).unsqueeze(0)
         other_skeleton_mask = torch.from_numpy(other_skeleton_mask).unsqueeze(0)
 
@@ -92,7 +101,9 @@ class SkeletonGrowingRNNSampler:
         return self.current_pos
 
     def get_predicted_path(self):
-        return np.vstack(self.predicted_path)
+        path = np.vstack(self.predicted_path)
+        path = self.transpose_flip_path(path)
+        return path
 
     def get_cropped_image(self, pos):
         out_input = crop_volume(self.input[pos[0]], self.sample_input_size, pos[1:])
@@ -141,6 +152,69 @@ class SkeletonGrowingRNNSampler:
     def normalize(self, vec):
         norm = np.sqrt((vec**2).sum())
         if norm < 1e-3:
-            return np.array([0,0,0], dtype=np.float32)
+            return np.array([0, 0, 0], dtype=np.float32)
         else:
             return np.array(vec/norm, copy=False, dtype=np.float32)
+
+    def flip_transpose_volumes(self):
+        # ensure that all volumes are views of the data
+        # path, start_pos, stop_pos can be copied
+        if self.ft_params is not None:
+            self.path = self.path.copy()
+            self.stop_pos = self.stop_pos.copy()
+            self.start_pos = self.start_pos.copy()
+            if self.ft_params['xflip']:
+                self.image = self.image[:, :, ::-1]
+                self.skeleton = self.skeleton[:, :, ::-1]
+                self.flux = self.flux[:, :, :, ::-1]
+                self.path[:, 2] = self.image.shape[2] - self.path[:, 2] - 1
+                self.stop_pos[2] = self.image.shape[2] - self.stop_pos[2] - 1
+                self.start_pos[2] = self.image.shape[2] - self.start_pos[2] - 1
+            if self.ft_params['yflip']:
+                self.image = self.image[:, ::-1, :]
+                self.skeleton = self.skeleton[:, ::-1, :]
+                self.flux = self.flux[:, :, ::-1, :]
+                self.path[:, 1] = self.image.shape[1] - self.path[:, 1] - 1
+                self.stop_pos[1] = self.image.shape[1] - self.stop_pos[1] - 1
+                self.start_pos[1] = self.image.shape[1] - self.start_pos[1] - 1
+            if self.ft_params['zflip']:
+                self.image = self.image[::-1, :, :]
+                self.skeleton = self.skeleton[::-1, :, :]
+                self.flux = self.flux[:, ::-1, :, :]
+                self.path[:, 0] = self.image.shape[0] - self.path[:, 0] - 1
+                self.stop_pos[0] = self.image.shape[0] - self.stop_pos[0] - 1
+                self.start_pos[0] = self.image.shape[0] - self.start_pos[0] - 1
+            if self.ft_params['xytranspose']:
+                self.image = self.image.transpose(0, 2, 1)
+                self.skeleton = self.skeleton.transpose(0, 2, 1)
+                self.flux = self.flux.transpose(0, 1, 3, 2)
+                self.path = self.path[:, [0, 2, 1]]
+                self.stop_pos = self.stop_pos[[0, 2, 1]]
+                self.start_pos = self.start_pos[[0, 2, 1]]
+
+    def transpose_flip_path(self, path):
+        if self.ft_params is not None:
+            path = path.copy()
+            if self.ft_params['xytranspose']:
+                path = path[:, [0, 2, 1]]
+            if self.ft_params['zflip']:
+                path[:, 0] = self.image.shape[0] - path[:, 0] - 1
+            if self.ft_params['yflip']:
+                path[:, 1] = self.image.shape[1] - path[:, 1] - 1
+            if self.ft_params['xflip']:
+                path[:, 2] = self.image.shape[2] - path[:, 2] - 1
+        return path
+
+    def flip_transpose_flux_vectors(self, data):
+        assert data.ndim == 4
+        if self.ft_params is not None:
+            if self.ft_params['xflip']:
+                data[2] = -data[2]
+            if self.ft_params['yflip']:
+                data[1] = -data[1]
+            if self.ft_params['zflip']:
+                data[0] = -data[0]
+            # Transpose in xy.
+            if self.ft_params['xytranspose']:
+                data = data[[0, 2, 1], :]
+        return data

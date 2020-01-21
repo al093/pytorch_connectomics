@@ -61,24 +61,15 @@ class Flip(DataAugment):
         # Transpose in xy.
         if rule[3]:
             data = data[(0, 2, 1), :]
-            # data[1] = -data[1]
-            # data[2] = -data[2]
-
         return data
 
     def __call__(self, data, random_state):
         if random_state is None:
             random_state = np.random.RandomState(1234)
         rule = random_state.randint(2, size=4)
-        # rule = np.array([1, 0, 0, 0])
-        # import pdb; pdb.set_trace()
-        # save_data(data['image'], 'image.h5')
-        # save_data(data['flux'], 'flux.h5')
         output = {}
         for key, val in data.items():
             output[key] = self.flip_and_swap(val, rule)
             if key == 'flux': # extra step to rotate the vectors
                 output[key] = self.flip_and_swap_vectors(output[key], rule)
-        # save_data(output['image'], 'image_a.h5')
-        # save_data(output['flux'], 'flux_a.h5')
         return output

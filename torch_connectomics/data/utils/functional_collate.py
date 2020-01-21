@@ -30,8 +30,8 @@ def collate_fn_growing(batch):
     """
     returns the list-concatenated data, no stacking is done because the volumes are large.
     """
-    image, flux, skeleton, path, start_pos, stop_pos, start_sid, stop_sid = zip(*batch)
-    return image, flux, skeleton, path, start_pos, stop_pos, start_sid, stop_sid
+    image, flux, skeleton, path, start_pos, stop_pos, start_sid, stop_sid, ft_params = zip(*batch)
+    return image, flux, skeleton, path, start_pos, stop_pos, start_sid, stop_sid, ft_params
 
 def collate_fn_test(batch):
     pos, out_input = zip(*batch)
