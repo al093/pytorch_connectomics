@@ -12,7 +12,7 @@ path_state = {'STOP':0.0, 'CONTINUE':1.0}
 class SkeletonGrowingRNNSampler:
 
     def __init__(self, image, skeleton, flux, path,
-                 start_pos, stop_pos, start_sid, stop_sid, ft_params,
+                 start_pos, stop_pos, start_sid, stop_sid, ft_params, path_state_loss_weight,
                  sample_input_size, stride, anisotropy, d_avg):
         self.image = image
         self.skeleton = skeleton
@@ -23,6 +23,7 @@ class SkeletonGrowingRNNSampler:
         self.start_sid = start_sid
         self.stop_sid = stop_sid
         self.ft_params = ft_params
+        self.path_state_loss_weight = torch.from_numpy(np.array([path_state_loss_weight], dtype=np.float32))
         self.sample_input_size = sample_input_size
         self.stride = stride
         self.anisotropy = np.array(anisotropy, dtype=np.float32)
@@ -38,6 +39,7 @@ class SkeletonGrowingRNNSampler:
         self.current_pos = np.array(self.start_pos, copy=True, dtype=np.float32)
         self.predicted_path = [self.current_pos.copy()]
 
+        self._sampling_idxs = np.linspace(0.0, 1.0, num=10, endpoint=True).astype(np.float32)
     def get_next_step(self):
         '''
         Sample a region around the start_pos, check if that is possible first
@@ -72,14 +74,20 @@ class SkeletonGrowingRNNSampler:
         direction = torch.from_numpy(direction)
 
         # stop state occurs
-        # if the current position is on the correct skeleton fragment
-        # if the next direction gt is zero, which occurs when the current position is very near to the end of the GT path
-        if (torch.abs(direction).sum() == 0) or self.skeleton[tuple(center_pos)] == self.stop_sid:
+        # 1) if any of the points between the current position and the previous position is on the correct skeleton fragment
+        # 2) if the next direction gt is zero, which occurs when the current position is very near to the end of the GT path
+        if (torch.abs(direction).sum() == 0):
             state = torch.tensor(path_state['STOP'], dtype=torch.float32)
+            path_state_loss_weight = torch.ones_like(self.path_state_loss_weight)
+        elif len(self.predicted_path) >=2 and \
+                np.any(self.skeleton[self.interpolate_linear(self.current_pos, self.predicted_path[-2])] == self.stop_sid):
+            state = torch.tensor(path_state['STOP'], dtype=torch.float32)
+            path_state_loss_weight = torch.ones_like(self.path_state_loss_weight)
         else:
             state = torch.tensor(path_state['CONTINUE'], dtype=torch.float32)
+            path_state_loss_weight = self.path_state_loss_weight
 
-        return True, input_image, input_flux, start_skeleton_mask, other_skeleton_mask, direction, state, center_pos
+        return True, input_image, input_flux, start_skeleton_mask, other_skeleton_mask, direction, state, center_pos, path_state_loss_weight
 
     def calculate_next_position(self, p_direction):
         '''
@@ -218,3 +226,8 @@ class SkeletonGrowingRNNSampler:
             if self.ft_params['xytranspose']:
                 data = data[[0, 2, 1], :]
         return data
+
+    def interpolate_linear(self, start_pos, stop_pos):
+        sampled_points = start_pos + self._sampling_idxs[:, np.newaxis] * (stop_pos - start_pos)
+        sampled_points = sampled_points.astype(np.int32)
+        return (tuple(sampled_points[:, 0]), tuple(sampled_points[:, 1]), tuple(sampled_points[:, 2]))

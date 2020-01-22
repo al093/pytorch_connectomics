@@ -1,4 +1,4 @@
-import os, sys
+import os, sys, traceback
 import h5py, time, itertools, datetime
 import numpy as np
 
@@ -8,7 +8,8 @@ from torch_connectomics.model.loss import *
 from torch_connectomics.utils.net import *
 from torch_connectomics.utils.vis import *
 
-def train(args, train_loader, val_loader, model, device, criterion, optimizer, scheduler, logger, writer, regularization, model_io_size):
+def train(args, train_loader, val_loader, model, device, criterion, criterion_bce,
+          optimizer, scheduler, logger, writer, regularization, model_io_size):
 
     model.train()
 
@@ -19,14 +20,17 @@ def train(args, train_loader, val_loader, model, device, criterion, optimizer, s
             iteration += 1
             sys.stdout.flush()
             iteration_loss = 0
-            image, flux, skeleton, path, start_pos, stop_pos, start_sid, stop_sid = data
+            partwise_iteraton_loss = {'angle':0.0, 'magnitude':0.0, 'state':0.0}
+
+            image, flux, skeleton, path, start_pos, stop_pos, start_sid, stop_sid, ft_params, path_state_loss_weight = data
 
             # initialize samplers
             batch_size = len(image)
             samplers = []
             for i in range(batch_size):
                 samplers.append(SkeletonGrowingRNNSampler(image[i], skeleton[i], flux[i], path[i],
-                                          start_pos[i], stop_pos[i], start_sid[i], stop_sid[i],
+                                          start_pos[i], stop_pos[i], start_sid[i], stop_sid[i], ft_params[i],
+                                          path_state_loss_weight[i],
                                           sample_input_size=model_io_size, stride=2.0, anisotropy=[30.0, 6.0, 6.0], d_avg=3))
 
             # Get data from samplers and drop sampler which are not required to continue
@@ -42,7 +46,8 @@ def train(args, train_loader, val_loader, model, device, criterion, optimizer, s
 
                 input_image, input_flux = [], []
                 start_skeleton_mask, other_skeleton_mask = [], []
-                gt_direction, gt_state, center_pos = [], [], []
+                gt_direction, gt_path_state, center_pos = [], [], []
+                path_state_loss_weight = []
 
                 temp_c_samplers = []
                 sampler_idx_matching = {}
@@ -61,8 +66,9 @@ def train(args, train_loader, val_loader, model, device, criterion, optimizer, s
                         start_skeleton_mask.append(next_step_data[3])
                         other_skeleton_mask.append(next_step_data[4])
                         gt_direction.append(next_step_data[5])
-                        gt_state.append(next_step_data[6])
+                        gt_path_state.append(next_step_data[6])
                         center_pos.append(next_step_data[7])
+                        path_state_loss_weight.append(next_step_data[8])
 
                         # save_volumes_in_dict({'input_image':input_image[-1][0],
                         #                       'input_flux':input_flux[-1],
@@ -93,7 +99,8 @@ def train(args, train_loader, val_loader, model, device, criterion, optimizer, s
                     start_skeleton_mask = torch.stack(start_skeleton_mask, 0)
                     other_skeleton_mask = torch.stack(other_skeleton_mask, 0)
                     gt_direction = torch.stack(gt_direction, 0).to(device)
-                    gt_state = torch.stack(gt_state, 0).to(device)
+                    gt_path_state = torch.stack(gt_path_state, 0).to(device)
+                    path_state_loss_weight = torch.cat(path_state_loss_weight).to(device)
                     if prev_hidden_state is not None:
                         prev_hidden_state = torch.stack(prev_hidden_state, 0).to(device)
                     if prev_cell_state is not None:
@@ -103,11 +110,16 @@ def train(args, train_loader, val_loader, model, device, criterion, optimizer, s
                     input = torch.cat((input_image, input_flux, start_skeleton_mask, other_skeleton_mask), 1).to(device)
 
                     #forward pass
-                    output_direction, output_hidden_state, output_cell_state = model(input, prev_hidden_state, prev_cell_state)
+                    output_direction, output_path_state, output_hidden_state, output_cell_state = model(input, prev_hidden_state, prev_cell_state)
 
-                    # loss
-                    flux_loss, angular_l, scale_l = criterion(output_direction, gt_direction)
-                    loss = loss + flux_loss
+                    flux_loss, angular_l, scale_l = criterion(output_direction, gt_direction)  # direction loss
+                    state_loss = criterion_bce(output_path_state, gt_path_state, path_state_loss_weight)  # state loss
+                    loss = loss + flux_loss + state_loss
+
+                    partwise_iteraton_loss['angle'] += angular_l.detach().item()
+                    partwise_iteraton_loss['magnitude'] += scale_l.detach().item()
+                    partwise_iteraton_loss['state'] += state_loss.detach().item()
+
                     do_backpropagate = True
                 else:
                     # no data from any sampler
@@ -116,7 +128,7 @@ def train(args, train_loader, val_loader, model, device, criterion, optimizer, s
                         # do not log this if in the first iteration no data could be collected for forward pass
                         do_not_log = True
 
-                #after every 5 steps backpropagate or do it before exiting the for loop because no forward passes could be made
+                #after every 10 steps backpropagate or do it before exiting the for loop because no forward passes could be made
                 if (t + 1) % 10 == 0 or (do_backpropagate and no_data_for_forward):
                     optimizer.zero_grad()
                     loss.backward()
@@ -141,6 +153,9 @@ def train(args, train_loader, val_loader, model, device, criterion, optimizer, s
 
             # normalize logged loss by the number of steps taken
             iteration_loss /= t
+            for key in partwise_iteraton_loss.keys():
+                partwise_iteraton_loss[key] /= t
+
             if logger and writer and ~do_not_log:
                 print('[Iteration %d] train_loss=%0.4f lr=%.6f' % (
                 iteration, iteration_loss, optimizer.param_groups[0]['lr']))
@@ -148,9 +163,10 @@ def train(args, train_loader, val_loader, model, device, criterion, optimizer, s
                                                                          iteration_loss,
                                                                          optimizer.param_groups[0]['lr']))
                 writer.add_scalars('Loss', {'Overall Loss': iteration_loss}, iteration)
+                writer.add_scalars('Partwise Loss', partwise_iteraton_loss, iteration)
 
             # save the predcited path for debugging
-            if iteration % 20 == 0:
+            if iteration % 10 == 0:
                 try:
                     with h5py.File(args.output + 'predicted_paths.h5', 'w') as predicted_h5:
                         count = 0
@@ -165,7 +181,10 @@ def train(args, train_loader, val_loader, model, device, criterion, optimizer, s
                             hg.create_dataset('edges', data=edges)
                         print('Saved paths: ', np.arange(count))
                 except:
-                    print('Exception catched while writing path to h5')
+                    print('Exception occured while writing path to h5.')
+                    e = sys.exc_info()[0]
+                    print(e)
+                    traceback.print_exc(file=sys.stdout)
 
             #save model
             if iteration % args.iteration_save == 0 or iteration >= args.iteration_total:
@@ -204,7 +223,7 @@ def main():
 
     print('Setup loss function')
     criterion = AngularAndScaleLoss(alpha=0.08)
-    # criterion = WeightedMSE()
+    criterion_bce = WeightedBCE()
 
     print('Setup optimizer')
     model_parameters = list(model.parameters())
@@ -217,7 +236,7 @@ def main():
                                                            min_lr=1e-7, eps=1e-08)
 
     print('4. start training')
-    train(args, train_loader, None, model, device, criterion, optimizer, scheduler, logger, writer, None, model_io_size)
+    train(args, train_loader, None, model, device, criterion, criterion_bce, optimizer, scheduler, logger, writer, None, model_io_size)
 
     print('5. finish training')
     if args.disable_logging is not True:

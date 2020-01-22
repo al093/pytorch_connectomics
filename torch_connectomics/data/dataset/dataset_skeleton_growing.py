@@ -59,6 +59,7 @@ class SkeletonGrowingDataset(torch.utils.data.Dataset):
                 stop_sid = self.growing_data[index]['sids'][0]
 
             #flip transpose augmentation
+            #only get the parameters here
             ft_params = self.get_flip_transpose_params()
             # ft_params = None
 
@@ -66,7 +67,10 @@ class SkeletonGrowingDataset(torch.utils.data.Dataset):
             # z_sigma =
             # s = np.random.randint(0, z_sigma, 1000)
 
-            return self.image, self.flux, self.skeleton, path, start_pos, stop_pos, start_sid, stop_sid, ft_params
+            # calculate the approx class weights for the state preciction
+            state_bce_weight = np.float32(1.0 / len (path)) # this is the loss weight which should be given to all non-state predition positions
+
+            return self.image, self.flux, self.skeleton, path, start_pos, stop_pos, start_sid, stop_sid, ft_params, state_bce_weight
 
         # Test Mode Specific Operations:
         elif self.mode == 'test':

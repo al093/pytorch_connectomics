@@ -49,7 +49,7 @@ class DirectionNet(nn.Module):
         self.linear_layer_in_sz = (filters[-2]*np.prod(np.array(input_sz) / np.array([4, 8, 8]))).astype(np.int32)
         self.fc_1 = nn.Linear(self.linear_layer_in_sz, 128)
         self.fc_2 = nn.Linear(128, 64)
-        self.fc_3 = nn.Linear(64, 3)
+        self.fc_3 = nn.Linear(64, 4) # 3 for direction 1 for state
 
         self.down = nn.AvgPool3d(kernel_size=(1, 2, 2), stride=(1, 2, 2))
         self.down_z = nn.AvgPool3d(kernel_size=(2, 2, 2), stride=(2, 2, 2))
@@ -57,7 +57,7 @@ class DirectionNet(nn.Module):
         self.dropout = nn.Dropout3d(p=0.25)
         self.act_2 = nn.Tanh()
         self.act_1 = nn.LeakyReLU()
-
+        self.act_3 = nn.Sigmoid()
         # initialization
         ortho_init(self)
 
@@ -90,6 +90,7 @@ class DirectionNet(nn.Module):
         x = self.act_1(x)
 
         x = self.fc_3(x)
-        x = self.act_2(x)
+        direction = self.act_2(x[:, :-1])
+        state = self.act_3(x[:, -1])
 
-        return x, lstm_hidden_state_next, lstm_cell_state_next
+        return direction, state, lstm_hidden_state_next, lstm_cell_state_next
