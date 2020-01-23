@@ -78,14 +78,14 @@ class SkeletonGrowingRNNSampler:
         # 2) if the next direction gt is zero, which occurs when the current position is very near to the end of the GT path
         if (torch.abs(direction).sum() == 0):
             state = torch.tensor(path_state['STOP'], dtype=torch.float32)
-            path_state_loss_weight = torch.ones_like(self.path_state_loss_weight)
+            path_state_loss_weight = len(self.predicted_path)*torch.ones_like(self.path_state_loss_weight)
         elif len(self.predicted_path) >=2 and \
                 np.any(self.skeleton[self.interpolate_linear(self.current_pos, self.predicted_path[-2])] == self.stop_sid):
             state = torch.tensor(path_state['STOP'], dtype=torch.float32)
-            path_state_loss_weight = torch.ones_like(self.path_state_loss_weight)
+            path_state_loss_weight = len(self.predicted_path)*torch.ones_like(self.path_state_loss_weight)
         else:
             state = torch.tensor(path_state['CONTINUE'], dtype=torch.float32)
-            path_state_loss_weight = self.path_state_loss_weight
+            path_state_loss_weight = torch.ones_like(self.path_state_loss_weight)
 
         return True, input_image, input_flux, start_skeleton_mask, other_skeleton_mask, direction, state, center_pos, path_state_loss_weight
 

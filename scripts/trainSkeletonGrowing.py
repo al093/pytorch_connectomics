@@ -114,11 +114,16 @@ def train(args, train_loader, val_loader, model, device, criterion, criterion_bc
 
                     flux_loss, angular_l, scale_l = criterion(output_direction, gt_direction)  # direction loss
                     state_loss = criterion_bce(output_path_state, gt_path_state, path_state_loss_weight)  # state loss
-                    loss = loss + flux_loss + state_loss
 
-                    partwise_iteraton_loss['angle'] += angular_l.detach().item()
-                    partwise_iteraton_loss['magnitude'] += scale_l.detach().item()
-                    partwise_iteraton_loss['state'] += state_loss.detach().item()
+                    # print('GT path State: ', gt_path_state)
+                    # print('Predicted State: ', output_path_state)
+                    # print('State Loss: ', state_loss)
+                    state_loss_alpha = 0.05
+                    loss = loss + (1-state_loss_alpha)*flux_loss + state_loss_alpha*state_loss
+
+                    partwise_iteraton_loss['angle'] += (1-state_loss_alpha)*angular_l.detach().item()
+                    partwise_iteraton_loss['magnitude'] += (1-state_loss_alpha)*scale_l.detach().item()
+                    partwise_iteraton_loss['state'] += state_loss_alpha*state_loss.detach().item()
 
                     do_backpropagate = True
                 else:
