@@ -9,6 +9,24 @@ from torch_connectomics.data.dataset.misc import crop_volume, crop_volume_mul, c
 
 path_state = {'STOP':0.0, 'CONTINUE':1.0}
 
+
+def get_ar_in_window(ar, center, sz):
+    sz = np.array(sz).astype(np.int64)
+    center = np.array(center).astype(np.int64)
+    ar_sz = np.array(ar.shape).astype(np.int64)
+    h_sz = sz // 2
+    shift = np.abs(((center - h_sz) < 0) * (center - h_sz))
+    center += shift
+    # if the size is divisible by 2 then reduce the half size by 1
+    h_sz_2 = h_sz.copy()
+    h_sz_2[(h_sz_2 % 2) == False] -= 1
+    shift = (((center + h_sz_2) > (ar_sz - 1)) * (center + h_sz_2 - ar_sz + 1))
+    center -= shift
+    sub_ar = ar[center[0] - h_sz[0]: center[0] - h_sz[0] + sz[0],
+             center[1] - h_sz[1]: center[1] - h_sz[1] + sz[1],
+             center[2] - h_sz[2]: center[2] - h_sz[2] + sz[2]]
+    return sub_ar, center - h_sz
+
 class SkeletonGrowingRNNSampler:
 
     def __init__(self, image, skeleton, flux, path,
@@ -40,11 +58,62 @@ class SkeletonGrowingRNNSampler:
         self.predicted_path = [self.current_pos.copy()]
 
         self._sampling_idxs = np.linspace(0.0, 1.0, num=10, endpoint=True).astype(np.float32)
+        self.global_features = None
+
+    def init_global_feature_models(self, flux_model, flux_model_branch, flux_model_input_size, device):
+        self.flux_model = flux_model
+        self.flux_model_branch = flux_model_branch
+        self.flux_model_input_size = np.array(flux_model_input_size)
+        self.flux_model_half_input_size = self.flux_model_input_size // 2
+        self.device = device
+
+    def get_global_features(self, input_image):
+        with torch.no_grad():
+            _, p_layer = self.flux_model(torch.from_numpy(input_image[np.newaxis, np.newaxis, ...].copy()).to(self.device),
+                                         get_penultimate_layer=True)
+            # out_features = self.flux_branch_model(p_layer)[0]
+            out_features = p_layer[0]
+        return out_features
+
+    def get_roi_from_global_features(self, center_pos_growing, corner_pos_growing):
+        # here logic for running the global features models is implmented
+        # depending on the current position, the global features may need to be calculated again
+        # a state needs to be maintained, defining where the current global features were calculated from
+        # and can a roi be extracted
+        compute_new_global_features = False
+        if self.global_features is None:
+            compute_new_global_features = True
+        elif np.any(corner_pos_growing - self.corner_pos_global < 10 ) or \
+                np.any((corner_pos_growing + self.sample_input_size + 10) > (self.corner_pos_global + self.flux_model_input_size)):
+            # the roi exceeds the bounds of the global features pre-calculated
+            compute_new_global_features = True
+
+        if compute_new_global_features:
+            # we may have to shift the corner position because the flux_model_input_size is larger than the growing model input size
+            input_image, corner_pos_global = get_ar_in_window(self.image, center_pos_growing, self.flux_model_input_size)
+            self.corner_pos_global = corner_pos_global
+
+            #run model and get global features
+            # print('image shape:', input_image.shape)
+            self.global_features = self.get_global_features(input_image)
+            # print('gf shape:', self.global_features.shape)
+
+        # find the relative corner_pos_growing wrt global features volumes and crop an roi
+        corner_pos_growing_relative = corner_pos_growing - self.corner_pos_global
+        # print('corner_pos_growing_relative: ', corner_pos_growing_relative)
+        roi_global_features = crop_volume_mul(self.global_features, self.sample_input_size, corner_pos_growing_relative)
+
+        # print('roi shape: ', roi_global_features.shape)
+        if np.any(list(roi_global_features.shape[1:]) != [16, 96 ,96]):
+            import pdb; pdb.set_trace()
+
+        return roi_global_features
+
     def get_next_step(self):
         '''
         Sample a region around the start_pos, check if that is possible first
         Return all the data needed for the RNN:
-        Cropped Tensor Image, cropped Flux, Cropped Skeleton masks, GT direction, stopping state
+        Cropped Tensor Image, cropped Flux, Cropped Skeleton masks, GT direction, stopping state ...
         '''
 
         input_size = self.sample_input_size
@@ -52,7 +121,7 @@ class SkeletonGrowingRNNSampler:
         center_pos = self.current_pos.astype(np.int32) #rounding from float to integer
         corner_pos = center_pos - self.half_input_sz
         if check_cropable(self.image, input_size, corner_pos) == False:
-            return False, None, None, None, None, None, None, None
+            return False, None, None, None, None, None, None, None, None
 
         input_image = crop_volume(self.image, input_size, corner_pos)
         cropped_skeleton = crop_volume(self.skeleton, input_size, corner_pos)
@@ -87,7 +156,9 @@ class SkeletonGrowingRNNSampler:
             state = torch.tensor(path_state['CONTINUE'], dtype=torch.float32)
             path_state_loss_weight = torch.ones_like(self.path_state_loss_weight)
 
-        return True, input_image, input_flux, start_skeleton_mask, other_skeleton_mask, direction, state, center_pos, path_state_loss_weight
+        global_features = self.get_roi_from_global_features(center_pos, corner_pos)
+        return True, input_image, input_flux, start_skeleton_mask, other_skeleton_mask, \
+               direction, state, center_pos, path_state_loss_weight, global_features
 
     def calculate_next_position(self, p_direction):
         '''
