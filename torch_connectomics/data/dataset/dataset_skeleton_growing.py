@@ -49,14 +49,15 @@ class SkeletonGrowingDataset(torch.utils.data.Dataset):
             start_sid = self.growing_data[index]['sids'][0]
             stop_sid = self.growing_data[index]['sids'][1]
 
-            #reverse path augmentation
-            reverse_path = np.random.randint(2)
-            if reverse_path == 1:
-                path = path[::-1]
-                start_pos = self.growing_data[index]['path'][-1]
-                stop_pos = self.growing_data[index]['path'][0]
-                start_sid = self.growing_data[index]['sids'][1]
-                stop_sid = self.growing_data[index]['sids'][0]
+            # if both end points are inside skeleton segments we can reverse the path for augmentation
+            if start_sid > 0 and stop_sid > 0:
+                reverse_path = np.random.randint(2)
+                if reverse_path == 1:
+                    path = path[::-1]
+                    start_pos = self.growing_data[index]['path'][-1]
+                    stop_pos = self.growing_data[index]['path'][0]
+                    start_sid = self.growing_data[index]['sids'][1]
+                    stop_sid = self.growing_data[index]['sids'][0]
 
             #flip transpose augmentation
             #only get the parameters here
