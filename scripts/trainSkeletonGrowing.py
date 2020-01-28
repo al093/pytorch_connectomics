@@ -29,10 +29,13 @@ def train(args, train_loader, val_loader, model, flux_model, device, criterion, 
             batch_size = len(image)
             samplers = []
             for i in range(batch_size):
-                samplers.append(SkeletonGrowingRNNSampler(image[i], skeleton[i], flux[i], path[i],
-                                          start_pos[i], stop_pos[i], start_sid[i], stop_sid[i], ft_params[i],
-                                          path_state_loss_weight[i],
-                                          sample_input_size=model_io_size, stride=2.0, anisotropy=[30.0, 6.0, 6.0], d_avg=3))
+                samplers.append(SkeletonGrowingRNNSampler(image=image[i], skeleton=skeleton[i], flux=flux[i],
+                                                          path=path[i], start_pos=start_pos[i], stop_pos=stop_pos[i],
+                                                          start_sid=start_sid[i], stop_sid=stop_sid[i],
+                                                          ft_params=ft_params[i], path_state_loss_weight=path_state_loss_weight[i],
+                                                          sample_input_size=model_io_size, stride=2.0,
+                                                          anisotropy=[30.0, 6.0, 6.0], d_avg=3, mode='train'))
+
                 samplers[-1].init_global_feature_models(flux_model, None, np.array([64, 192, 192], dtype=np.int32), device)
 
             # Get data from samplers and drop sampler which are not required to continue
@@ -40,7 +43,7 @@ def train(args, train_loader, val_loader, model, flux_model, device, criterion, 
             continue_samplers = list(range(batch_size))
             no_data_for_forward = False
             do_not_log = False
-            for t in range(100):
+            for t in range(8):
 
                 if no_data_for_forward:
                     # if no forward pass could be made in last iteration then break
@@ -139,7 +142,7 @@ def train(args, train_loader, val_loader, model, flux_model, device, criterion, 
                         do_not_log = True
 
                 #after every 10 steps backpropagate or do it before exiting the for loop because no forward passes could be made
-                if (t + 1) % 10 == 0 or (do_backpropagate and no_data_for_forward):
+                if (t + 1) % 2 == 0 or (do_backpropagate and no_data_for_forward):
                     optimizer.zero_grad()
                     loss.backward()
                     optimizer.step()
@@ -155,7 +158,7 @@ def train(args, train_loader, val_loader, model, flux_model, device, criterion, 
 
                 # Using the predicted directions calculate next positions, samplers will update their state
                 for i, sampler_idx in enumerate(continue_samplers):
-                    next_pos = samplers[sampler_idx].jump_to_next_position(output_direction[i])
+                    next_pos = samplers[sampler_idx].jump_to_next_position(output_direction[i], output_path_state[i])
                     # print('--------------------')
                     # print('Previous pos: ', center_pos[i])
                     # print('Predicted Direction: ', output_direction[i])
@@ -176,15 +179,16 @@ def train(args, train_loader, val_loader, model, flux_model, device, criterion, 
                 writer.add_scalars('Partwise Loss', partwise_iteraton_loss, iteration)
 
             # save the predcited path for debugging
-            if iteration % 10 == 0:
+            if iteration % 50 == 0:
                 try:
                     with h5py.File(args.output + 'predicted_paths.h5', 'w') as predicted_h5:
                         count = 0
                         for sampler in samplers:
                             hg = predicted_h5.create_group(str(count))
                             count += 1
-                            path = sampler.get_predicted_path()
+                            path, state = sampler.get_predicted_path()
                             hg.create_dataset('vertices', data=path)
+                            hg.create_dataset('states', data=state)
                             edges = np.zeros(2 * (path.shape[0] - 1), dtype=np.uint16)
                             edges[1::2] = np.arange(1, path.shape[0])
                             edges[2:-1:2] = np.arange(1, path.shape[0] - 1)

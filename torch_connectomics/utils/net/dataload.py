@@ -43,11 +43,11 @@ def get_input(args, model_io_size, mode='train', model=None):
         elif mode=='train':
             seg_name = args.seg_name.split('@')
 
-    if args.task == 3 or args.task == 4 or args.task == 5 or args.task == 6:
+    if args.task in [3, 4, 5, 6]:
         if args.seed_points is not None:
             seed_points_files = args.seed_points.split('@')
 
-    if args.task == 4 or args.task == 5 or args.task == 6:
+    if args.task in [4, 5, 6]:
         skeleton_files = None
         if args.skeleton_name is not None:
             skeleton_files = args.skeleton_name.split('@')
@@ -68,7 +68,7 @@ def get_input(args, model_io_size, mode='train', model=None):
             assert len(img_name)==len(seg_name)
             model_label = [None]*len(seg_name)
 
-    if mode=='train' or mode=='validation':
+    if args.task != 6 and (mode=='train' or mode=='validation'):
         # setup augmentor
         elastic_augmentor = Elastic(alpha=6.0, p=0.75)
         augmentor = Compose([
@@ -92,11 +92,10 @@ def get_input(args, model_io_size, mode='train', model=None):
     print('Batch size: ', args.batch_size)
 
     if mode == 'test' and (args.task != 5 and args.task != 6):
-        pad_size = np.array(model_io_size//2)
+        pad_size = np.array(model_io_size//2, dtype=np.int64)
     else:
-        pad_size = np.array((0, 0, 0))
+        pad_size = np.array((0, 0, 0), dtype=np.int64)
         # pad_size = augmentor.sample_size//2
-    pad_size = pad_size.astype(np.int64)
 
     for i in range(len(img_name)):
         image = np.array((h5py.File(img_name[i], 'r')['main']))
@@ -108,7 +107,7 @@ def get_input(args, model_io_size, mode='train', model=None):
             raise Exception('Image datatype was not uint8 or float, not sure how to normalize.')
 
         if mode == 'test':
-            if args.scale_input != 1 and args.task != 5:
+            if args.scale_input != 1 and args.task not in [5, 6]:
                 print('Original volume size: ', model_input[i].shape)
                 model_input[i] = scipy.ndimage.zoom(model_input[i], [float(args.scale_input), float(args.scale_input), float(args.scale_input)])
                 print('Final volume size: ', model_input[i].shape)
@@ -122,7 +121,22 @@ def get_input(args, model_io_size, mode='train', model=None):
                 skeleton[i] = np.array((h5py.File(skeleton_files[i], 'r')['main']))
                 flux[i] = np.array((h5py.File(flux_files[i], 'r')['main']))
             elif args.task == 6:
-                raise Exception('Not implemented')
+                data = []
+                with h5py.File(seed_points_files[i], 'r') as hf:
+                    for g in hf.keys():
+                        d = {}
+                        d['path'] = np.asarray(hf.get(g)['vertices'])
+                        if d['path'].shape[0] <= 2: continue
+                        d['sids'] = np.asarray(hf.get(g)['sids'])
+                        data.append(d)
+                s_points[i] = data
+
+                # load skeletons
+                if skeleton_files is not None:
+                    skeleton[i] = np.array((h5py.File(skeleton_files[i], 'r')['main']))
+
+                if flux_files is not None:
+                    flux[i] = np.array((h5py.File(flux_files[i], 'r')['main']))
 
         if mode == 'train' or mode == 'validation':
             if args.task != 5 and args.task != 6:
@@ -198,7 +212,7 @@ def get_input(args, model_io_size, mode='train', model=None):
         b = np.array(h5py.File(seed_points_files[0], 'r')[str(args.segment_id)])
         if len(b.shape) == 1: #  only one point was read, make it into 2D
             b = b.reshape((1, 3))
-        s_points = [[b.astype(np.uint32)[::200]]]
+        s_points = [[b.astype(np.uint32)]]
 
         print('Num of initial seed points: ', s_points[0][0].shape[0])
         # read the initial segmentation volume and choose the neuron which needs to be run
@@ -248,8 +262,7 @@ def get_input(args, model_io_size, mode='train', model=None):
 
         elif args.task == 6:  # skeleton match prediction
             dataset = SkeletonGrowingDataset(image=model_input, skeleton=skeleton, flux=flux,
-                                             growing_data=s_points, sample_input_size=sample_input_size,
-                                             augmentor=augmentor, mode='train')
+                                             growing_data=s_points, augmentor=None, mode='train')
 
         if args.task == 6:
             c_fn = collate_fn_growing
@@ -258,9 +271,8 @@ def get_input(args, model_io_size, mode='train', model=None):
             c_fn = collate_fn_var
             pin_memory = True
 
-        img_loader = torch.utils.data.DataLoader(
-              dataset, batch_size=args.batch_size, shuffle=SHUFFLE, collate_fn=c_fn,
-              num_workers=args.num_cpu, pin_memory=pin_memory)
+        img_loader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, shuffle=SHUFFLE,
+                                                 collate_fn=c_fn, num_workers=args.num_cpu, pin_memory=pin_memory)
 
         return img_loader
 
@@ -288,12 +300,19 @@ def get_input(args, model_io_size, mode='train', model=None):
                                            augmentor=None, mode='test', seed_points=s_points,
                                            pad_size=pad_size.astype(np.uint32))
         elif args.task == 6:
-            raise Exception('Not Implemented')
+            dataset = SkeletonGrowingDataset(image=model_input, skeleton=skeleton, flux=flux,
+                                             growing_data=s_points, augmentor=None, mode='test')
+
+        if args.task == 6:
+            c_fn = collate_fn_growing
+            pin_memory = False
+        else:
+            c_fn = collate_fn_var
+            pin_memory = True
 
         if args.task != 3:
-            img_loader = torch.utils.data.DataLoader(
-                    dataset, batch_size=args.batch_size, shuffle=SHUFFLE, collate_fn=collate_fn_var,
-                    num_workers=args.num_cpu, pin_memory=True)
+            img_loader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, shuffle=SHUFFLE,
+                                                     collate_fn=c_fn, num_workers=args.num_cpu, pin_memory=pin_memory)
             return img_loader, volume_shape, pad_size
         else:
             assert len(img_name) == 1
@@ -303,7 +322,7 @@ def get_input(args, model_io_size, mode='train', model=None):
             else:
                 return img_loader, volume_shape, pad_size, None
 
-
+#### Helper Function ###
 def crop_cremi(image, label, path):
     filename = os.path.basename(path)
     basepath = os.path.dirname(path)

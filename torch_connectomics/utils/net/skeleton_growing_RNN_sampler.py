@@ -29,36 +29,49 @@ def get_ar_in_window(ar, center, sz):
 
 class SkeletonGrowingRNNSampler:
 
-    def __init__(self, image, skeleton, flux, path,
-                 start_pos, stop_pos, start_sid, stop_sid, ft_params, path_state_loss_weight,
-                 sample_input_size, stride, anisotropy, d_avg):
+    def __init__(self, image, skeleton, flux, start_pos, start_sid,
+                 sample_input_size, stride, anisotropy, mode='train',
+                 continue_growing_th=0.5,
+                 stop_pos=None, stop_sid=None, path=None, ft_params=None,
+                 path_state_loss_weight=None, d_avg=None):
+
         self.image = image
         self.skeleton = skeleton
         self.flux = flux
-        self.path = path
+        self.mode = mode
         self.start_pos = start_pos
-        self.stop_pos = stop_pos
         self.start_sid = start_sid
-        self.stop_sid = stop_sid
-        self.ft_params = ft_params
-        self.path_state_loss_weight = torch.from_numpy(np.array([path_state_loss_weight], dtype=np.float32))
-        self.sample_input_size = sample_input_size
         self.stride = stride
         self.anisotropy = np.array(anisotropy, dtype=np.float32)
-        self.d_avg = d_avg
-        # samples, channels, depths, rows, cols
-        self.image_size = np.array(self.image.shape)
-        self.sample_input_size = np.array(sample_input_size)  # model input size
-        self.half_input_sz = self.sample_input_size//2
-
-        # flip all data except flux
-        self.flip_transpose_volumes()
-
-        self.current_pos = np.array(self.start_pos, copy=True, dtype=np.float32)
-        self.predicted_path = [self.current_pos.copy()]
-
         self._sampling_idxs = np.linspace(0.0, 1.0, num=10, endpoint=True).astype(np.float32)
         self.global_features = None
+
+        self.image_size = np.array(self.image.shape)
+        self.sample_input_size = np.array(sample_input_size)  # model input size
+        self.half_input_sz = self.sample_input_size // 2
+
+        # initialize predictied path with the start position
+        self.current_pos = np.array(self.start_pos, copy=True, dtype=np.float32)
+        self.predicted_path = [self.current_pos.copy()]
+        self.predicted_state = []
+        self.ft_params = ft_params
+        self.continue_growing_th = continue_growing_th
+
+        if self.mode == 'train':
+            self.path = path
+            self.stop_pos = stop_pos
+            self.stop_sid = stop_sid
+            self.path_state_loss_weight = torch.from_numpy(np.array([path_state_loss_weight], dtype=np.float32))
+            self.sample_input_size = sample_input_size
+            self.d_avg = d_avg
+
+            # flip all data except flux
+            self.flip_transpose_volumes()
+
+            # Initialize current position and predicted path again, because flip augmentation
+            self.current_pos = np.array(self.start_pos, copy=True, dtype=np.float32)
+            self.predicted_path = [self.current_pos.copy()]
+
 
     def init_global_feature_models(self, flux_model, flux_model_branch, flux_model_input_size, device):
         self.flux_model = flux_model
@@ -76,10 +89,13 @@ class SkeletonGrowingRNNSampler:
         return out_features
 
     def get_roi_from_global_features(self, center_pos_growing, corner_pos_growing):
-        # here logic for running the global features models is implmented
-        # depending on the current position, the global features may need to be calculated again
-        # a state needs to be maintained, defining where the current global features were calculated from
-        # and can a roi be extracted
+        '''
+        A logic for running the global features models is implemented
+        depending on the current position, the global features may need to be calculated again
+        a state needs to be maintained, defining where the current global features were calculated from
+        and can a roi be extracted
+        '''
+
         compute_new_global_features = False
         if self.global_features is None:
             compute_new_global_features = True
@@ -94,22 +110,69 @@ class SkeletonGrowingRNNSampler:
             self.corner_pos_global = corner_pos_global
 
             #run model and get global features
-            # print('image shape:', input_image.shape)
             self.global_features = self.get_global_features(input_image)
-            # print('gf shape:', self.global_features.shape)
 
         # find the relative corner_pos_growing wrt global features volumes and crop an roi
         corner_pos_growing_relative = corner_pos_growing - self.corner_pos_global
-        # print('corner_pos_growing_relative: ', corner_pos_growing_relative)
         roi_global_features = crop_volume_mul(self.global_features, self.sample_input_size, corner_pos_growing_relative)
-
-        # print('roi shape: ', roi_global_features.shape)
-        if np.any(list(roi_global_features.shape[1:]) != [16, 96 ,96]):
-            import pdb; pdb.set_trace()
 
         return roi_global_features
 
+
     def get_next_step(self):
+        if self.mode == 'train': return self.get_next_step_train()
+        elif self.mode == 'test': return self.get_next_step_test()
+
+    def get_next_step_test(self):
+        '''
+        Sample a region around the start_pos, check if that is possible first
+        Return all the data needed for the RNN:
+        Cropped Tensor Image, cropped Flux, Cropped Skeleton masks, GT direction, stopping state ...
+        '''
+
+        input_size = self.sample_input_size
+
+        center_pos = self.current_pos.astype(np.int32) #rounding from float to integer
+        corner_pos = center_pos - self.half_input_sz
+        if check_cropable(self.image, input_size, corner_pos) == False:
+            return False, None, None, None, None, None, None, None
+
+        input_image = crop_volume(self.image, input_size, corner_pos)
+        cropped_skeleton = crop_volume(self.skeleton, input_size, corner_pos)
+        start_skeleton_mask = (cropped_skeleton == self.start_sid).astype(np.float32)
+        other_skeleton_mask = ((cropped_skeleton != self.start_sid) & (cropped_skeleton != 0)).astype(np.float32)
+        input_flux = crop_volume_mul(self.flux, input_size, corner_pos)
+
+        input_image = torch.from_numpy(input_image.copy()).unsqueeze(0)
+        input_flux = torch.from_numpy(input_flux.copy())
+        start_skeleton_mask = torch.from_numpy(start_skeleton_mask).unsqueeze(0)
+        other_skeleton_mask = torch.from_numpy(other_skeleton_mask).unsqueeze(0)
+
+        # stop state occurs if any of the points between
+        # the current position and the previous position is on any skeleton fragment
+        if len(self.predicted_path) >= 2:
+            path_section = self.interpolate_linear(self.predicted_path[-2], self.current_pos)
+            skeletons_hit = self.skeleton[path_section]
+            idx_mask = (skeletons_hit > 0) & (skeletons_hit != self.start_sid)
+            first_hit_idx = np.argmax(idx_mask)
+            if idx_mask[first_hit_idx] == True:
+                state = torch.tensor(path_state['STOP'], dtype=torch.float32)
+                predicted_end = np.array([path_section[0][first_hit_idx], path_section[1][first_hit_idx], path_section[2][first_hit_idx]], dtype=np.float32)
+                self.current_pos = predicted_end
+                self.predicted_path[-1] = self.current_pos.copy()
+                # update the center and corner positions again
+                center_pos = self.current_pos.astype(np.int32)
+                corner_pos = center_pos - self.half_input_sz
+            else:
+                state = torch.tensor(path_state['CONTINUE'], dtype=torch.float32)
+        else:
+            state = torch.tensor(path_state['CONTINUE'], dtype=torch.float32)
+
+        global_features = self.get_roi_from_global_features(center_pos, corner_pos)
+        return True, input_image, input_flux, start_skeleton_mask, other_skeleton_mask, state, center_pos, global_features
+
+
+    def get_next_step_train(self):
         '''
         Sample a region around the start_pos, check if that is possible first
         Return all the data needed for the RNN:
@@ -148,7 +211,7 @@ class SkeletonGrowingRNNSampler:
         if (torch.abs(direction).sum() == 0):
             state = torch.tensor(path_state['STOP'], dtype=torch.float32)
             path_state_loss_weight = len(self.predicted_path)*torch.ones_like(self.path_state_loss_weight)
-        elif len(self.predicted_path) >=2 and \
+        elif len(self.predicted_path) >= 2 and \
                 np.any(self.skeleton[self.interpolate_linear(self.current_pos, self.predicted_path[-2])] == self.stop_sid):
             state = torch.tensor(path_state['STOP'], dtype=torch.float32)
             path_state_loss_weight = len(self.predicted_path)*torch.ones_like(self.path_state_loss_weight)
@@ -162,7 +225,7 @@ class SkeletonGrowingRNNSampler:
 
     def calculate_next_position(self, p_direction):
         '''
-        internal function for calulating the next position
+        internal function for calculating the next position
         '''
         #normalize direction and take stride in that direction, if it falls outside return the boundary
         next_pos = self.current_pos + (p_direction.detach().cpu().numpy() * self.stride)
@@ -170,19 +233,27 @@ class SkeletonGrowingRNNSampler:
         next_pos[next_pos >= (self.image_size - 1)] = self.image_size[next_pos >= (self.image_size - 1)] - 1
         return next_pos.astype(np.float32)
 
-    def jump_to_next_position(self, p_direction):
+    def jump_to_next_position(self, p_direction, p_state):
         '''
         based on the predicted direction get the next position
         '''
-        #normalize direction and take stride in that direction, if it falls outside return the boundary
-        self.current_pos = self.calculate_next_position(p_direction)
-        self.predicted_path.append(self.current_pos.copy())
+        self.predicted_state.append(p_state.detach().cpu().item())
+
+        if self.mode == 'train':
+            self.current_pos = self.calculate_next_position(p_direction)
+            self.predicted_path.append(self.current_pos.copy())
+        elif self.mode == 'test':
+            if p_state >= self.continue_growing_th:
+                self.current_pos = self.calculate_next_position(p_direction)
+                self.predicted_path.append(self.current_pos.copy())
+
         return self.current_pos
 
     def get_predicted_path(self):
         path = np.vstack(self.predicted_path)
         path = self.transpose_flip_path(path)
-        return path
+        state = np.array(self.predicted_state, dtype=np.float32)
+        return path, state
 
     def get_cropped_image(self, pos):
         out_input = crop_volume(self.input[pos[0]], self.sample_input_size, pos[1:])
@@ -223,7 +294,7 @@ class SkeletonGrowingRNNSampler:
             direction = directions.sum(axis=0)
             direction = self.normalize(direction)
 
-        direction += lateral_dir
+        direction = 0.75*direction + 0.25*lateral_dir
         direction = self.normalize(direction)
 
         return direction

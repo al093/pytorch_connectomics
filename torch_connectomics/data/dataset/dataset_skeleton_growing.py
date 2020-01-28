@@ -15,11 +15,8 @@ from torch_connectomics.utils.vis import save_data
 class SkeletonGrowingDataset(torch.utils.data.Dataset):
     def __init__(self,
                  image, skeleton, flux, growing_data=None,
-                 sample_input_size=(8, 64, 64),
                  augmentor=None,
                  mode='train'):
-        if mode == 'test':
-            raise Exception('Not Implemented')
 
         self.mode = mode
         self.image = image[0]
@@ -27,11 +24,6 @@ class SkeletonGrowingDataset(torch.utils.data.Dataset):
         self.growing_data = growing_data[0]
         self.flux = flux[0]
         self.augmentor = augmentor # data augmentation
-
-        # samples, channels, depths, rows, cols
-        self.image_size = np.array(self.image.shape)
-        self.sample_input_size = np.array(sample_input_size)  # model input size
-        self.half_input_sz = (sample_input_size//2)
         self.num_seeds = len(self.growing_data)
         print('Dataset size: ', self.num_seeds)
 
@@ -39,8 +31,6 @@ class SkeletonGrowingDataset(torch.utils.data.Dataset):
         return self.num_seeds
 
     def __getitem__(self, index):
-        vol_size = self.sample_input_size
-
         if self.mode == 'train':
             #return the growing data and image, flux, skeleton
             path = self.growing_data[index]['path'][1:-1]
@@ -59,23 +49,16 @@ class SkeletonGrowingDataset(torch.utils.data.Dataset):
                     start_sid = self.growing_data[index]['sids'][1]
                     stop_sid = self.growing_data[index]['sids'][0]
 
-            #flip transpose augmentation
-            #only get the parameters here
+            # get the parameters here for flip transpose augmentation
             ft_params = self.get_flip_transpose_params()
-            # ft_params = None
-
-            # TODO start_pos perturbation: shift the start point a bit inside the skeleton mask
-            # z_sigma =
-            # s = np.random.randint(0, z_sigma, 1000)
 
             # calculate the approx class weights for the state preciction
             state_bce_weight = np.float32(1.0 / len (path)) # this is the loss weight which should be given to all non-state predition positions
-
             return self.image, self.flux, self.skeleton, path, start_pos, stop_pos, start_sid, stop_sid, ft_params, state_bce_weight
-
-        # Test Mode Specific Operations:
         elif self.mode == 'test':
-            raise Exception('Not Implemented')
+            start_pos = self.growing_data[index]['path'][0]
+            start_sid = self.growing_data[index]['sids'][0]
+            return self.image, self.flux, self.skeleton, start_pos, start_sid
 
     def get_flip_transpose_params(self):
         xflip, yflip, zflip, xytranspose = np.random.randint(2, size=4)
