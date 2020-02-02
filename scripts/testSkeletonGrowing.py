@@ -2,6 +2,7 @@ import os, sys, traceback
 import h5py, time, itertools, datetime
 import numpy as np
 from argparse import Namespace
+from tqdm import tqdm
 
 import torch
 
@@ -12,9 +13,10 @@ from torch_connectomics.utils.vis import *
 def test(args, test_loader, model, flux_model, device, logger, model_io_size):
 
     predicted_path_count = 0
-    test_loader.__len
-    with h5py.File(args.output + 'predicted_paths.h5', 'w') as predicted_h5:
-        for iteration, data in enumerate(test_loader):
+    dataset_length = len(test_loader.dataset)
+    with h5py.File(args.output + 'predicted_paths.h5', 'w') as predicted_h5, torch.no_grad():
+        for iteration, data in tqdm(enumerate(test_loader)):
+
             sys.stdout.flush()
             image, flux, skeleton, start_pos, start_sid = data
             # initialize samplers
@@ -22,14 +24,14 @@ def test(args, test_loader, model, flux_model, device, logger, model_io_size):
             samplers = []
             for i in range(batch_size):
                 samplers.append(SkeletonGrowingRNNSampler(image=image[i], skeleton=skeleton[i], flux=flux[i],
-                                          start_pos=start_pos[i], start_sid=start_sid[i], continue_growing_th=0.80,
+                                          start_pos=start_pos[i], start_sid=start_sid[i], continue_growing_th=0.60,
                                           sample_input_size=model_io_size, stride=2.0, anisotropy=[30.0, 6.0, 6.0], mode='test'))
                 samplers[-1].init_global_feature_models(flux_model, None, np.array([64, 192, 192], dtype=np.int32), device)
 
             continue_samplers = list(range(batch_size))
             no_data_for_forward = False
 
-            for t in range(10):
+            for t in range(18):
                 # if no forward pass could be made in last iteration then break
                 if no_data_for_forward:
                     break
@@ -86,9 +88,10 @@ def test(args, test_loader, model, flux_model, device, logger, model_io_size):
             for sampler in samplers:
                 hg = predicted_h5.create_group(str(predicted_path_count))
                 predicted_path_count += 1
-                path, state = sampler.get_predicted_path()
+                path, state, end_ids = sampler.get_predicted_path()
                 hg.create_dataset('vertices', data=path)
                 hg.create_dataset('states', data=state)
+                hg.create_dataset('sids', data=end_ids)
                 edges = np.zeros(2 * (path.shape[0] - 1), dtype=np.uint16)
                 edges[1::2] = np.arange(1, path.shape[0])
                 edges[2:-1:2] = np.arange(1, path.shape[0] - 1)

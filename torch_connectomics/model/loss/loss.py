@@ -171,7 +171,7 @@ class AngularAndScaleLoss(nn.Module):
 
         cosine_similarity = self.cos(input, target)
         cosine_loss = 1 - cosine_similarity
-        if weight:
+        if weight is not None:
             cosine_loss = weight*cosine_loss
             norm_term = (weight>0).sum()
             a_loss = cosine_loss.sum()/norm_term

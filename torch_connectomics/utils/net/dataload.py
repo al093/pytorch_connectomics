@@ -7,7 +7,7 @@ import torch
 import torch.utils.data
 
 from torch_connectomics.data.dataset import AffinityDataset, SynapseDataset, MitoDataset, \
-    MaskDataset, MaskDatasetDualInput, MaskAndSkeletonDataset, MatchSkeletonDataset, SkeletonGrowingDataset
+    MaskDataset, MaskDatasetDualInput, FluxAndSkeletonDataset, MatchSkeletonDataset, SkeletonGrowingDataset
 from torch_connectomics.data.utils import collate_fn_growing, collate_fn_test, collate_fn_var
 from torch_connectomics.data.augmentation import *
 from torch_connectomics.utils.net.serialSampler import SerialSampler
@@ -249,7 +249,7 @@ def get_input(args, model_io_size, mode='train', model=None):
                                       sample_label_size=sample_input_size, augmentor_pre=augmentor_1, augmentor=augmentor,
                                       mode='train', seed_points=s_points, pad_size=pad_size.astype(np.uint32), model=model)
         elif args.task == 4:  # skeleton/flux prediction
-            dataset = MaskAndSkeletonDataset(volume=model_input, label=model_label, skeleton=skeleton, flux=flux, weight=weight,
+            dataset = FluxAndSkeletonDataset(volume=model_input, label=model_label, skeleton=skeleton, flux=flux, weight=weight,
                                              sample_input_size=sample_input_size, sample_label_size=sample_input_size,
                                              augmentor=augmentor, mode='train', seed_points=s_points,
                                              pad_size=pad_size.astype(np.uint32))

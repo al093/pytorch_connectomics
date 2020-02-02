@@ -56,7 +56,7 @@ def visualize(volume, label, output, iteration, writer, mode='Train', input_labe
     if len(prepared_data) == 3:
         volume, label, output = prepared_data
     elif len(prepared_data) == 4:
-        if input_label:
+        if input_label is not None:
             volume, label, output, input_label = prepared_data
         else:
             volume, label, output, color_data = prepared_data

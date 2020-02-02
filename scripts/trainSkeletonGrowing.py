@@ -10,9 +10,11 @@ from torch_connectomics.utils.net import *
 from torch_connectomics.utils.vis import *
 
 def train(args, train_loader, val_loader, model, flux_model, device, criterion, criterion_bce,
-          optimizer, scheduler, logger, writer, regularization, model_io_size):
+          optimizer, scheduler, logger, writer, regularization, model_io_size, train_end_to_end):
 
     model.train()
+    if train_end_to_end: flux_model.train()
+    else: flux_model.eval()
 
     start = time.time()
     iteration = 0
@@ -34,7 +36,7 @@ def train(args, train_loader, val_loader, model, flux_model, device, criterion, 
                                                           start_sid=start_sid[i], stop_sid=stop_sid[i],
                                                           ft_params=ft_params[i], path_state_loss_weight=path_state_loss_weight[i],
                                                           sample_input_size=model_io_size, stride=2.0,
-                                                          anisotropy=[30.0, 6.0, 6.0], d_avg=3, mode='train'))
+                                                          anisotropy=[30.0, 6.0, 6.0], d_avg=3, mode='train', train_flux_model=train_end_to_end))
 
                 samplers[-1].init_global_feature_models(flux_model, None, np.array([64, 192, 192], dtype=np.int32), device)
 
@@ -43,8 +45,7 @@ def train(args, train_loader, val_loader, model, flux_model, device, criterion, 
             continue_samplers = list(range(batch_size))
             no_data_for_forward = False
             do_not_log = False
-            for t in range(8):
-
+            for t in range(16):
                 if no_data_for_forward:
                     # if no forward pass could be made in last iteration then break
                     break
@@ -142,12 +143,12 @@ def train(args, train_loader, val_loader, model, flux_model, device, criterion, 
                         do_not_log = True
 
                 #after every 10 steps backpropagate or do it before exiting the for loop because no forward passes could be made
-                if (t + 1) % 2 == 0 or (do_backpropagate and no_data_for_forward):
+                if (t + 1) % 4 == 0 or (do_backpropagate and no_data_for_forward):
                     optimizer.zero_grad()
-                    loss.backward()
+                    loss.backward(retain_graph=train_end_to_end)
                     optimizer.step()
                     do_backpropagate = False
-                    print('- [Steps: %d] train_loss=%0.4f lr=%.6f' % ( t+1, loss.item(), optimizer.param_groups[0]['lr']))
+                    print('- [Steps: %d] train_loss=%0.4f lr=%.6f' % (t+1, loss.item(), optimizer.param_groups[0]['lr']))
 
                     # Remove computation graph
                     iteration_loss += loss.detach().item()
@@ -186,7 +187,7 @@ def train(args, train_loader, val_loader, model, flux_model, device, criterion, 
                         for sampler in samplers:
                             hg = predicted_h5.create_group(str(count))
                             count += 1
-                            path, state = sampler.get_predicted_path()
+                            path, state, _ = sampler.get_predicted_path()
                             hg.create_dataset('vertices', data=path)
                             hg.create_dataset('states', data=state)
                             edges = np.zeros(2 * (path.shape[0] - 1), dtype=np.uint16)
@@ -235,7 +236,8 @@ def main():
     flux_model_args = Namespace(architecture='fluxNet', task=4, out_channel=3, in_channel=1,
                                 batch_size=1, load_model=True, pre_model=args.pre_model_second, num_gpu=args.num_gpu)
     flux_model = setup_model(flux_model_args, device, np.array([64, 192, 192], dtype=np.int32), non_linearity=(torch.tanh,))
-    flux_model.eval()
+    train_end_to_end = False
+    print('Train end to end: ', train_end_to_end)
 
     print('Setup data')
     train_loader = get_input(args, model_io_size, 'train', model=None)
@@ -244,8 +246,10 @@ def main():
     criterion = AngularAndScaleLoss(alpha=0.08)
     criterion_bce = WeightedBCE()
 
-    print('Setup optimizer')
     model_parameters = list(model.parameters())
+    if train_end_to_end == True:
+        model_parameters += list(flux_model.parameters())
+    print('Setup optimizer')
     optimizer = torch.optim.Adam(model_parameters, lr=args.lr, betas=(0.9, 0.999),
                                  eps=1e-08, weight_decay=1e-6, amsgrad=True)
 
@@ -255,7 +259,7 @@ def main():
                                                            min_lr=1e-7, eps=1e-08)
 
     print('4. start training')
-    train(args, train_loader, None, model, flux_model, device, criterion, criterion_bce, optimizer, scheduler, logger, writer, None, model_io_size)
+    train(args, train_loader, None, model, flux_model, device, criterion, criterion_bce, optimizer, scheduler, logger, writer, None, model_io_size, train_end_to_end)
 
     print('5. finish training')
     if args.disable_logging is not True:
