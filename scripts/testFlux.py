@@ -6,12 +6,14 @@ from torch_connectomics.utils.net import *
 from torch_connectomics.utils.vis import visualize_aff
 from tqdm import tqdm
 import re
+import shlex
 
-def test(args, test_loader, model, device, model_io_size, volume_shape, pad_size, result_path, result_file_pf, input_file_names):
+def test(args, test_loader, model, device, model_io_size, volume_shape, pad_size, result_path, result_file_pf, input_file_names, save_output):
     # switch to eval mode
     model.eval()
     ww = blend(model_io_size)
     result_grad = [np.stack([np.zeros(x, dtype=np.float32) for _ in range(3)]) for x in volume_shape]
+    cropped_result_grad = []
     weight = [np.zeros(x, dtype=np.float32) for x in volume_shape]
     sz = tuple([3] + list(model_io_size))
 
@@ -40,39 +42,15 @@ def test(args, test_loader, model, device, model_io_size, volume_shape, pad_size
                     pad_size[0]:-pad_size[0],
                     pad_size[1]:-pad_size[1],
                     pad_size[2]:-pad_size[2]]
+        cropped_result_grad.append(data_grad)
+        if save_output == True:
+            gradient_path = result_path + 'gradient_' + input_file_names[vol_id] + '_' + result_file_pf + '.h5'
+            hf = h5py.File(gradient_path, 'w')
+            hf.create_dataset('main', data=data_grad, compression='gzip')
+            hf.close()
+            print('Gradient stored at: \n' + gradient_path)
 
-        gradient_path = result_path + 'gradient_' + input_file_names[vol_id] + '_' + result_file_pf + '.h5'
-        hf = h5py.File(gradient_path, 'w')
-        hf.create_dataset('main', data=data_grad, compression='gzip')
-        hf.close()
-        print('Gradient stored at: \n' + gradient_path)
-
-def get_augmented(volume):
-    # perform 16 Augmentations as mentioned in Kisuks thesis
-    vol0    = volume
-    vol90   = torch.rot90(vol0, 1, [3, 4])
-    vol180  = torch.rot90(vol90,  1,  [3, 4])
-    vol270  = torch.rot90(vol180, 1, [3, 4])
-
-    vol0f   = torch.flip(vol0,   [3])
-    vol90f  = torch.flip(vol90,  [3])
-    vol180f = torch.flip(vol180, [3])
-    vol270f = torch.flip(vol270, [3])
-
-    vol0z   = torch.flip(vol0,   [2])
-    vol90z  = torch.flip(vol90,  [2])
-    vol180z = torch.flip(vol180, [2])
-    vol270z = torch.flip(vol270, [2])
-
-    vol0fz   = torch.flip(vol0f,   [2])
-    vol90fz  = torch.flip(vol90f,  [2])
-    vol180fz = torch.flip(vol180f, [2])
-    vol270fz = torch.flip(vol270f, [2])
-
-    augmented_volumes = [vol0,  vol90,  vol180,  vol270,  vol0f,  vol90f,  vol180f,  vol270f,
-                         vol0z, vol90z, vol180z, vol270z, vol0fz, vol90fz, vol180fz, vol270fz]
-
-    return augmented_volumes
+    return cropped_result_grad
 
 def combine_augmented(outputs):
     assert len(outputs) == 16
@@ -100,9 +78,7 @@ def combine_augmented(outputs):
 
     return output, outputs
 
-def main():
-    args = get_args(mode='test')
-
+def _run(args, save_output = True):
     print('0. initial setup')
     model_io_size, device = init(args)
     print('model I/O size:', model_io_size) 
@@ -123,9 +99,13 @@ def main():
     input_file_name = [os.path.basename(input_image)[:-3] for input_image in args.img_name.split('@')]
 
     print('3. start testing')
-    test(args, test_loader, model, device, model_io_size, volume_shape, pad_size, result_path, result_file_pf, input_file_name)
+    result = test(args, test_loader, model, device, model_io_size, volume_shape, pad_size, result_path, result_file_pf, input_file_name, save_output)
   
     print('4. finish testing')
+    return result
+
+def run(input_args_string, save_output):
+    return _run(get_args(mode='test', input_args=input_args_string), save_output)
 
 if __name__ == "__main__":
-    main()
+    _run(get_args(mode='test'))

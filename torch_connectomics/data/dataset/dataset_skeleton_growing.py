@@ -38,6 +38,10 @@ class SkeletonGrowingDataset(torch.utils.data.Dataset):
             stop_pos = self.growing_data[index]['path'][-1]
             start_sid = self.growing_data[index]['sids'][0]
             stop_sid = self.growing_data[index]['sids'][1]
+            if 'first_split_node' in self.growing_data[index].keys():
+                first_split_node = self.growing_data[index]['first_split_node']
+            else:
+                first_split_node = -1
 
             # if both end points are inside skeleton segments we can reverse the path for augmentation
             # NO WE CAN NOT BECAUSE ONE OF THE ENDS MAY BE ON A JUNCTION
@@ -54,8 +58,8 @@ class SkeletonGrowingDataset(torch.utils.data.Dataset):
             ft_params = self.get_flip_transpose_params()
 
             # calculate the approx class weights for the state preciction
-            state_bce_weight = np.float32(1.0 / len (path)) # this is the loss weight which should be given to all non-state predition positions
-            return self.image, self.flux, self.skeleton, path, start_pos, stop_pos, start_sid, stop_sid, ft_params, state_bce_weight
+            state_bce_weight = np.float32(5.0 / len (path)) # this is the loss weight which should be applied to all non-state predition positions
+            return self.image, self.flux, self.skeleton, path, start_pos, stop_pos, start_sid, stop_sid, ft_params, state_bce_weight, first_split_node
         elif self.mode == 'test':
             start_pos = self.growing_data[index]['path'][0]
             start_sid = self.growing_data[index]['sids'][0]

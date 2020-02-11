@@ -47,13 +47,13 @@ def compute_skeleton_from_gradient(gradient, params):
     block_size = params['block_size']
     shift = [3, 3, 3]
 
-    skel_prob = divergence_3d(gradient)
-    skel_binary = np.zeros_like(skel_prob, dtype=np.bool)
+    skel_divergence = divergence_3d(gradient)
+    skel_binary = np.zeros_like(skel_divergence, dtype=np.bool)
 
     pos = []
     for i in range(3):
-        loc = np.arange(0, skel_prob.shape[i], step=(block_size[i] // shift[i]), dtype=np.uint16)
-        loc[-1] = skel_prob.shape[i] - block_size[i]
+        loc = np.arange(0, skel_divergence.shape[i], step=(block_size[i] // shift[i]), dtype=np.uint16)
+        loc[-1] = skel_divergence.shape[i] - block_size[i]
         pos.append(loc)
 
     for z_idx, z_loc in enumerate(pos[0]):
@@ -64,10 +64,10 @@ def compute_skeleton_from_gradient(gradient, params):
                 bounds = (z_slice, y_slice,
                           slice(x_loc, x_loc + block_size[2], None))
 
-                vol = skel_prob[bounds]
+                vol = skel_divergence[bounds]
                 n_vol = normalize_scalar_field(vol)
-                skel_prob_roi = skel_prob[bounds]
-                skel_binary[bounds] |= ((skel_prob_roi > absolute_div_th) & (n_vol > float(threshold) / 100.0))
+                skel_divergence_roi = skel_divergence[bounds]
+                skel_binary[bounds] |= ((skel_divergence_roi > absolute_div_th) & (n_vol > float(threshold) / 100.0))
 
     skel = skel_binary
     if filter_sz > 0:
@@ -85,6 +85,6 @@ def compute_skeleton_from_gradient(gradient, params):
     m = ((ids > 0) & (counts >= min_skel_th))
     skel_large = remove_ids(label_cc, ids[~m], np.max(ids))
 
-    return skel_large
+    return skel_large, skel_divergence
 
 

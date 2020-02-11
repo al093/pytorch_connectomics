@@ -126,7 +126,6 @@ def get_input(args, model_io_size, mode='train', model=None):
                     for g in hf.keys():
                         d = {}
                         d['path'] = np.asarray(hf.get(g)['vertices'])
-                        if d['path'].shape[0] <= 2: continue
                         d['sids'] = np.asarray(hf.get(g)['sids'])
                         data.append(d)
                 s_points[i] = data
@@ -149,12 +148,8 @@ def get_input(args, model_io_size, mode='train', model=None):
                 new_list = []
                 for idx in range(len(s_points[i])):
                     b = s_points[i][idx]
-                    b = b[b[:, 0] >= half_aug_sz[0], :]
-                    b = b[b[:, 1] >= half_aug_sz[1], :]
-                    b = b[b[:, 2] >= half_aug_sz[2], :]
-                    b = b[vol_size[0] - b[:, 0] > half_aug_sz[0], :]
-                    b = b[vol_size[1] - b[:, 1] > half_aug_sz[1], :]
-                    b = b[vol_size[2] - b[:, 2] > half_aug_sz[2], :]
+                    b = b[np.all(b >= half_aug_sz, axis=1), :]
+                    b = b[np.all((vol_size - b) > half_aug_sz, axis=1), :]
                     if b.shape[0] > 0:
                         new_list.append(b)
                 s_points[i] = new_list
@@ -175,6 +170,8 @@ def get_input(args, model_io_size, mode='train', model=None):
                         if d['path'].shape[0] <= 2:
                             continue
                         d['sids'] = np.asarray(hf.get(g)['sids'])
+                        if 'first_split_node' in hf.get(g).keys():
+                            d['first_split_node'] = np.asarray(hf.get(g)['first_split_node'])[0]
                         data.append(d)
                 s_points[i] = data
 

@@ -24,7 +24,6 @@ def train(args, train_loader, model, device, criterion, optimizer, scheduler, lo
         skeleton, skeleton_weight = skeleton.to(device), skeleton_weight.to(device)
 
         output_skeleton = model(volume)
-
         loss = criterion(output_skeleton, skeleton, weight=skeleton_weight)
 
         # compute gradient and do Adam step
@@ -77,7 +76,7 @@ def main():
     train_loader = get_input(args, model_io_size, 'train', model=None)
 
     print('Setup loss function')
-    criterion = WeightedBCE()
+    criterion = WeightedMSE()
 
     print('Setup optimizer')
     model_parameters = list(model.parameters())

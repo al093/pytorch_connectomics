@@ -96,23 +96,23 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
                 if self.weight:
                     pre_weight = augmented['weight']
 
-                out_input = out_input.astype(np.float32)
-                out_flux = out_flux.astype(np.float32)
-                out_label = out_label.astype(np.float)
-                out_skeleton = out_skeleton.astype(np.float32)
+            # if np.all(out_flux == 0):
+            #     print('Sample Position: ', pos)
+            #     raise Exception('No non zero flux in sample')
 
             out_label_mask = out_label > 0
 
-            if np.all(out_flux == 0):
-                print('Sample Position: ', pos)
-                raise Exception('No non zero flux in sample')
+            out_skeleton_blurred = ndimage.morphology.distance_transform_edt((out_skeleton == 0)).astype(np.float32)
+            distance_th = np.float32(4.0)
+            valid_distance_mask = (out_skeleton_blurred <= distance_th) & out_label_mask
+            out_skeleton_blurred = distance_th - out_skeleton_blurred
+            out_skeleton_blurred[~valid_distance_mask] = 0
+            out_skeleton_blurred /= distance_th
 
-            # out_skeleton_blurred = ndimage.morphology.distance_transform_cdt(~out_skeleton)
-            # distance_th = 4.0
-            # dis_mask = (out_skeleton_blurred <= distance_th)
-            # out_skeleton_blurred = (distance_th - out_skeleton_blurred).astype(np.int64)
-            # out_skeleton_blurred[~dis_mask] = 0.0
-            # out_skeleton_blurred[~mask] = 0.0
+            out_input = out_input.astype(np.float32)
+            out_flux = out_flux.astype(np.float32)
+            # out_label = out_label.astype(np.float32)
+            # out_skeleton = out_skeleton.astype(np.float32)
 
         # Test Mode Specific Operations:
         elif self.mode == 'test':
@@ -124,7 +124,7 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
             # Re-balancing weights for Flux and skeleton in a similar way
             all_ones = np.ones_like(out_label_mask)
             flux_weight = self.compute_flux_weights(all_ones, out_label_mask, alpha=1.0)
-            skeleton_weight = self.compute_flux_weights(all_ones, out_skeleton > 0, alpha=1.0)
+            skeleton_weight = self.compute_flux_weights(all_ones, valid_distance_mask, alpha=1.0)
 
             if self.weight:
                 flux_weight *= pre_weight
@@ -139,12 +139,12 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
         if out_flux is not None:
             out_flux = torch.from_numpy(out_flux.astype(np.float32, copy=False))
 
-        if out_skeleton is not None:
-            out_skeleton = torch.from_numpy(out_skeleton.astype(np.float32, copy=False)).unsqueeze(0)
+        if out_skeleton_blurred is not None:
+            out_skeleton_blurred = torch.from_numpy(out_skeleton_blurred.astype(np.float32, copy=False)).unsqueeze(0)
 
         if self.mode == 'train':
-            out_label_mask = torch.from_numpy(out_label_mask.astype(np.uint8))
-            return pos, out_input, out_label_mask, out_flux, flux_weight, out_skeleton, skeleton_weight
+            out_label_mask = torch.from_numpy(out_label_mask.astype(np.float32)).unsqueeze(0)
+            return pos, out_input, out_label_mask, out_flux, flux_weight, out_skeleton_blurred, skeleton_weight
         else:
             return pos, out_input
 

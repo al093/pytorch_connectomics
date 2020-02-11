@@ -3,10 +3,6 @@ from enum import Enum
 import torch
 from torch_connectomics.data.dataset.misc import crop_volume, crop_volume_mul, check_cropable
 
-# class State(Enum):
-#     STOP = 0.0
-#     CONTINUE = 1.0
-
 path_state = {'STOP':0.0, 'CONTINUE':1.0}
 
 
@@ -33,7 +29,8 @@ class SkeletonGrowingRNNSampler:
                  sample_input_size, stride, anisotropy, mode='train',
                  continue_growing_th=0.5,
                  stop_pos=None, stop_sid=None, path=None, ft_params=None,
-                 path_state_loss_weight=None, d_avg=None, train_flux_model=None):
+                 path_state_loss_weight=None, d_avg=None, train_flux_model=None,
+                 features_repo=None, first_split_node=None):
 
         self.image = image
         self.skeleton = skeleton
@@ -57,6 +54,7 @@ class SkeletonGrowingRNNSampler:
         self.predicted_state = []
         self.ft_params = ft_params
         self.stop_sid = -1
+        self.features_repo = features_repo
 
         if self.mode == 'train':
             self.path = path
@@ -65,6 +63,7 @@ class SkeletonGrowingRNNSampler:
             self.path_state_loss_weight = torch.from_numpy(np.array([path_state_loss_weight], dtype=np.float32))
             self.sample_input_size = sample_input_size
             self.d_avg = d_avg
+            self.first_split_node = first_split_node
 
             # flip all data except flux
             self.flip_transpose_volumes()
@@ -89,7 +88,6 @@ class SkeletonGrowingRNNSampler:
             with torch.no_grad():
                 _, p_layer = self.flux_model(torch.from_numpy(input_image[np.newaxis, np.newaxis, ...].copy()).to(self.device),
                                              get_penultimate_layer=True)
-        # out_features = self.flux_branch_model(p_layer)[0]
         out_features = p_layer[0]
         return out_features
 
@@ -110,12 +108,22 @@ class SkeletonGrowingRNNSampler:
             compute_new_global_features = True
 
         if compute_new_global_features:
-            # we may have to shift the corner position because the flux_model_input_size is larger than the growing model input size
-            input_image, corner_pos_global = get_ar_in_window(self.image, center_pos_growing, self.flux_model_input_size)
-            self.corner_pos_global = corner_pos_global
+            if self.mode == 'test':
+                corner_pos_global, global_features = self.features_repo.get((corner_pos_growing, corner_pos_growing + self.sample_input_size))
+            else:
+                corner_pos_global = None
 
-            #run model and get global features
-            self.global_features = self.get_global_features(input_image)
+            if corner_pos_global is not None:
+                self.corner_pos_global = corner_pos_global
+                self.global_features = torch.from_numpy(global_features).to(self.device)
+            else:
+                # we may have to shift the corner position because the flux_model_input_size is larger than the growing model input size
+                input_image, corner_pos_global = get_ar_in_window(self.image, center_pos_growing, self.flux_model_input_size)
+                self.corner_pos_global = corner_pos_global
+                #run model and get global features
+                self.global_features = self.get_global_features(input_image)
+                if self.mode == 'test':
+                    self.features_repo.add(self.global_features, (self.corner_pos_global, self.corner_pos_global + self.flux_model_input_size))
 
         # find the relative corner_pos_growing wrt global features volumes and crop an roi
         corner_pos_growing_relative = corner_pos_growing - self.corner_pos_global
@@ -272,7 +280,7 @@ class SkeletonGrowingRNNSampler:
 
     def calculate_direction(self):
         '''
-        Based on the current_pos get the next direction which can allow growing of the skeleton
+        Based on the current_pos get the next gt direction which can allow growing of the skeleton
         '''
         #find the closest point to the skeleton and the distance
 
@@ -281,7 +289,7 @@ class SkeletonGrowingRNNSampler:
         closest_distance = distances[nearest_skel_node_idx]
 
         #calculate lateral adjustment direction
-        if closest_distance <= (2*self.anisotropy[0] - 0.1): #z is the coarsest so keeping one Z slice as the limit
+        if closest_distance <= (1.5*self.anisotropy[0]): #z is the coarsest so keeping atleast one Z slice as the limit
             #the current point is close to the skeleton, so we can safely move using directions from the skeleton
             lateral_dir = np.zeros(3, dtype=np.float32)
         else: # if they are not close force the points to be closer to the skeleton path
@@ -303,7 +311,11 @@ class SkeletonGrowingRNNSampler:
             direction = directions.sum(axis=0)
             direction = self.normalize(direction)
 
-        direction = 0.75*direction + 0.25*lateral_dir
+        if nearest_skel_node_idx >= self.first_split_node:
+            # calculate directions which forces predicted path to converge with the skeleton
+            direction = 0.25*direction + 0.75*lateral_dir
+        else:
+            direction = 0.75*direction + 0.25*lateral_dir
         direction = self.normalize(direction)
 
         return direction

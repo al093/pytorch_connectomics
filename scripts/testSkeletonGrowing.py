@@ -1,4 +1,4 @@
-import os, sys, traceback
+import os, sys, traceback, shlex
 import h5py, time, itertools, datetime
 import numpy as np
 from argparse import Namespace
@@ -10,10 +10,12 @@ from torch_connectomics.model.loss import *
 from torch_connectomics.utils.net import *
 from torch_connectomics.utils.vis import *
 
-def test(args, test_loader, model, flux_model, device, logger, model_io_size):
+def test(args, test_loader, model, flux_model, device, logger, model_io_size, save_output):
 
     predicted_path_count = 0
     dataset_length = len(test_loader.dataset)
+    output_dict = {}
+    features_repo = DeepFluxFeatures(max_size=70)
     with h5py.File(args.output + 'predicted_paths.h5', 'w') as predicted_h5, torch.no_grad():
         for iteration, data in tqdm(enumerate(test_loader)):
 
@@ -24,14 +26,14 @@ def test(args, test_loader, model, flux_model, device, logger, model_io_size):
             samplers = []
             for i in range(batch_size):
                 samplers.append(SkeletonGrowingRNNSampler(image=image[i], skeleton=skeleton[i], flux=flux[i],
-                                          start_pos=start_pos[i], start_sid=start_sid[i], continue_growing_th=0.60,
-                                          sample_input_size=model_io_size, stride=2.0, anisotropy=[30.0, 6.0, 6.0], mode='test'))
+                                          start_pos=start_pos[i], start_sid=start_sid[i], continue_growing_th=0.80,
+                                          sample_input_size=model_io_size, stride=2.0, anisotropy=[30.0, 6.0, 6.0], mode='test', features_repo=features_repo))
                 samplers[-1].init_global_feature_models(flux_model, None, np.array([64, 192, 192], dtype=np.int32), device)
 
             continue_samplers = list(range(batch_size))
             no_data_for_forward = False
 
-            for t in range(18):
+            for t in range(32):
                 # if no forward pass could be made in last iteration then break
                 if no_data_for_forward:
                     break
@@ -86,19 +88,21 @@ def test(args, test_loader, model, flux_model, device, logger, model_io_size):
 
             # save the predcited path
             for sampler in samplers:
-                hg = predicted_h5.create_group(str(predicted_path_count))
-                predicted_path_count += 1
                 path, state, end_ids = sampler.get_predicted_path()
-                hg.create_dataset('vertices', data=path)
-                hg.create_dataset('states', data=state)
-                hg.create_dataset('sids', data=end_ids)
+                predicted_path_count += 1
                 edges = np.zeros(2 * (path.shape[0] - 1), dtype=np.uint16)
                 edges[1::2] = np.arange(1, path.shape[0])
                 edges[2:-1:2] = np.arange(1, path.shape[0] - 1)
-                hg.create_dataset('edges', data=edges)
+                output_dict[predicted_path_count] = {'vertices':path, 'states':state, 'sids':end_ids, 'edges':edges}
+                if save_output:
+                    hg = predicted_h5.create_group(str(predicted_path_count))
+                    hg.create_dataset('vertices', data=path)
+                    hg.create_dataset('states', data=state)
+                    hg.create_dataset('sids', data=end_ids)
+                    hg.create_dataset('edges', data=edges)
+    return output_dict
 
-def main():
-    args = get_args(mode='test')
+def _run(args, save_output):
     save_cmd_line(args)  # Saving the command line args with machine name and time for later reference
     args.output = args.output + args.exp_name + '/'
 
@@ -125,11 +129,26 @@ def main():
     test_loader, _, _ = get_input(args, model_io_size, 'test', model=None)
 
     print('Start testing')
-    test(args, test_loader, model, flux_model, device, logger, model_io_size)
+    result = test(args, test_loader, model, flux_model, device, logger, model_io_size, save_output)
 
     print('Finished testing')
     if args.disable_logging is not True:
         logger.close()
 
+    return result
+
+def run(input_args_string, save_output):
+    return _run(get_args(mode='test', input_args=input_args_string), save_output)
+
 if __name__ == "__main__":
-    main()
+    _run(get_args(mode='test'), save_output=True)
+
+def load_tracking_results(h5_path):
+    f_dict = {}
+    with h5py.File(h5_path, 'r') as h_file:
+        for key in h_file.keys():
+            f_dict[int(key)] = {'vertices':np.asarray(h_file.get(key)['vertices']),
+                           'states':np.asarray(h_file.get(key)['states']),
+                           'sids':np.asarray(h_file.get(key)['sids']),
+                           'edges':np.asarray(h_file.get(key)['edges'])}
+    return f_dict

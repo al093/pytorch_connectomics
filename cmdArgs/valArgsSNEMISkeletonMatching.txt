@@ -1,0 +1,4 @@
+-dn /n/pfister_lab2/Lab/alok/snemi/skeleton/val/val_image_half.h5
+-fn /n/pfister_lab2/Lab/alok/results/snemi/valVolumeResult/gradient_val_image_half_114000.h5
+-sp /n/pfister_lab2/Lab/alok/results/snemi/valVolumeResult/50_3_splittedtraining_splits_noAug.npy
+-skn /n/pfister_lab2/Lab/alok/results/snemi/valVolumeResult/50_3_splitted.h5

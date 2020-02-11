@@ -168,3 +168,7 @@ def save_all(input, gt_label, gt_flux, gt_skeleton, out_flux, out_mask, data_nam
 def save_volumes_in_dict(volumes_dict, base_path):
     for key, vol in volumes_dict.items():
         save_data(vol, base_path + '/' + key)
+
+def read_data(filename):
+    with h5py.File(filename, 'r') as hfile:
+        return np.asarray(hfile['main'])

@@ -10,14 +10,7 @@ from torch_connectomics.utils.vis import *
 
 
 def train(args, train_loader, model, device, criterion, optimizer, scheduler, logger, writer, regularization=None):
-    record = AverageMeter()
-    val_record = AverageMeter()
-
     model.train()
-
-    if val_loader is not None:
-        val_loader_itr = iter(val_loader)
-
     start = time.time()
 
     for iteration, data in enumerate(train_loader):
@@ -35,17 +28,15 @@ def train(args, train_loader, model, device, criterion, optimizer, scheduler, lo
         output = model(volume)
         output_flux = output[:, :]
 
-        # flux_loss, angular_l, scale_l = criterion(output_flux, flux, weight=flux_weight)
-        # loss = flux_loss
-        # if writer:
-        #     writer.add_scalars('Part-wise Losses',
-        #                        {'Angular': angular_l.item(),
-        #                         'Scale': scale_l.item()}, iteration)
+        flux_loss, angular_l, scale_l = criterion(output_flux, flux, weight=flux_weight)
+        loss = flux_loss
+        if writer:
+            writer.add_scalars('Part-wise Losses',
+                               {'Angular': angular_l.item(),
+                                'Scale': scale_l.item()}, iteration)
 
         # For L2 uncomment
-        loss = criterion(output_flux, flux, weight=flux_weight)
-
-        record.update(loss, args.batch_size)
+        # loss = criterion(output_flux, flux, weight=flux_weight)
 
         # compute gradient and do Adam step
         optimizer.zero_grad()
@@ -66,8 +57,7 @@ def train(args, train_loader, model, device, criterion, optimizer, scheduler, lo
                           iteration, writer, mode='Train',
                           color_data=torch.cat((vec_to_RGB(output_flux.cpu()), vec_to_RGB(flux.cpu())), 1))
 
-            scheduler.step(record.avg)
-            record.reset()
+            scheduler.step(loss)
 
         #Save model
         if iteration % args.iteration_save == 0 or iteration >= args.iteration_total:
@@ -99,8 +89,8 @@ def main():
     train_loader = get_input(args, model_io_size, 'train', model=None)
 
     print('Setup loss function')
-    # criterion = AngularAndScaleLoss(alpha=0.08)
-    criterion = WeightedMSE()
+    criterion = AngularAndScaleLoss(alpha=0.08)
+    # criterion = WeightedMSE()
 
     print('Setup optimizer')
     model_parameters = list(model.parameters())

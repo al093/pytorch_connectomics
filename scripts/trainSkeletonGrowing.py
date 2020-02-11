@@ -25,7 +25,7 @@ def train(args, train_loader, val_loader, model, flux_model, device, criterion, 
             iteration_loss = 0
             partwise_iteraton_loss = {'angle':0.0, 'magnitude':0.0, 'state':0.0}
 
-            image, flux, skeleton, path, start_pos, stop_pos, start_sid, stop_sid, ft_params, path_state_loss_weight = data
+            image, flux, skeleton, path, start_pos, stop_pos, start_sid, stop_sid, ft_params, path_state_loss_weight, first_split_node = data
 
             # initialize samplers
             batch_size = len(image)
@@ -33,7 +33,7 @@ def train(args, train_loader, val_loader, model, flux_model, device, criterion, 
             for i in range(batch_size):
                 samplers.append(SkeletonGrowingRNNSampler(image=image[i], skeleton=skeleton[i], flux=flux[i],
                                                           path=path[i], start_pos=start_pos[i], stop_pos=stop_pos[i],
-                                                          start_sid=start_sid[i], stop_sid=stop_sid[i],
+                                                          start_sid=start_sid[i], stop_sid=stop_sid[i], first_split_node=first_split_node
                                                           ft_params=ft_params[i], path_state_loss_weight=path_state_loss_weight[i],
                                                           sample_input_size=model_io_size, stride=2.0,
                                                           anisotropy=[30.0, 6.0, 6.0], d_avg=3, mode='train', train_flux_model=train_end_to_end))
@@ -45,7 +45,7 @@ def train(args, train_loader, val_loader, model, flux_model, device, criterion, 
             continue_samplers = list(range(batch_size))
             no_data_for_forward = False
             do_not_log = False
-            for t in range(16):
+            for t in range(32):
                 if no_data_for_forward:
                     # if no forward pass could be made in last iteration then break
                     break
@@ -127,7 +127,7 @@ def train(args, train_loader, val_loader, model, flux_model, device, criterion, 
                     # print('GT path State: ', gt_path_state)
                     # print('Predicted State: ', output_path_state)
                     # print('State Loss: ', state_loss)
-                    state_loss_alpha = 0.05
+                    state_loss_alpha = 0.20
                     loss = loss + (1-state_loss_alpha)*flux_loss + state_loss_alpha*state_loss
 
                     partwise_iteraton_loss['angle'] += (1-state_loss_alpha)*angular_l.detach().item()
@@ -180,7 +180,7 @@ def train(args, train_loader, val_loader, model, flux_model, device, criterion, 
                 writer.add_scalars('Partwise Loss', partwise_iteraton_loss, iteration)
 
             # save the predcited path for debugging
-            if iteration % 50 == 0:
+            if iteration % 100 == 0:
                 try:
                     with h5py.File(args.output + 'predicted_paths.h5', 'w') as predicted_h5:
                         count = 0

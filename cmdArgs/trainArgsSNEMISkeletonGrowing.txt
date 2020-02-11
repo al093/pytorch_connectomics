@@ -1,0 +1,4 @@
+-dn /n/pfister_lab2/Lab/alok/snemi/train_image.h5
+-sp /n/pfister_lab2/Lab/alok/results/snemi/trainVolumeResult_ablation_gradient_interpolated/growing_paths_pruned.h5
+-skn /n/pfister_lab2/Lab/alok/results/snemi/trainVolumeResult_ablation_gradient_interpolated/50_3_splitted.h5
+-fn /n/pfister_lab2/Lab/alok/results/snemi/trainVolumeResult_ablation_gradient_interpolated/gradient_train_image_274000.h5
