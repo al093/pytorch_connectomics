@@ -169,7 +169,6 @@ class SkeletonGrowingRNNSampler:
                 state = torch.tensor(path_state['STOP'], dtype=torch.float32)
             else:
                 path_section = self.interpolate_linear(self.predicted_path[-2], self.current_pos)
-                self.interpolate_linear(self.current_pos, self.predicted_path[-
                 skeletons_hit = self.skeleton[path_section]
                 idx_mask = (skeletons_hit > 0) & (skeletons_hit != self.start_sid)
                 first_hit_idx = np.argmax(idx_mask)
