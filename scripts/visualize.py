@@ -499,7 +499,7 @@ viewer=neuroglancer.Viewer()
 res = [6, 6, 30]
 D0 = '/n/pfister_lab2/Lab/alok/snemi/'
 # show(D0 + 'train_image.h5', 'im', is_image=True)
-show(D0 + 'skeleton/train_labels_separated_disjointed_removedGlial.h5', 'gt-seg', is_image=False)
+# show(D0 + 'skeleton/train_labels_separated_disjointed_removedGlial.h5', 'gt-seg', is_image=False)
 # show('/n/pfister_lab2/Lab/alok/results/snemi/test_context_L1_22000_14000_denseSupervision/1x/splitted.h5', 'split', is_image=False)
 # show('/n/pfister_lab2/Lab/alok/snemi/skeleton/skeleton.h5', 'gt-skeleton')
 # show_grad_field('/n/pfister_lab2/Lab/alok/snemi/skeleton/grad_distance.h5', 'gt_grad', D0 + 'skeleton/train_labels_separated_disjointed_removedGlial.h5', 401, sparsity=1000, vec_lec=2.0)

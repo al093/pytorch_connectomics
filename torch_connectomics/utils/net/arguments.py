@@ -10,7 +10,7 @@ class LoadFromFile (argparse.Action):
             print(f)
             parser.parse_args(f.read().split(), namespace)
 
-def get_args(mode='train'):
+def get_args(mode='train', input_args=None):
 
     assert mode in ['train', 'test']
     if mode == 'train':
@@ -115,7 +115,11 @@ def get_args(mode='train'):
 
     parser.add_argument('--argsFile', type=open, action=LoadFromFile)
 
-    args = parser.parse_args()
+    if input_args is not None:
+        args = parser.parse_args(input_args)
+    else:
+        args = parser.parse_args()
+
     return args
 
 def save_cmd_line(args, filepath=None):

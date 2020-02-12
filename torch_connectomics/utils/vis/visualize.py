@@ -56,7 +56,7 @@ def visualize(volume, label, output, iteration, writer, mode='Train', input_labe
     if len(prepared_data) == 3:
         volume, label, output = prepared_data
     elif len(prepared_data) == 4:
-        if input_label:
+        if input_label is not None:
             volume, label, output, input_label = prepared_data
         else:
             volume, label, output, color_data = prepared_data
@@ -168,3 +168,7 @@ def save_all(input, gt_label, gt_flux, gt_skeleton, out_flux, out_mask, data_nam
 def save_volumes_in_dict(volumes_dict, base_path):
     for key, vol in volumes_dict.items():
         save_data(vol, base_path + '/' + key)
+
+def read_data(filename):
+    with h5py.File(filename, 'r') as hfile:
+        return np.asarray(hfile['main'])
