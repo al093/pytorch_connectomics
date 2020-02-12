@@ -169,6 +169,7 @@ class SkeletonGrowingRNNSampler:
                 state = torch.tensor(path_state['STOP'], dtype=torch.float32)
             else:
                 path_section = self.interpolate_linear(self.predicted_path[-2], self.current_pos)
+                self.interpolate_linear(self.current_pos, self.predicted_path[-
                 skeletons_hit = self.skeleton[path_section]
                 idx_mask = (skeletons_hit > 0) & (skeletons_hit != self.start_sid)
                 first_hit_idx = np.argmax(idx_mask)
@@ -289,12 +290,12 @@ class SkeletonGrowingRNNSampler:
         closest_distance = distances[nearest_skel_node_idx]
 
         #calculate lateral adjustment direction
-        if closest_distance <= (1.5*self.anisotropy[0]): #z is the coarsest so keeping atleast one Z slice as the limit
-            #the current point is close to the skeleton, so we can safely move using directions from the skeleton
-            lateral_dir = np.zeros(3, dtype=np.float32)
-        else: # if they are not close force the points to be closer to the skeleton path
+        if (self.first_split_node > 0 and nearest_skel_node_idx >= self.first_split_node)\
+                or closest_distance > (1.5*self.anisotropy[0]): # if they are not close force the points to be closer to the skeleton path
             lateral_dir = (self.path[nearest_skel_node_idx] - self.current_pos)
             lateral_dir = self.normalize(lateral_dir)
+        else:
+            lateral_dir = np.zeros(3, dtype=np.float32)
 
         #calculate growing direction
         if (self.path.shape[0] - nearest_skel_node_idx ) < self.d_avg + 1:
@@ -311,13 +312,13 @@ class SkeletonGrowingRNNSampler:
             direction = directions.sum(axis=0)
             direction = self.normalize(direction)
 
-        if nearest_skel_node_idx >= self.first_split_node:
+        if self.first_split_node > 0 and nearest_skel_node_idx >= self.first_split_node:
             # calculate directions which forces predicted path to converge with the skeleton
             direction = 0.25*direction + 0.75*lateral_dir
         else:
             direction = 0.75*direction + 0.25*lateral_dir
-        direction = self.normalize(direction)
 
+        direction = self.normalize(direction)
         return direction
 
     def normalize(self, vec):

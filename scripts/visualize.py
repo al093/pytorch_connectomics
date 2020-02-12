@@ -462,7 +462,32 @@ class SkeletonSource(neuroglancer.skeleton.SkeletonSource):
                 edges=self.edges[i],
                 vertex_attributes=dict(color=color))
 
-def show_skeleton(h5file, name='skeletons', resolution=None):
+
+class SkeletonEndPointSource(neuroglancer.skeleton.SkeletonSource):
+    def __init__(self, vertices, edges):
+        super(SkeletonEndPointSource, self).__init__()
+
+        self.vertex_attributes['color'] = neuroglancer.skeleton.VertexAttributeInfo(
+            data_type=np.float32,
+            num_components=1,
+        )
+
+        self.vertices = vertices
+        self.edges = edges
+
+    def get_skeleton(self, i):
+        i = str(i)
+        if i not in self.vertices.keys():
+            return None
+        else:
+            color = np.full(self.vertices[i].shape[0], float(i)/len(self.vertices), dtype=np.float32)
+            return neuroglancer.skeleton.Skeleton(
+                vertex_positions=self.vertices[i][-1:, :],
+                edges=np.array([0], dtype=np.uint16),
+                vertex_attributes=dict(color=color[-1:]))
+
+
+def show_skeleton(h5file, name='skeletons', resolution=None, show_ends=True):
     global viewer
     global res
     r = resolution if resolution else res
@@ -477,6 +502,7 @@ def show_skeleton(h5file, name='skeletons', resolution=None):
                 edges[g] = np.array([], dtype=np.uint16)
     
         skeletons = SkeletonSource(vertices, edges)
+        skeletonEndpoints = SkeletonEndPointSource(vertices, edges)
 
         with viewer.txn() as s:
             s.layers.append(
@@ -485,6 +511,17 @@ def show_skeleton(h5file, name='skeletons', resolution=None):
                     source=neuroglancer.LocalVolume(data=np.zeros((1,1,1)),
                                                     voxel_size=r,
                                                     skeletons=skeletons),
+                    skeleton_shader='void main() { emitRGB(colormapJet(color[0])); }',
+                    selected_alpha=0,
+                    not_selected_alpha=0,
+                ))
+
+            s.layers.append(
+                name=name + 'Ends',
+                layer=neuroglancer.SegmentationLayer(
+                    source=neuroglancer.LocalVolume(data=np.zeros((1,1,1)),
+                                                    voxel_size=r,
+                                                    skeletons=skeletonEndpoints),
                     skeleton_shader='void main() { emitRGB(colormapJet(color[0])); }',
                     selected_alpha=0,
                     not_selected_alpha=0,

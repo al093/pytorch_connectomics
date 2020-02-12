@@ -33,10 +33,10 @@ def train(args, train_loader, val_loader, model, flux_model, device, criterion, 
             for i in range(batch_size):
                 samplers.append(SkeletonGrowingRNNSampler(image=image[i], skeleton=skeleton[i], flux=flux[i],
                                                           path=path[i], start_pos=start_pos[i], stop_pos=stop_pos[i],
-                                                          start_sid=start_sid[i], stop_sid=stop_sid[i], first_split_node=first_split_node
+                                                          start_sid=start_sid[i], stop_sid=stop_sid[i], first_split_node=first_split_node[i],
                                                           ft_params=ft_params[i], path_state_loss_weight=path_state_loss_weight[i],
                                                           sample_input_size=model_io_size, stride=2.0,
-                                                          anisotropy=[30.0, 6.0, 6.0], d_avg=3, mode='train', train_flux_model=train_end_to_end))
+                                                          anisotropy=[30.0, 6.0, 6.0], d_avg=6, mode='train', train_flux_model=train_end_to_end))
 
                 samplers[-1].init_global_feature_models(flux_model, None, np.array([64, 192, 192], dtype=np.int32), device)
 
@@ -143,7 +143,7 @@ def train(args, train_loader, val_loader, model, flux_model, device, criterion, 
                         do_not_log = True
 
                 #after every 10 steps backpropagate or do it before exiting the for loop because no forward passes could be made
-                if (t + 1) % 4 == 0 or (do_backpropagate and no_data_for_forward):
+                if (t + 1) % 8 == 0 or (do_backpropagate and no_data_for_forward):
                     optimizer.zero_grad()
                     loss.backward(retain_graph=train_end_to_end)
                     optimizer.step()

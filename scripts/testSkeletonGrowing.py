@@ -15,7 +15,7 @@ def test(args, test_loader, model, flux_model, device, logger, model_io_size, sa
     predicted_path_count = 0
     dataset_length = len(test_loader.dataset)
     output_dict = {}
-    features_repo = DeepFluxFeatures(max_size=70)
+    features_repo = DeepFluxFeatures(max_size=200)
     with h5py.File(args.output + 'predicted_paths.h5', 'w') as predicted_h5, torch.no_grad():
         for iteration, data in tqdm(enumerate(test_loader)):
 

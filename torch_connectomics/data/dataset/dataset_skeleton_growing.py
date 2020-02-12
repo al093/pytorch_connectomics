@@ -43,17 +43,6 @@ class SkeletonGrowingDataset(torch.utils.data.Dataset):
             else:
                 first_split_node = -1
 
-            # if both end points are inside skeleton segments we can reverse the path for augmentation
-            # NO WE CAN NOT BECAUSE ONE OF THE ENDS MAY BE ON A JUNCTION
-            # if start_sid > 0 and stop_sid > 0:
-            #     reverse_path = np.random.randint(2)
-            #     if reverse_path == 1:
-            #         path = path[::-1]
-            #         start_pos = self.growing_data[index]['path'][-1]
-            #         stop_pos = self.growing_data[index]['path'][0]
-            #         start_sid = self.growing_data[index]['sids'][1]
-            #         stop_sid = self.growing_data[index]['sids'][0]
-
             # get the parameters here for flip transpose augmentation
             ft_params = self.get_flip_transpose_params()
 

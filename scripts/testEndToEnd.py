@@ -64,7 +64,7 @@ args_flux.extend(['-en', exp_name])
 output_base_path = '/n/pfister_lab2/Lab/alok/results/snemi/'
 args_flux.extend(['-o', output_base_path])
 args_flux.extend(['-dn', data_path])
-flux_model_path = '/n/home11/averma/pytorch_connectomics/outputs/snemi/snemi_abStudy_interpolated+gradient/snemi_abStudy_interpolated+gradient_182000.pth'
+flux_model_path = '/n/home11/averma/pytorch_connectomics/outputs/snemi/snemi_abStudy_interpolated+gradient/snemi_abStudy_interpolated+gradient_120000.pth'
 args_flux.extend(['-pm', flux_model_path])
 num_cpu=10
 
@@ -122,14 +122,14 @@ else:
 start_time = time.time()
 print('Calculating error for split skeletons.')
 
-p_s, r_s, f_s, c_s, (vol_1, vol_2, vol_3) = calculate_error_metric_2(split_skeleton, gt_skel_graphs=gt_skel_graphs, gt_skel_ids=gt_skel_ids,
-                                              gt_context=gt_context, resolution=resolution, temp_folder=temp_folder, num_cpu=num_cpu, debug=True)
+p_s, r_s, f_s, c_s = calculate_error_metric_2(split_skeleton, gt_skel_graphs=gt_skel_graphs, gt_skel_ids=gt_skel_ids,
+                                              gt_context=gt_context, resolution=resolution, temp_folder=temp_folder, num_cpu=num_cpu)
 print('Time taken: ', time.time() - start_time)
 
-save_data(vol_1, output_base_path + exp_name + '/vol_1.h5')
-save_data(vol_2, output_base_path + exp_name + '/vol_2.h5')
-save_data(vol_3, output_base_path + exp_name + '/vol_3.h5')
-import pdb; pdb.set_trace()
+# save_data(vol_1, output_base_path + exp_name + '/vol_1.h5')
+# save_data(vol_2, output_base_path + exp_name + '/vol_2.h5')
+# save_data(vol_3, output_base_path + exp_name + '/vol_3.h5')
+# import pdb; pdb.set_trace()
 
 if args.skip_tracking is False:
     # calulate and save the end points of split skeleton for testing
@@ -144,14 +144,14 @@ if args.skip_tracking is False:
     args_tracking = ['-mi', '16,96,96',
                         '-g', '1',
                         '-c', '0',
-                        '-b', '48',
+                        '-b', '32',
                         '-ac', 'directionNet',
                         '--task', '6',
                         '--in-channel', '14',
                         '--out-channel', '3',
                         '-lm', 'True']
 
-    tracking_model_path = '/n/home11/averma/pytorch_connectomics/outputs/snemi/snemiGrowing_gf_all_32steps_2/snemiGrowing_gf_all_32steps_2_1000.pth'
+    tracking_model_path = '/n/home11/averma/pytorch_connectomics/outputs/snemi/snemiGrowing_32_steps_3/snemiGrowing_32_steps_3_2500.pth'
     args_tracking.extend(['-pm', tracking_model_path])
     args_tracking.extend(['-o', output_base_path])
     args_tracking.extend(['-en', exp_name])
