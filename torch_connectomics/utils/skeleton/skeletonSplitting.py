@@ -83,7 +83,7 @@ def get_skeleton_nodes(skeleton, input_resolution, downsample_factor, temp_folde
             for key in hfile.keys(): nodes[key] = np.asarray(hfile[key])
     return nodes
 
-def split_skeletons(skeleton, min_skel_size, input_resolution, downsample_factor, temp_folder, num_cpu=1):
+def split(skeleton, min_skel_size, input_resolution, downsample_factor, temp_folder, num_cpu=1):
     nodes = get_skeleton_nodes(skeleton, input_resolution, downsample_factor, temp_folder, num_cpu)
     split_skeleton = split_at_junctions(skeleton, nodes)
     split_skeleton = remove_small_skel_and_relabel(split_skeleton, min_skel_size)
@@ -102,7 +102,7 @@ def generate_skeleton_growing_data(skeleton, output_file, input_resolution, down
                     hg.create_dataset('sids', data=np.array([int(key[1:])]).astype(np.uint16))
     print('Total ends: ', count)
 
-def merge_skeletons(split_skeleton, merge_data):
+def merge(split_skeleton, merge_data):
     merge_ids = []
     graph = nx.Graph()
 

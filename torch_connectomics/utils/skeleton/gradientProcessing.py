@@ -23,10 +23,12 @@ def divergence_3d(field):
     return dz + dy + dx
 
 def normalize_vectors(field):
-    norm = np.sqrt(np.sum(field ** 2, axis=0))
+    norm = np.sqrt(np.sum(field ** 2, axis=0)).astype(np.float32)
     mask = (norm > 1e-4)
-    mask = np.stack([mask, mask, mask])
-    field[mask] = (field / norm)[mask]
+    norm[~mask] = 1e-6 # so that numpy does not complain for zero division
+    field_n = field.copy()
+    field_n[:, mask] = (field_n / norm)[:, mask]
+    return field_n, norm
 
 def normalize_scalar_field(field):
     max_v = field.max()
@@ -43,7 +45,6 @@ def compute_skeleton_from_gradient(gradient, params):
     threshold = params['adaptive_threshold']
     filter_sz = params['filter_size']
     absolute_div_th = params['absolute_threshold']
-    min_skel_th = params['min_skel_threshold']
     block_size = params['block_size']
     shift = [3, 3, 3]
 
@@ -75,16 +76,93 @@ def compute_skeleton_from_gradient(gradient, params):
                                                         iterations=1)
     label_cc, num_cc = skimage.measure.label(skel, return_num=True)
 
-    if num_cc > np.iinfo(np.int32).max:
-        print('cannot convert to uint32')
+    if num_cc > np.iinfo(np.uint32).max:
+        raise Exception('Cannot convert volume to uint32, number of segments exceed range of uint32 ')
     else:
         label_cc = label_cc.astype(np.uint32)
 
-    # Remove small skeletons
+    return label_cc, skel_divergence
+
+
+def compute_skeleton_like_deepflux(direction, lmd, k1, k2, binned_directions=None):
+    '''
+    :param direction:
+    :param k1: dilation filter size
+    :param k2: erosion filter size
+    :return: instance skeletons seperated using CC
+    '''
+    binary_skel = np.full(direction.shape[1:], False, dtype=bool)
+
+    if binned_directions is None:
+        all_directions = []
+        count = 0
+        for pz in [-1, 0, 1]:
+            for py in [-1, 0, 1]:
+                for px in [-1, 0, 1]:
+                    if px == 0 and py == 0 and pz == 0:
+                        continue
+                    d = np.array([pz, py, px], dtype=np.int16)
+                    d = d.astype(np.float32) / np.sqrt((d ** 2).sum())
+                    all_directions.append(d)
+                    count += 1
+        #bin directions
+        all_directions = np.array(all_directions).astype(np.float32)[:, :, np.newaxis, np.newaxis, np.newaxis]
+        binned_directions = np.squeeze(np.argmax((all_directions * direction).sum(axis=1), axis=0))
+
+    direction, norm = normalize_vectors(direction)
+    mask = norm > lmd
+    mask_inv = ~mask
+
+    count = 0
+    for pz in [-1, 0, 1]:
+        for py in [-1, 0, 1]:
+            for px in [-1, 0, 1]:
+                if px == 0 and py == 0 and pz == 0:
+                    continue
+                mask_val_neighbor = ndimage.affine_transform(mask_inv, matrix=(1, 1, 1), offset=(pz, py, px), order=0)
+                direction_mask = (binned_directions == count)
+                binary_skel |= (mask_val_neighbor * mask * direction_mask)
+                count += 1
+
+    if binary_skel.sum() == 0:
+            return None, binned_directions
+
+    dilation_kernel = np.ones([k1, k1, k1], dtype=np.bool)
+    binary_skel = ndimage.morphology.binary_dilation(binary_skel, structure=dilation_kernel)
+
+    erosion_kernel = np.ones([k2, k2, k2], dtype=np.bool)
+    binary_skel = ndimage.morphology.binary_erosion(binary_skel, structure=erosion_kernel)
+
+    label_cc, num_cc = skimage.measure.label(binary_skel, return_num=True)
+    if num_cc > np.iinfo(np.uint32).max:
+        raise Exception('Cannot convert volume to uint32, number of segments exceed range of uint32 ')
+    else:
+        label_cc = label_cc.astype(np.uint32)
+
+    return label_cc, binned_directions
+
+def remove_small_skeletons(label_cc, min_skel_th):
     ids, counts = np.unique(label_cc, return_counts=True)
     m = ((ids > 0) & (counts >= min_skel_th))
     skel_large = remove_ids(label_cc, ids[~m], np.max(ids))
+    return skel_large
 
-    return skel_large, skel_divergence
+def compute_skeleton_from_scalar_field(skel_probability, method, threshold, k1, k2):
+    binary_skel = skel_probability > threshold
 
+    if binary_skel.sum() == 0:
+        return None
 
+    dilation_kernel = np.ones([k1, k1, k1], dtype=np.bool)
+    binary_skel = ndimage.morphology.binary_dilation(binary_skel, structure=dilation_kernel)
+
+    erosion_kernel = np.ones([k2, k2, k2], dtype=np.bool)
+    binary_skel = ndimage.morphology.binary_erosion(binary_skel, structure=erosion_kernel)
+
+    label_cc, num_cc = skimage.measure.label(binary_skel, return_num=True)
+    if num_cc > np.iinfo(np.uint32).max:
+        raise Exception('Cannot convert volume to uint32, number of segments exceed range of uint32 ')
+    else:
+        label_cc = label_cc.astype(np.uint32)
+
+    return label_cc

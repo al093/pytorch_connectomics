@@ -76,7 +76,8 @@ def main():
     train_loader = get_input(args, model_io_size, 'train', model=None)
 
     print('Setup loss function')
-    criterion = WeightedMSE()
+    # TODO | NOTE change to MSE for distance transform skeletons
+    criterion = WeightedBCE()
 
     print('Setup optimizer')
     model_parameters = list(model.parameters())

@@ -6,13 +6,12 @@ from torch_connectomics.utils.net import *
 from torch_connectomics.utils.vis import visualize_aff
 from tqdm import tqdm
 import re
-import shlex
 
 def test(args, test_loader, model, device, model_io_size, volume_shape, pad_size, result_path, result_file_pf, input_file_names, save_output):
     # switch to eval mode
     model.eval()
     ww = blend(model_io_size)
-    result_grad = [np.stack([np.zeros(x, dtype=np.float32) for _ in range(3)]) for x in volume_shape]
+    result_grad = [np.zeros([3] + list(x), dtype=np.float32) for x in volume_shape]
     cropped_result_grad = []
     weight = [np.zeros(x, dtype=np.float32) for x in volume_shape]
     sz = tuple([3] + list(model_io_size))
@@ -21,7 +20,6 @@ def test(args, test_loader, model, device, model_io_size, volume_shape, pad_size
     with torch.no_grad():
         for i, (pos, volume) in tqdm(enumerate(test_loader)):
             volume = volume.to(device)
-
             output = model(volume)
 
             for idx in range(output.size()[0]):
@@ -45,38 +43,10 @@ def test(args, test_loader, model, device, model_io_size, volume_shape, pad_size
         cropped_result_grad.append(data_grad)
         if save_output == True:
             gradient_path = result_path + 'gradient_' + input_file_names[vol_id] + '_' + result_file_pf + '.h5'
-            hf = h5py.File(gradient_path, 'w')
-            hf.create_dataset('main', data=data_grad, compression='gzip')
-            hf.close()
+            with h5py.File(gradient_path, 'w') as hf:
+                hf.create_dataset('main', data=data_grad, compression='gzip')
             print('Gradient stored at: \n' + gradient_path)
-
     return cropped_result_grad
-
-def combine_augmented(outputs):
-    assert len(outputs) == 16
-    for i in range(8, 16):
-        outputs[i] = torch.flip(outputs[i], [2])
-    for i in range(4, 8):
-        outputs[i] = torch.flip(outputs[i], [3])
-    for i in range(12, 16):
-        outputs[i] = torch.flip(outputs[i], [3])
-    for i in range(1, 16, 4):
-        outputs[i] = torch.rot90(outputs[i], -1, [3, 4])
-    for i in range(2, 16, 4):
-        outputs[i] = torch.rot90(outputs[i], -1, [3, 4])
-        outputs[i] = torch.rot90(outputs[i], -1, [3, 4])
-    for i in range(3, 16, 4):
-        outputs[i] = torch.rot90(outputs[i], 1, [3, 4])
-
-    # output = torch.zeros_like(outputs[0], dtype=torch.float64)
-    # for i in range(len(outputs)):
-    #     output += outputs[i].double()
-    # output = output / 16.0
-    for i in range(len(outputs)):
-        outputs[i] = outputs[i].unsqueeze(0)
-    output = torch.min(torch.cat(outputs, 0), 0)[0]
-
-    return output, outputs
 
 def _run(args, save_output = True):
     print('0. initial setup')

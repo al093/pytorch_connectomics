@@ -2,6 +2,7 @@ import torch
 import torchvision.utils as vutils
 import h5py
 import numpy as np
+import pickle
 
 N = 15 # default maximum number of sections to show
 min_batch = 3
@@ -172,3 +173,11 @@ def save_volumes_in_dict(volumes_dict, base_path):
 def read_data(filename):
     with h5py.File(filename, 'r') as hfile:
         return np.asarray(hfile['main'])
+
+def save_obj(obj, filename):
+    with open(filename, 'wb') as f:
+        pickle.dump(obj, f, pickle.HIGHEST_PROTOCOL)
+
+def load_obj(filename):
+    with open(filename, 'rb') as f:
+        return pickle.load(f)

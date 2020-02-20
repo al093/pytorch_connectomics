@@ -3,6 +3,7 @@ import numpy as np
 import multiprocessing as mp
 import networkx as nx
 from scipy import ndimage, interpolate
+from skimage.morphology import skeletonize_3d
 
 # add ibexHelper path
 # https://github.com/donglaiw/ibexHelper
@@ -79,13 +80,13 @@ def compute_skel_graph(process_id, seg_ids, skel_vol_full, temp_folder, input_re
                 nodes = np.stack(skel_obj.get_nodes()).astype(np.uint16)
 
                 if nodes.shape[0] < 10:
-                    print('skipped skel: {} (too small!)'.format(seg_id))
+                    # print('skipped skel: {} (too small!)'.format(seg_id))
                     continue
 
                 graph, wt_dict, th_dict, ph_dict = GetGraphFromSkeleton(skel_obj, modified_bfs=False)
                 edge_list = GetEdgeList(graph, wt_dict, th_dict, ph_dict)
             except:
-                print('Catched exp in skel: ', seg_id)
+                # print('Catched exp in skel: ', seg_id)
                 #traceback.print_exc(file=sys.stdout)
                 continue
 
@@ -110,6 +111,47 @@ def compute_skel_graph(process_id, seg_ids, skel_vol_full, temp_folder, input_re
         if save_graph is True:
             with open(temp_folder + '/(' + process_id + ')graph.h5', 'wb') as pfile:
                 pickle.dump(graphs, pfile, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def compute_thinned_nodes(process_id, seg_ids, skel_vol_full, temp_folder, input_resolution, downsample_fac, output_file_name):
+    process_id = str(process_id)
+    out_folder = temp_folder + '/' + process_id
+    if not os.path.isdir(out_folder):
+        os.makedirs(out_folder)
+
+    input_resolution = np.array(input_resolution).astype(np.uint8)
+    downsample_fac = np.array(downsample_fac).astype(np.uint8)
+    graphs = {}
+
+    with h5py.File(temp_folder + '/(' + process_id + ')' + output_file_name , 'w') as hf_nodes:
+        locations = scipy.ndimage.find_objects(skel_vol_full)
+        for idx, seg_id in enumerate(seg_ids):
+            loc = locations[int(seg_id) - 1]
+            start_pos = np.array([loc[0].start, loc[1].start, loc[2].start], dtype=np.uint16)
+            skel_mask = (skel_vol_full[loc] == int(seg_id))
+            try:
+                CreateSkeleton(skel_mask, out_folder, input_resolution, input_resolution*downsample_fac)
+                skel_obj = ReadSkeletons(out_folder, skeleton_algorithm='thinning', downsample_resolution=input_resolution*downsample_fac, read_edges=True)[1]
+                nodes = start_pos + np.stack(skel_obj.get_nodes()).astype(np.uint16)
+            except:
+                continue
+            hf_nodes.create_dataset('allNodes' + str(seg_id), data=nodes, compression='gzip')
+
+def compute_thinned_nodes_skimage_skeletonize(process_id, seg_ids, skel_vol_full, temp_folder, output_file_name):
+    process_id = str(process_id)
+    out_folder = temp_folder + '/' + process_id
+    if not os.path.isdir(out_folder):
+        os.makedirs(out_folder)
+
+    with h5py.File(temp_folder + '/(' + process_id + ')' + output_file_name , 'w') as hf_nodes:
+        locations = scipy.ndimage.find_objects(skel_vol_full)
+        for seg_id in seg_ids:
+            loc = locations[int(seg_id) - 1]
+            start_pos = np.array([loc[0].start, loc[1].start, loc[2].start], dtype=np.uint16)
+            skel_mask = (skel_vol_full[loc] == int(seg_id))
+            thinned_skel = skeletonize_3d(skel_mask)
+            nodes = start_pos + np.transpose(np.nonzero(thinned_skel)).astype(np.uint16)
+            hf_nodes.create_dataset('allNodes' + str(seg_id), data=nodes, compression='gzip')
 
 def compute(fn, num_proc, sids, **kwargs):
     if num_proc == 0:

@@ -533,8 +533,8 @@ neuroglancer.set_server_bind_address(bind_address=ip,bind_port=port)
 viewer=neuroglancer.Viewer()
 
 #### SNEMI #####
-res = [6, 6, 30]
-D0 = '/n/pfister_lab2/Lab/alok/snemi/'
+# res = [6, 6, 30]
+# D0 = '/n/pfister_lab2/Lab/alok/snemi/'
 # show(D0 + 'train_image.h5', 'im', is_image=True)
 # show(D0 + 'skeleton/train_labels_separated_disjointed_removedGlial.h5', 'gt-seg', is_image=False)
 # show('/n/pfister_lab2/Lab/alok/results/snemi/test_context_L1_22000_14000_denseSupervision/1x/splitted.h5', 'split', is_image=False)

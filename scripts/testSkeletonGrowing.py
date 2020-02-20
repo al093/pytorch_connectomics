@@ -16,7 +16,7 @@ def test(args, test_loader, model, flux_model, device, logger, model_io_size, sa
     dataset_length = len(test_loader.dataset)
     output_dict = {}
     features_repo = DeepFluxFeatures(max_size=200)
-    with h5py.File(args.output + 'predicted_paths.h5', 'w') as predicted_h5, torch.no_grad():
+    with torch.no_grad():
         for iteration, data in tqdm(enumerate(test_loader)):
 
             sys.stdout.flush()
@@ -94,12 +94,9 @@ def test(args, test_loader, model, flux_model, device, logger, model_io_size, sa
                 edges[1::2] = np.arange(1, path.shape[0])
                 edges[2:-1:2] = np.arange(1, path.shape[0] - 1)
                 output_dict[predicted_path_count] = {'vertices':path, 'states':state, 'sids':end_ids, 'edges':edges}
-                if save_output:
-                    hg = predicted_h5.create_group(str(predicted_path_count))
-                    hg.create_dataset('vertices', data=path)
-                    hg.create_dataset('states', data=state)
-                    hg.create_dataset('sids', data=end_ids)
-                    hg.create_dataset('edges', data=edges)
+    if save_output:
+        with open(args.output + 'predicted_paths.h5', 'wb') as pfile:
+            pickle.dump(output_dict, pfile, protocol=pickle.HIGHEST_PROTOCOL)
     return output_dict
 
 def _run(args, save_output):
@@ -142,13 +139,3 @@ def run(input_args_string, save_output):
 
 if __name__ == "__main__":
     _run(get_args(mode='test'), save_output=True)
-
-def load_tracking_results(h5_path):
-    f_dict = {}
-    with h5py.File(h5_path, 'r') as h_file:
-        for key in h_file.keys():
-            f_dict[int(key)] = {'vertices':np.asarray(h_file.get(key)['vertices']),
-                           'states':np.asarray(h_file.get(key)['states']),
-                           'sids':np.asarray(h_file.get(key)['sids']),
-                           'edges':np.asarray(h_file.get(key)['edges'])}
-    return f_dict
