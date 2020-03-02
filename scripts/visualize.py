@@ -1,6 +1,6 @@
 import neuroglancer
 import numpy as np
-import h5py
+import h5py, pickle
 from scipy import ndimage
 import random
 
@@ -30,26 +30,26 @@ def show_grad_as_color(path, name, bounds=None, resolution=None):
         r = resolution
     print('Loading: ' + path)
     print('as: ' + name)
-    hf = h5py.File(path, 'r')
-    hf_keys = hf.keys()
-    print(list(hf_keys))
-    for key in list(hf_keys):
+    with h5py.File(path, 'r') as hf:
+        hf_keys = hf.keys()
+        print(list(hf_keys))
+        for key in list(hf_keys):
 
-        if bounds is not None:
-            data = np.array(hf[key][bounds[0][0]:bounds[0][1], bounds[1][0]:bounds[1][1], bounds[2][0]:bounds[2][1]])
-        else:
-            data = np.array(hf[key])
+            if bounds is not None:
+                data = np.array(hf[key][bounds[0][0]:bounds[0][1], bounds[1][0]:bounds[1][1], bounds[2][0]:bounds[2][1]])
+            else:
+                data = np.array(hf[key])
 
-        data = grad_to_RGB(data)
+            data = grad_to_RGB(data)
 
-        with viewer.txn() as s:
-            s.layers[name] = neuroglancer.ImageLayer(source=neuroglancer.LocalVolume(data, voxel_size=res),
-                                                        shader = """void main()
-                                                                    { 
-                                                                        emitRGB(vec3(toNormalized(getDataValue(0)), 
-                                                                        toNormalized(getDataValue(1)), 
-                                                                        toNormalized(getDataValue(2)))); 
-                                                                    }""",)
+            with viewer.txn() as s:
+                s.layers[name] = neuroglancer.ImageLayer(source=neuroglancer.LocalVolume(data, voxel_size=res),
+                                                            shader = """void main()
+                                                                        { 
+                                                                            emitRGB(vec3(toNormalized(getDataValue(0)), 
+                                                                            toNormalized(getDataValue(1)), 
+                                                                            toNormalized(getDataValue(2)))); 
+                                                                        }""",)
 
 def grad_to_RGB(grad_field):
     #shape of grad_field is 3, Z, Y, X
@@ -487,35 +487,45 @@ class SkeletonEndPointSource(neuroglancer.skeleton.SkeletonSource):
                 vertex_attributes=dict(color=color[-1:]))
 
 
-def show_skeleton(h5file, name='skeletons', resolution=None, show_ends=True):
+def show_skeleton(filepath, name='skeletons', resolution=None, show_ends=False):
     global viewer
     global res
     r = resolution if resolution else res
-    with h5py.File(h5file, 'r') as hf:
-        vertices = {}
-        edges = {}
-        for g in hf.keys():
-            vertices[g] = np.asarray(hf.get(g)['vertices'])[:, ::-1] * np.array(r)
-            if 'edges' in hf.get(g).keys():
-                edges[g] = np.asarray(hf.get(g)['edges'])
-            else:
-                edges[g] = np.array([], dtype=np.uint16)
     
-        skeletons = SkeletonSource(vertices, edges)
-        skeletonEndpoints = SkeletonEndPointSource(vertices, edges)
+    vertices = {}
+    edges = {}        
+    if filepath[-3:] == '.h5':
+        with h5py.File(filepath, 'r') as hf:
+            for g in hf.keys():
+                vertices[g] = np.asarray(hf.get(g)['vertices'])[:, ::-1] * np.array(r)
+                if 'edges' in hf.get(g).keys():
+                    edges[g] = np.asarray(hf.get(g)['edges'])
+                else:
+                    edges[g] = np.array([], dtype=np.uint16)
+    else:
+        with open(filepath, 'rb') as phandle: paths = pickle.load(phandle)
 
-        with viewer.txn() as s:
-            s.layers.append(
-                name=name,
-                layer=neuroglancer.SegmentationLayer(
-                    source=neuroglancer.LocalVolume(data=np.zeros((1,1,1)),
-                                                    voxel_size=r,
-                                                    skeletons=skeletons),
-                    skeleton_shader='void main() { emitRGB(colormapJet(color[0])); }',
-                    selected_alpha=0,
-                    not_selected_alpha=0,
-                ))
+        for g, data in paths.items():
+            vertices[str(g)] = data['vertices'][:, ::-1] * np.array(r)
+            edges[str(g)] = data['edges'] if 'edges' in data.keys() else np.array([], dtype=np.uint16)
 
+    skeletons = SkeletonSource(vertices, edges)
+
+    if show_ends is True: skeletonEndpoints = SkeletonEndPointSource(vertices, edges)
+
+    with viewer.txn() as s:
+        s.layers.append(
+            name=name,
+            layer=neuroglancer.SegmentationLayer(
+                source=neuroglancer.LocalVolume(data=np.zeros((1,1,1)),
+                                                voxel_size=r,
+                                                skeletons=skeletons),
+                skeleton_shader='void main() { emitRGB(colormapJet(color[0])); }',
+                selected_alpha=0,
+                not_selected_alpha=0,
+            ))
+
+        if show_ends is True:
             s.layers.append(
                 name=name + 'Ends',
                 layer=neuroglancer.SegmentationLayer(
@@ -527,13 +537,18 @@ def show_skeleton(h5file, name='skeletons', resolution=None, show_ends=True):
                     not_selected_alpha=0,
                 ))
 
+def read_pkl(filepath):
+    with open(filepath, 'rb') as phandle: 
+        data = pickle.load(phandle)
+    return data
+
 ip='localhost' # or public IP of the machine for sharable display
 port=18779 # change to an unused port number
-neuroglancer.set_server_bind_address(bind_address=ip,bind_port=port)
+neuroglancer.set_server_bind_address(bind_address=ip, bind_port=port)
 viewer=neuroglancer.Viewer()
 
 #### SNEMI #####
-# res = [6, 6, 30]
+res = [6, 6, 30]
 # D0 = '/n/pfister_lab2/Lab/alok/snemi/'
 # show(D0 + 'train_image.h5', 'im', is_image=True)
 # show(D0 + 'skeleton/train_labels_separated_disjointed_removedGlial.h5', 'gt-seg', is_image=False)

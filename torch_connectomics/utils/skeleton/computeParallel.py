@@ -33,7 +33,6 @@ def upsample_skeleton_using_splines(edge_list, nodes, limits, return_graph, star
         path = long_sec[2]['path']
         if len(path) > 3:
             new_nodes = interpolate_using_spline(nodes[path, :], limits, order=3, smoothing=400)
-
         else:
             new_nodes = []
             for i in range(len(path) - 1):
@@ -57,7 +56,7 @@ def upsample_skeleton_using_splines(edge_list, nodes, limits, return_graph, star
     else:
         return upsampled_nodes
 
-def compute_skel_graph(process_id, seg_ids, skel_vol_full, temp_folder, input_resolution, downsample_fac, output_file_name, save_graph):
+def compute_skel_graph(process_id, seg_ids, skel_vol_full, temp_folder, input_resolution, downsample_fac, output_file_name, save_graph, use_spline=True):
     process_id = str(process_id)
 
     out_folder = temp_folder + '/' + process_id
@@ -91,8 +90,16 @@ def compute_skel_graph(process_id, seg_ids, skel_vol_full, temp_folder, input_re
                 continue
 
             if save_graph is True:
-                _, graph = upsample_skeleton_using_splines(edge_list, nodes, skel_mask.shape, return_graph=True, start_pos=start_pos)
-                graphs[seg_id] = graph
+                if use_spline is True:
+                    _, graph = upsample_skeleton_using_splines(edge_list, nodes, skel_mask.shape, return_graph=True, start_pos=start_pos)
+                    graphs[seg_id] = graph
+                else:
+                    g = nx.Graph()
+                    nodes_shifted = nodes + start_pos
+                    for long_sec in edge_list:
+                        path = long_sec[2]['path']
+                        g.add_edges_from([(tuple(nodes_shifted[i]), tuple(nodes_shifted[i + 1])) for i in path[:-1]])
+                    graphs[seg_id] = g
 
             g = nx.Graph()
             g.add_edges_from(edge_list)
@@ -111,7 +118,8 @@ def compute_skel_graph(process_id, seg_ids, skel_vol_full, temp_folder, input_re
         if save_graph is True:
             with open(temp_folder + '/(' + process_id + ')graph.h5', 'wb') as pfile:
                 pickle.dump(graphs, pfile, protocol=pickle.HIGHEST_PROTOCOL)
-
+            with open(temp_folder + '/(' + process_id + ')edge_list.pkl', 'wb') as pfile:
+                pickle.dump(edge_list, pfile, protocol=pickle.HIGHEST_PROTOCOL)
 
 def compute_thinned_nodes(process_id, seg_ids, skel_vol_full, temp_folder, input_resolution, downsample_fac, output_file_name):
     process_id = str(process_id)

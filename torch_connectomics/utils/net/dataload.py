@@ -121,13 +121,13 @@ def get_input(args, model_io_size, mode='train', model=None):
                 skeleton[i] = np.array((h5py.File(skeleton_files[i], 'r')['main']))
                 flux[i] = np.array((h5py.File(flux_files[i], 'r')['main']))
             elif args.task == 6:
-                data = []
+                data = {}
                 with h5py.File(seed_points_files[i], 'r') as hf:
                     for g in hf.keys():
                         d = {}
                         d['path'] = np.asarray(hf.get(g)['vertices'])
                         d['sids'] = np.asarray(hf.get(g)['sids'])
-                        data.append(d)
+                        data[int(g)] = d
                 s_points[i] = data
 
                 # load skeletons
@@ -162,7 +162,7 @@ def get_input(args, model_io_size, mode='train', model=None):
 
             elif args.task == 6:
                 # load the skeleton growing datasets
-                data = []
+                data = {}
                 with h5py.File(seed_points_files[i], 'r') as hf:
                     for g in hf.keys():
                         d = {}
@@ -172,7 +172,7 @@ def get_input(args, model_io_size, mode='train', model=None):
                         d['sids'] = np.asarray(hf.get(g)['sids'])
                         if 'first_split_node' in hf.get(g).keys():
                             d['first_split_node'] = np.asarray(hf.get(g)['first_split_node'])[0]
-                        data.append(d)
+                        data[int(g)] = d
                 s_points[i] = data
 
             # load skeletons

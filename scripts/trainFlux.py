@@ -23,20 +23,18 @@ def train(args, train_loader, model, device, criterion, optimizer, scheduler, lo
         _, volume, label, flux, flux_weight, _, _= data
 
         volume = volume.to(device)
+        output_flux = model(volume)
         flux, flux_weight = flux.to(device), flux_weight.to(device)
 
-        output = model(volume)
-        output_flux = output[:, :]
-
-        # flux_loss, angular_l, scale_l = criterion(output_flux, flux, weight=flux_weight)
-        # loss = flux_loss
-        # if writer:
-        #     writer.add_scalars('Part-wise Losses',
-        #                        {'Angular': angular_l.item(),
-        #                         'Scale': scale_l.item()}, iteration)
-
-        # For L2 uncomment
-        loss = criterion(output_flux, flux, weight=flux_weight)
+        if isinstance(criterion, AngularAndScaleLoss):
+            flux_loss, angular_l, scale_l = criterion(output_flux, flux, weight=flux_weight)
+            loss = flux_loss
+            if writer:
+                writer.add_scalars('Part-wise Losses',
+                                   {'Angular': angular_l.item(),
+                                    'Scale': scale_l.item()}, iteration)
+        else:
+            loss = criterion(output_flux, flux, weight=flux_weight)
 
         # compute gradient and do Adam step
         optimizer.zero_grad()
@@ -89,8 +87,9 @@ def main():
     train_loader = get_input(args, model_io_size, 'train', model=None)
 
     print('Setup loss function')
-    # criterion = AngularAndScaleLoss(alpha=0.08)
-    criterion = WeightedMSE()
+    # TODO | NOTE change loss fn and weight, alpha = 0.08 for all ours experiement
+    criterion = AngularAndScaleLoss(alpha=0.08)
+    # criterion = WeightedMSE()
 
     print('Setup optimizer')
     model_parameters = list(model.parameters())

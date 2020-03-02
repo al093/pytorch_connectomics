@@ -20,7 +20,7 @@ def test(args, test_loader, model, flux_model, device, logger, model_io_size, sa
         for iteration, data in tqdm(enumerate(test_loader)):
 
             sys.stdout.flush()
-            image, flux, skeleton, start_pos, start_sid = data
+            image, flux, skeleton, start_pos, start_sid, id = data
             # initialize samplers
             batch_size = len(image)
             samplers = []

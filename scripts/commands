@@ -45,6 +45,7 @@ python testFlux.py -o /n/pfister_lab2/Lab/alok/results/liver/ -mi 64,192,192 -g 
 
 ipython --pdb trainSkeleton.py -- -o ~/pytorch_connectomics/outputs/snemi/ -lr 8e-05 --iteration-total 300000 --iteration-save 2000 -mi 64,192,192 -g 1 -c 12 -b 2 -ac fluxNet --argsFile ../cmdArgs/trainArgsSNEMISkelAbStudy.txt --task 4 --out-channel 1 --in-channel 1 -en snemi_abStudy_skeleton
 
+ipython --pdb trainFlux.py -- -o ~/pytorch_connectomics/outputs/snemi/ -lr 8e-05 --iteration-total 300000 --iteration-save 2000 -mi 64,192,192 -g 1 -c 12 -b 12 -ac fluxNet --argsFile ../cmdArgs/trainArgsSNEMISkelAbStudy.txt --task 4 --out-channel 3 --in-channel 1 -en snemi_abStudy_ours_onlyL2
 
 
 Growing commands:

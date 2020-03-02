@@ -62,14 +62,13 @@ def load_dict(h5_path):
             f_dict[key] = np.asarray(h_file[key])
     return f_dict
 
-def get_skeleton_nodes(skeleton, input_resolution, downsample_factor, temp_folder, num_cpu=1):
+def get_skeleton_nodes(skeleton, input_resolution, downsample_factor, temp_folder, num_cpu=1, save_graph=False):
     sids = np.unique(skeleton)
     sids = sids[sids > 0]
 
     status = compute(fn=compute_skel_graph, num_proc=num_cpu, sids=sids, skel_vol_full=skeleton,
                               temp_folder=temp_folder, input_resolution=input_resolution,
-                              downsample_fac=downsample_factor, output_file_name='nodes.h5', save_graph=False)
-
+                              downsample_fac=downsample_factor, output_file_name='nodes.h5', save_graph=save_graph)
     if status != True:
         raise Exception('Error while creating skeleton graph.')
 
@@ -108,14 +107,13 @@ def merge(split_skeleton, merge_data):
 
     for g in merge_data.keys():
         match_ids = merge_data[g]['sids']
-        average_path_score = merge_data[g]['states'][:-1].sum()/(merge_data[g]['states'].shape[0] - 1)
-        print('Skel_id: {}, path_score: {}'.format(g, average_path_score))
+        # average_path_score = merge_data[g]['states'][:-1].sum()/(merge_data[g]['states'].shape[0] - 1)
+        # print('Skel_id: {}, path_score: {}'.format(g, average_path_score))
         if np.all(match_ids > 0):
             graph.add_edge(match_ids[0], match_ids[1])
 
-    sub_graphs = nx.connected_component_subgraphs(graph)
-    for i, sg in enumerate(sub_graphs):
-        merge_ids.append(list(sg.nodes(data=False)))
+    for c in nx.connected_components(graph):
+        merge_ids.append(list(graph.subgraph(c).nodes(data=False)))
 
     # relable merged skeletons
     labels = np.arange(split_skeleton.max() + 1, dtype=split_skeleton.dtype)

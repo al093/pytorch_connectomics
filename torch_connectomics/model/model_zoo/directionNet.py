@@ -68,19 +68,20 @@ class DirectionNet(nn.Module):
         # encoding path
         x = self.layer1_E(x)
         x = self.down(x)
+        x = self.dropout(x)
 
         x = self.layer2_E(x)
         x = self.down_z(x)
+        x = self.dropout(x)
 
         x = self.layer3_E(x)
         x = self.down_z(x)
-        # x = self.dropout(x)
+        x = self.dropout(x)
 
         lstm_hidden_state_next, lstm_cell_state_next = self.convLSTMCell3D(x, lstm_hidden_state, lstm_cell_state)
 
         x = self.layer4_E(x)
         x = self.down_z(x)
-        # x = self.dropout(x)
 
         x = self.layer5_E(x)
 

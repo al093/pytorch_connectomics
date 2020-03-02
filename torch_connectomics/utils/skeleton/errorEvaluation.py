@@ -248,6 +248,27 @@ def calculate_error_metric_binary_overlap(pred_skel, gt_skel, resolution, temp_f
 
     return precision, recall, f_score
 
+def calculate_error_metric_binary_overlap_like_l3dfrom2d(pred_skel, gt_skel, dilated_gt_skel):
+    pred_skel_ids = pred_skel_ids[pred_skel_ids > 0]
+    if pred_skel_ids.size == 0:
+        return -1, -1, -1
+
+    # ignore all voxels in the dilated region
+    valid_mask = (~dilated_gt_skel | gt_skel)
+    pred = pred_skel[valid_mask]
+    gt = gt_skel[valid_mask]
+
+    # collect all predicted skeleton points
+    tp = (pred == True)[gt].sum()
+    fp = (pred == True)[~gt].sum()
+    fn = (pred == False)[gt].sum()
+
+    precision = tp / (tp + fp)
+    recall = tp / (tp + fn)
+    f_score = 2 * precision * recall / (precision + recall)
+
+    return precision, recall, f_score
+
 def get_thin_skeletons_nodes(skeleton, sids, input_resolution, downsample_factor, temp_folder, num_cpu, method='ibex'):
     output_filename = 'nodes.h5'
 
@@ -278,13 +299,21 @@ def get_thin_skeletons_nodes(skeleton, sids, input_resolution, downsample_factor
                     nodes[int(key[8:])] = np.asarray(hfile[key])
     return nodes
 
-def calculate_binary_errors_batch(pred_skeletons, gt_skeleton_paths, resolution, temp_folder, num_cpu):
+def calculate_binary_errors_batch(pred_skeletons, gt_skeleton_paths, resolution, temp_folder, num_cpu, like_l3dfrom2d=False, dilation_kernel_sz=5):
     errors = [None] * len(pred_skeletons)
     for i, pred_skeleton_all_steps in enumerate(tqdm(pred_skeletons)):
         gt_skeleton = read_data(gt_skeleton_paths[i])
+        if like_l3dfrom2d is True:
+            gt_skeleton = gt_skeleton > 0
+            sel = np.ones([dilation_kernel_sz, dilation_kernel_sz, dilation_kernel_sz])
+            gt_skeleton_dilated = ndimage.morphology.binary_dilation(gt_skeleton, sel)
         errors[i] = []
         for pred_skeleton in pred_skeleton_all_steps:
-            p, r, f = calculate_error_metric_binary_overlap(pred_skeleton, gt_skeleton, resolution, temp_folder, num_cpu)
+            if like_l3dfrom2d is True:
+                p, r, f = calculate_error_metric_binary_overlap_like_l3dfrom2d(pred_skeleton > 0, gt_skeleton, gt_skeleton_dilated)
+            else:
+                p, r, f = calculate_error_metric_binary_overlap(pred_skeleton, gt_skeleton, resolution, temp_folder, num_cpu)
+
             errors[i].append({'p':p, 'r':r, 'f':f})
 
     p_avg, r_avg, f_avg = [0.0]*len(pred_skeletons[0]), [0.0]*len(pred_skeletons[0]), [0.0]*len(pred_skeletons[0])
@@ -297,10 +326,9 @@ def calculate_binary_errors_batch(pred_skeletons, gt_skeleton_paths, resolution,
 
     # print results
     n_vol = len(pred_skeletons)
-    for j in range(len(errors[0])):
-        print('Precision: ' + ' '.join([('{:3.4f}'.format(x/n_vol)) for x in p_avg]))
-        print('Recall:    ' + ' '.join([('{:3.4f}'.format(x/n_vol)) for x in p_avg]))
-        print('F score:   ' + ' '.join([('{:3.4f}'.format(x/n_vol)) for x in f_avg]))
+    print('Precision: ' + ' '.join([('{:3.4f}'.format(x/n_vol)) for x in p_avg]))
+    print('Recall:    ' + ' '.join([('{:3.4f}'.format(x/n_vol)) for x in p_avg]))
+    print('F score:   ' + ' '.join([('{:3.4f}'.format(x/n_vol)) for x in f_avg]))
     return errors
 
 def calculate_errors_batch(pred_skeletons, gt_skeleton_paths, gt_skeleton_ctx_paths, resolution, temp_folder, num_cpu):
@@ -326,10 +354,10 @@ def calculate_errors_batch(pred_skeletons, gt_skeleton_paths, gt_skeleton_ctx_pa
 
     # print results
     n_vol = len(pred_skeletons)
-    for j in range(len(errors[0])):
-        print('P:   ' + ' '.join([('{:3.4f}'.format(x/n_vol)) for x in p_avg]))
-        print('R:   ' + ' '.join([('{:3.4f}'.format(x/n_vol)) for x in r_avg]))
-        print('PR:   ' + ' '.join([('{:3.4f}'.format(x/n_vol)) for x in f_avg]))
-        print('C:  ' + ' '.join([('{:3.4f}'.format(x / n_vol)) for x in c_avg]))
-        print('PRC: ' + ' '.join([('{:3.4f}'.format(x / n_vol)) for x in hm_avg]))
+    print('P:    ' + ' '.join([('{:3.4f}'.format(x/n_vol)) for x in p_avg]))
+    print('R:    ' + ' '.join([('{:3.4f}'.format(x/n_vol)) for x in r_avg]))
+    print('PR:   ' + ' '.join([('{:3.4f}'.format(x/n_vol)) for x in f_avg]))
+    print('C:    ' + ' '.join([('{:3.4f}'.format(x / n_vol)) for x in c_avg]))
+    print('PRC:  ' + ' '.join([('{:3.4f}'.format(x / n_vol)) for x in hm_avg]))
+
     return errors

@@ -9,7 +9,7 @@ from torch_connectomics.model.loss import *
 from torch_connectomics.utils.net import *
 from torch_connectomics.utils.vis import *
 
-def train(args, train_loader, val_loader, model, flux_model, device, criterion, criterion_bce,
+def train(args, train_loader, model, flux_model, device, criterion, criterion_bce,
           optimizer, scheduler, logger, writer, regularization, model_io_size, train_end_to_end):
 
     model.train()
@@ -25,7 +25,7 @@ def train(args, train_loader, val_loader, model, flux_model, device, criterion, 
             iteration_loss = 0
             partwise_iteraton_loss = {'angle':0.0, 'magnitude':0.0, 'state':0.0}
 
-            image, flux, skeleton, path, start_pos, stop_pos, start_sid, stop_sid, ft_params, path_state_loss_weight, first_split_node = data
+            image, flux, skeleton, path, start_pos, stop_pos, start_sid, stop_sid, ft_params, path_state_loss_weight, first_split_node, id = data
 
             # initialize samplers
             batch_size = len(image)
@@ -35,7 +35,7 @@ def train(args, train_loader, val_loader, model, flux_model, device, criterion, 
                                                           path=path[i], start_pos=start_pos[i], stop_pos=stop_pos[i],
                                                           start_sid=start_sid[i], stop_sid=stop_sid[i], first_split_node=first_split_node[i],
                                                           ft_params=ft_params[i], path_state_loss_weight=path_state_loss_weight[i],
-                                                          sample_input_size=model_io_size, stride=2.0,
+                                                          id=id[i], sample_input_size=model_io_size, stride=2.0,
                                                           anisotropy=[30.0, 6.0, 6.0], d_avg=6, mode='train', train_flux_model=train_end_to_end))
 
                 samplers[-1].init_global_feature_models(flux_model, None, np.array([64, 192, 192], dtype=np.int32), device)
@@ -77,15 +77,6 @@ def train(args, train_loader, val_loader, model, flux_model, device, criterion, 
                         path_state_loss_weight.append(next_step_data[8])
                         global_features.append(next_step_data[9].cpu())
 
-                        # save_volumes_in_dict({'input_image':input_image[-1][0],
-                        #                       'input_flux':input_flux[-1],
-                        #                       'start_skeleton_mask':start_skeleton_mask[-1][0],
-                        #                       'other_skeleton_mask':other_skeleton_mask[-1][0]}, base_path=args.output)
-
-                        # print('GT  Direction:', gt_direction)
-                        # print('GT State:', gt_state)
-                        # print('GT_position:', center_pos)
-
                         if t == 0:
                             prev_hidden_state = None
                             prev_cell_state = None
@@ -124,10 +115,7 @@ def train(args, train_loader, val_loader, model, flux_model, device, criterion, 
                     flux_loss, angular_l, scale_l = criterion(output_direction, gt_direction)  # direction loss
                     state_loss = criterion_bce(output_path_state, gt_path_state, path_state_loss_weight)  # state loss
 
-                    # print('GT path State: ', gt_path_state)
-                    # print('Predicted State: ', output_path_state)
-                    # print('State Loss: ', state_loss)
-                    state_loss_alpha = 0.20
+                    state_loss_alpha = 0.90
                     loss = loss + (1-state_loss_alpha)*flux_loss + state_loss_alpha*state_loss
 
                     partwise_iteraton_loss['angle'] += (1-state_loss_alpha)*angular_l.detach().item()
@@ -158,12 +146,17 @@ def train(args, train_loader, val_loader, model, flux_model, device, criterion, 
                     output_cell_state = output_cell_state.detach()
 
                 # Using the predicted directions calculate next positions, samplers will update their state
-                for i, sampler_idx in enumerate(continue_samplers):
-                    next_pos = samplers[sampler_idx].jump_to_next_position(output_direction[i], output_path_state[i])
-                    # print('--------------------')
-                    # print('Previous pos: ', center_pos[i])
-                    # print('Predicted Direction: ', output_direction[i])
-                    # print ('New Pos:', next_pos)
+                for i, sampler_idx in enumerate(list(sampler_idx_matching.keys())):
+                    samplers[sampler_idx].jump_to_next_position(output_direction[i], output_path_state[i])
+
+            # save output for debugging,
+            # for sampler in samplers:
+            #     path, state, end_ids = sampler.get_predicted_path()
+            #     edges = np.zeros(2 * (path.shape[0] - 1), dtype=np.uint16)
+            #     edges[1::2] = np.arange(1, path.shape[0])
+            #     edges[2:-1:2] = np.arange(1, path.shape[0] - 1)
+            #     output_dict[sampler.id] = {'vertices': path, 'states': state, 'sids': end_ids,
+            #                                          'edges': edges}
 
             # normalize logged loss by the number of steps taken
             iteration_loss /= t
@@ -180,29 +173,29 @@ def train(args, train_loader, val_loader, model, flux_model, device, criterion, 
                 writer.add_scalars('Partwise Loss', partwise_iteraton_loss, iteration)
 
             # save the predcited path for debugging
-            if iteration % 100 == 0:
-                try:
-                    with h5py.File(args.output + 'predicted_paths.h5', 'w') as predicted_h5:
-                        count = 0
-                        for sampler in samplers:
-                            hg = predicted_h5.create_group(str(count))
-                            count += 1
-                            path, state, _ = sampler.get_predicted_path()
-                            hg.create_dataset('vertices', data=path)
-                            hg.create_dataset('states', data=state)
-                            edges = np.zeros(2 * (path.shape[0] - 1), dtype=np.uint16)
-                            edges[1::2] = np.arange(1, path.shape[0])
-                            edges[2:-1:2] = np.arange(1, path.shape[0] - 1)
-                            hg.create_dataset('edges', data=edges)
-                        print('Saved paths: ', np.arange(count))
-                except:
-                    print('Exception occured while writing path to h5.')
-                    e = sys.exc_info()[0]
-                    print(e)
-                    traceback.print_exc(file=sys.stdout)
+            # if iteration % 100 == 0:
+            #     try:
+            #         with h5py.File(args.output + 'predicted_paths.h5', 'w') as predicted_h5:
+            #             count = 0
+            #             for sampler in samplers:
+            #                 hg = predicted_h5.create_group(str(count))
+            #                 count += 1
+            #                 path, state, _ = sampler.get_predicted_path()
+            #                 hg.create_dataset('vertices', data=path)
+            #                 hg.create_dataset('states', data=state)
+            #                 edges = np.zeros(2 * (path.shape[0] - 1), dtype=np.uint16)
+            #                 edges[1::2] = np.arange(1, path.shape[0])
+            #                 edges[2:-1:2] = np.arange(1, path.shape[0] - 1)
+            #                 hg.create_dataset('edges', data=edges)
+            #             print('Saved paths: ', np.arange(count))
+            #     except:
+            #         print('Exception occured while writing path to h5.')
+            #         e = sys.exc_info()[0]
+            #         print(e)
+            #         traceback.print_exc(file=sys.stdout)
 
             #save model
-            if iteration % args.iteration_save == 0 or iteration >= args.iteration_total:
+            if iteration % args.iteration_save == 0:
                 torch.save(model.state_dict(), args.output + (args.exp_name + '_%d.pth' % iteration))
 
             # Log time for first 100 iterations
@@ -214,6 +207,9 @@ def train(args, train_loader, val_loader, model, flux_model, device, criterion, 
             if iteration >= args.iteration_total:
                 break
 
+        # for debugging
+        # with open(args.output + 'predicted_paths.pkl', 'wb') as pfile:
+        #     pickle.dump(output_dict, pfile, protocol=pickle.HIGHEST_PROTOCOL)
 
 def main():
     args = get_args(mode='train')
@@ -243,7 +239,7 @@ def main():
     train_loader = get_input(args, model_io_size, 'train', model=None)
 
     print('Setup loss function')
-    criterion = AngularAndScaleLoss(alpha=0.08)
+    criterion = AngularAndScaleLoss(alpha=1.0)
     criterion_bce = WeightedBCE()
 
     model_parameters = list(model.parameters())
@@ -259,7 +255,8 @@ def main():
                                                            min_lr=1e-7, eps=1e-08)
 
     print('4. start training')
-    train(args, train_loader, None, model, flux_model, device, criterion, criterion_bce, optimizer, scheduler, logger, writer, None, model_io_size, train_end_to_end)
+    train(args, train_loader, model, flux_model, device, criterion, criterion_bce, optimizer, scheduler, logger, writer,
+          None, model_io_size, train_end_to_end)
 
     print('5. finish training')
     if args.disable_logging is not True:

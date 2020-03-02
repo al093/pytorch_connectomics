@@ -29,7 +29,7 @@ class SkeletonGrowingRNNSampler:
                  sample_input_size, stride, anisotropy, mode='train',
                  continue_growing_th=0.5,
                  stop_pos=None, stop_sid=None, path=None, ft_params=None,
-                 path_state_loss_weight=None, d_avg=None, train_flux_model=None,
+                 path_state_loss_weight=None, id=None, d_avg=None, train_flux_model=None,
                  features_repo=None, first_split_node=None):
 
         self.image = image
@@ -72,6 +72,7 @@ class SkeletonGrowingRNNSampler:
             self.current_pos = np.array(self.start_pos, copy=True, dtype=np.float32)
             self.predicted_path = [self.current_pos.copy()]
             self.train_flux_model = train_flux_model
+            self.id = id
 
     def init_global_feature_models(self, flux_model, flux_model_branch, flux_model_input_size, device):
         self.flux_model = flux_model
@@ -267,10 +268,32 @@ class SkeletonGrowingRNNSampler:
         return self.current_pos
 
     def get_predicted_path(self):
+        # self.merge_with_close_skeletons()
         path = np.vstack(self.predicted_path)
         path = self.transpose_flip_path(path)
         state = np.array(self.predicted_state, dtype=np.float32)
         return path, state, np.array([self.start_sid, self.stop_sid], dtype=np.int32)
+
+    def merge_with_close_skeletons(self):
+        '''
+        If the path did not reach any skeleton and at the end there are close skeletons then extend the path
+        :return:
+        '''
+        if self.stop_sid == -1:
+            end = self.predicted_path[-1].astype(np.int32)
+            zz, yy, xx = np.mgrid[-1:2, -1:2, -1:2]
+            pos = np.vstack((zz.flatten(), yy.flatten(), xx.flatten())).T
+            close_pos = pos + end
+            valid_mask = (close_pos[:, 0] > 0) & (close_pos[:, 1] > 0) & (close_pos[:, 2] > 0) & \
+                         (close_pos[:, 0] < self.image_size[0]) & (close_pos[:, 1] < self.image_size[1]) & (close_pos[:, 2] < self.image_size[2])
+            close_pos = close_pos[valid_mask, :]
+            skeletons_hit = self.skeleton[close_pos[:, 0], close_pos[:, 1], close_pos[:, 2]]
+            idx_mask = (skeletons_hit > 0) & (skeletons_hit != self.start_sid)
+            first_hit_idx = np.argmax(idx_mask)
+            if idx_mask[first_hit_idx] == True:
+                self.stop_sid = self.skeleton[close_pos[first_hit_idx, 0], close_pos[first_hit_idx, 1], close_pos[first_hit_idx, 2]]
+                self.predicted_path.append(close_pos[first_hit_idx, :])
+                self.predicted_state.append(0)
 
     def get_cropped_image(self, pos):
         out_input = crop_volume(self.input[pos[0]], self.sample_input_size, pos[1:])
@@ -283,7 +306,6 @@ class SkeletonGrowingRNNSampler:
         Based on the current_pos get the next gt direction which can allow growing of the skeleton
         '''
         #find the closest point to the skeleton and the distance
-
         distances = np.sqrt(((self.anisotropy*(self.current_pos - self.path))**2).sum(axis=1))
         nearest_skel_node_idx = np.argmin(distances)
         closest_distance = distances[nearest_skel_node_idx]
@@ -291,7 +313,7 @@ class SkeletonGrowingRNNSampler:
         #calculate lateral adjustment direction
         if (self.first_split_node > 0 and nearest_skel_node_idx >= self.first_split_node)\
                 or closest_distance > (1.5*self.anisotropy[0]): # if they are not close force the points to be closer to the skeleton path
-            lateral_dir = (self.path[nearest_skel_node_idx] - self.current_pos)
+            lateral_dir = self.path[nearest_skel_node_idx] - self.current_pos
             lateral_dir = self.normalize(lateral_dir)
         else:
             lateral_dir = np.zeros(3, dtype=np.float32)
