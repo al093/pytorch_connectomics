@@ -543,7 +543,7 @@ def read_pkl(filepath):
     return data
 
 ip='localhost' # or public IP of the machine for sharable display
-port=18779 # change to an unused port number
+port=18778 # change to an unused port number
 neuroglancer.set_server_bind_address(bind_address=ip, bind_port=port)
 viewer=neuroglancer.Viewer()
 

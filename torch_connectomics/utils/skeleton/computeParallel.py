@@ -66,7 +66,7 @@ def compute_skel_graph(process_id, seg_ids, skel_vol_full, temp_folder, input_re
     input_resolution = np.array(input_resolution).astype(np.uint8)
     downsample_fac = np.array(downsample_fac).astype(np.uint8)
     graphs = {}
-
+    edge_lists = {}
     with h5py.File(temp_folder + '/(' + process_id + ')' + output_file_name , 'w') as hf_nodes:
         locations = scipy.ndimage.find_objects(skel_vol_full)
         for idx, seg_id in enumerate(seg_ids):
@@ -98,8 +98,9 @@ def compute_skel_graph(process_id, seg_ids, skel_vol_full, temp_folder, input_re
                     nodes_shifted = nodes + start_pos
                     for long_sec in edge_list:
                         path = long_sec[2]['path']
-                        g.add_edges_from([(tuple(nodes_shifted[i]), tuple(nodes_shifted[i + 1])) for i in path[:-1]])
+                        g.add_edges_from([(tuple(nodes_shifted[path[i]]), tuple(nodes_shifted[path[i + 1]])) for i in range(len(path)-1)])
                     graphs[seg_id] = g
+                    edge_lists[seg_id] = edge_list
 
             g = nx.Graph()
             g.add_edges_from(edge_list)
@@ -119,7 +120,7 @@ def compute_skel_graph(process_id, seg_ids, skel_vol_full, temp_folder, input_re
             with open(temp_folder + '/(' + process_id + ')graph.h5', 'wb') as pfile:
                 pickle.dump(graphs, pfile, protocol=pickle.HIGHEST_PROTOCOL)
             with open(temp_folder + '/(' + process_id + ')edge_list.pkl', 'wb') as pfile:
-                pickle.dump(edge_list, pfile, protocol=pickle.HIGHEST_PROTOCOL)
+                pickle.dump(edge_lists, pfile, protocol=pickle.HIGHEST_PROTOCOL)
 
 def compute_thinned_nodes(process_id, seg_ids, skel_vol_full, temp_folder, input_resolution, downsample_fac, output_file_name):
     process_id = str(process_id)

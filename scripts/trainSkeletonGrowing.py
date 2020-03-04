@@ -15,7 +15,7 @@ def train(args, train_loader, model, flux_model, device, criterion, criterion_bc
     model.train()
     if train_end_to_end: flux_model.train()
     else: flux_model.eval()
-
+    output_dict = {}
     start = time.time()
     iteration = 0
     for epoch in range(100000):
@@ -131,7 +131,7 @@ def train(args, train_loader, model, flux_model, device, criterion, criterion_bc
                         do_not_log = True
 
                 #after every 10 steps backpropagate or do it before exiting the for loop because no forward passes could be made
-                if (t + 1) % 8 == 0 or (do_backpropagate and no_data_for_forward):
+                if (t + 1) % 16 == 0 or (do_backpropagate and no_data_for_forward):
                     optimizer.zero_grad()
                     loss.backward(retain_graph=train_end_to_end)
                     optimizer.step()
@@ -146,8 +146,10 @@ def train(args, train_loader, model, flux_model, device, criterion, criterion_bc
                     output_cell_state = output_cell_state.detach()
 
                 # Using the predicted directions calculate next positions, samplers will update their state
+                # evaluate next step only for the ones which had continue state
                 for i, sampler_idx in enumerate(list(sampler_idx_matching.keys())):
-                    samplers[sampler_idx].jump_to_next_position(output_direction[i], output_path_state[i])
+                    if sampler_idx in continue_samplers:
+                        samplers[sampler_idx].jump_to_next_position(output_direction[i], output_path_state[i])
 
             # save output for debugging,
             # for sampler in samplers:
@@ -171,28 +173,6 @@ def train(args, train_loader, model, flux_model, device, criterion, criterion_bc
                                                                          optimizer.param_groups[0]['lr']))
                 writer.add_scalars('Loss', {'Overall Loss': iteration_loss}, iteration)
                 writer.add_scalars('Partwise Loss', partwise_iteraton_loss, iteration)
-
-            # save the predcited path for debugging
-            # if iteration % 100 == 0:
-            #     try:
-            #         with h5py.File(args.output + 'predicted_paths.h5', 'w') as predicted_h5:
-            #             count = 0
-            #             for sampler in samplers:
-            #                 hg = predicted_h5.create_group(str(count))
-            #                 count += 1
-            #                 path, state, _ = sampler.get_predicted_path()
-            #                 hg.create_dataset('vertices', data=path)
-            #                 hg.create_dataset('states', data=state)
-            #                 edges = np.zeros(2 * (path.shape[0] - 1), dtype=np.uint16)
-            #                 edges[1::2] = np.arange(1, path.shape[0])
-            #                 edges[2:-1:2] = np.arange(1, path.shape[0] - 1)
-            #                 hg.create_dataset('edges', data=edges)
-            #             print('Saved paths: ', np.arange(count))
-            #     except:
-            #         print('Exception occured while writing path to h5.')
-            #         e = sys.exc_info()[0]
-            #         print(e)
-            #         traceback.print_exc(file=sys.stdout)
 
             #save model
             if iteration % args.iteration_save == 0:

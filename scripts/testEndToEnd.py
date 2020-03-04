@@ -35,48 +35,53 @@ args_flux = ['-mi', '64,192,192', '-g', '1', '-c', '12', '-b', '18',
 # gt_context_path = ['/n/pfister_lab2/Lab/alok/snemi/skeleton/splineInterp/1_0x/skeleton_context.h5']
 # gt_skel_graphs_path = ['/n/pfister_lab2/Lab/alok/snemi/skeleton/splineInterp/1_0x/graph.h5']
 # exp_name = 'snemi_abStudy_ours_train'
+# ---------------------------------
 
 #-----------VALIDATION------------#
-data_path = ['/n/pfister_lab2/Lab/alok/snemi/skeleton/val/val_image_half.h5']
-gt_skel_path = ['/n/pfister_lab2/Lab/alok/snemi/skeleton/splineInterp/val/1_0x/skeleton.h5']
-gt_context_path = ['/n/pfister_lab2/Lab/alok/snemi/skeleton/splineInterp/val/1_0x/skeleton_context.h5']
-gt_skel_graphs_path = ['/n/pfister_lab2/Lab/alok/snemi/skeleton/splineInterp/val/1_0x/graph.h5']
-exp_name = 'snemi_abStudy_ours_val'
+# data_path = ['/n/pfister_lab2/Lab/alok/snemi/skeleton/val/val_image_half.h5']
+# gt_skel_path = ['/n/pfister_lab2/Lab/alok/snemi/skeleton/splineInterp/val/1_0x/skeleton.h5']
+# gt_context_path = ['/n/pfister_lab2/Lab/alok/snemi/skeleton/splineInterp/val/1_0x/skeleton_context.h5']
+# gt_skel_graphs_path = ['/n/pfister_lab2/Lab/alok/snemi/skeleton/splineInterp/val/1_0x/graph.h5']
+# exp_name = 'snemi_abStudy_ours_val'
+# ---------------------------------
 
-data_idxs = [0]
-resolution = (30.0, 6.0, 6.0)
-flux_model_path =          '/n/home11/averma/pytorch_connectomics/outputs/snemi/snemi_abStudy_interpolated+gradient/snemi_abStudy_interpolated+gradient_120000.pth'
-flux_model_path_tracking = '/n/home11/averma/pytorch_connectomics/outputs/snemi/snemi_abStudy_interpolated+gradient/snemi_abStudy_interpolated+gradient_120000.pth'
-
-# L2 Ablation model
-# flux_model_path = '/n/home11/averma/pytorch_connectomics/outputs/snemi/snemi_abStudy_ours_onlyL2/snemi_abStudy_ours_onlyL2_120000.pth'
-
-tracking_model_path = '/n/home11/averma/pytorch_connectomics/outputs/snemi/growing_train_actual_paths/growing_train_actual_paths_1200.pth'
-output_base_path = '/n/pfister_lab2/Lab/alok/results/snemi/'
+# data_idxs = [0]
+# resolution = (30.0, 6.0, 6.0)
+# matching_radius = 60.0
+# flux_model_path =          '/n/home11/averma/pytorch_connectomics/outputs/snemi/snemi_abStudy_interpolated+gradient/snemi_abStudy_interpolated+gradient_120000.pth'
+# flux_model_path_tracking = '/n/home11/averma/pytorch_connectomics/outputs/snemi/snemi_abStudy_interpolated+gradient/snemi_abStudy_interpolated+gradient_120000.pth'
+#
+# # L2 Ablation model
+# # flux_model_path = '/n/home11/averma/pytorch_connectomics/outputs/snemi/snemi_abStudy_ours_onlyL2/snemi_abStudy_ours_onlyL2_120000.pth'
+#
+# tracking_model_path = '/n/home11/averma/pytorch_connectomics/outputs/snemi/growing_train_actual_paths/growing_train_actual_paths_1200.pth'
+# output_base_path = '/n/pfister_lab2/Lab/alok/results/snemi/'
 #---------------------------------#
 
 
 #-------Synthetic Vessel----------#
-# exp_name = 'synVessel_abStudy_ours_valVols'
-# flux_model_path = '/n/home11/averma/pytorch_connectomics/outputs/syntheticVessel/synVessel_flux_ours_2/synVessel_flux_ours_2_110000.pth'
+exp_name = 'synVessel_abStudy_ours_valVols'
+flux_model_path = '/n/home11/averma/pytorch_connectomics/outputs/syntheticVessel/synVessel_flux_ours_2/synVessel_flux_ours_2_110000.pth'
 # tracking_model_path = '/n/home11/averma/pytorch_connectomics/outputs/snemi/snemiGrowing_32_steps_3/snemiGrowing_32_steps_3_12000.pth'
-# output_base_path = '/n/pfister_lab2/Lab/alok/results/syntheticVessel/'
-# resolution = (1.0, 1.0, 1.0)
-#
-# with open('/n/home11/averma/pytorch_connectomics/cmdArgs/synVesselPaths.pkl', 'rb') as phandle:
-#     syn_paths = pickle.load(phandle)
-#
-# data_path, gt_skel_path, gt_context_path, gt_skel_graphs_path = [], [], [], []
-# data_idxs = list(range(16, 21))
-# for i, vol_data in syn_paths.items():
-#     if i in data_idxs:
-#         data_path.append(vol_data['dn'])
-#         gt_skel_path.append(vol_data['skn'])
-#         gt_context_path.append(vol_data['ln'])
-#         gt_skel_graphs_path.append(vol_data['gn'])
+output_base_path = '/n/pfister_lab2/Lab/alok/results/syntheticVessel/'
+resolution = (1.0, 1.0, 1.0)
+matching_radius = 1.0
+
+with open('/n/home11/averma/pytorch_connectomics/cmdArgs/synVesselPaths.pkl', 'rb') as phandle:
+    syn_paths = pickle.load(phandle)
+
+data_path, gt_skel_path, gt_context_path, gt_skel_graphs_path = [], [], [], []
+data_idxs = list(range(16, 21))
+for i, vol_data in syn_paths.items():
+    if i in data_idxs:
+        data_path.append(vol_data['dn'])
+        gt_skel_path.append(vol_data['skn'])
+        gt_context_path.append(vol_data['ln'])
+        gt_skel_graphs_path.append(vol_data['gn'])
+
 #---------------------------------#
 
-num_cpu=10
+num_cpu=12
 args_flux.extend(['-o', output_base_path])
 args_flux.extend(['-pm', flux_model_path])
 args_flux.extend(['-en', exp_name])
@@ -99,7 +104,7 @@ else:
 initial_skeletons = []
 if args.skip_initial_skel == False:
     print('Computing skeleton from flux.')
-    for var_param in [0.60]: #np.arange(.30, .80, .05):
+    for var_param in np.arange(.05, .80, .05): #[0.60] for snemi
         print('Threshold value: ', var_param)
         for i, pred_flux_i in enumerate(tqdm(pred_flux)):
             skel_params = {}
@@ -110,7 +115,7 @@ if args.skip_initial_skel == False:
             skeleton, _ = compute_skeleton_from_gradient(pred_flux_i, skel_params)
             initial_skeletons.append(skeleton)
             save_data(skeleton, output_base_path + exp_name + '/' + str(data_idxs[i]) + '_initial_skeletons.h5')
-        # errors = calculate_errors_batch(list(zip(initial_skeletons)), gt_skel_path, gt_context_path, resolution, temp_folder, 0)
+            errors = calculate_errors_batch(list(zip(initial_skeletons)), gt_skel_path, gt_context_path, resolution, temp_folder, 0)
 else:
     for i in data_idxs:
         initial_skeletons.append(read_data(output_base_path + exp_name + '/' + str(i) + '_initial_skeletons.h5'))

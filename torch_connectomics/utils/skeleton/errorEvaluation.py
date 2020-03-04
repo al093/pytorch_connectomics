@@ -97,8 +97,9 @@ def calculate_error_metric(pred_skel, gt_skel, gt_context, gt_skel_ids, anisotro
 
     return precision, recall, f_score, mean_connectivity
 
-def calculate_error_metric_2(pred_skel, gt_skel, gt_context, resolution, temp_folder, num_cpu, debug=False):
-    matching_radius = np.float32(np.max(resolution) * 2.0)
+def calculate_error_metric_2(pred_skel, gt_skel, gt_context, resolution, temp_folder, num_cpu, debug=False, matching_radius=None):
+    if matching_radius is None:
+        matching_radius = np.float32(np.max(resolution) * 2.0)
     pred_skel_ids = np.unique(pred_skel)
     pred_skel_ids = pred_skel_ids[pred_skel_ids > 0]
 
@@ -162,21 +163,35 @@ def calculate_error_metric_2(pred_skel, gt_skel, gt_context, resolution, temp_fo
 
     for gt_id, p_nodes in p_nodes_dict.items():
         gt_nodes = all_gt_nodes[gt_id]
-        distance = np.sqrt(((resolution*(gt_nodes[:, np.newaxis, :] - p_nodes[np.newaxis, :, :]))**2).sum(2))
-        matched_points = (np.any(distance <= matching_radius, axis=0)).sum()
-        tp += matched_points
-        fp += p_nodes.shape[0] - matched_points
-        fn += np.all(distance > matching_radius, axis=1).sum()
+
+        # there may be no points because thinning really small segments results in no points
+        if p_nodes.shape[0] == 0:
+            fn += gt_nodes.shape[0]
+            continue
+
+        gt_nodes_s = resolution*gt_nodes
+        p_nodes_s = resolution*p_nodes
+        nbrs = NearestNeighbors(n_neighbors=1, algorithm='kd_tree', metric='euclidean', n_jobs=-1).fit(gt_nodes_s)
+        p_distance, p_indices = nbrs.kneighbors(p_nodes_s)
+        p_matched_mask = p_distance <= matching_radius
+        nbrs = NearestNeighbors(n_neighbors=1, algorithm='kd_tree', metric='euclidean', n_jobs=-1).fit(p_nodes_s)
+        g_distance, g_indices = nbrs.kneighbors(gt_nodes_s)
+        g_matched_mask = g_distance <= matching_radius
+
+        tp += p_matched_mask.sum()
+        fp += p_nodes.shape[0] - p_matched_mask.sum()
+        fn += gt_nodes.shape[0] - g_matched_mask.sum()
+
         if debug is True:
-            tp_i = matched_points
-            fp_i = p_nodes.shape[0] - matched_points
-            fn_i = np.all(distance > matching_radius, axis=1).sum()
+            tp_i = p_matched_mask.sum()
+            fp_i = p_nodes.shape[0] - p_matched_mask.sum()
+            fn_i = gt_nodes.shape[0] - g_matched_mask.sum()
             precision_i = tp_i / (tp_i + fp_i)
             recall_i = tp_i / (tp_i + fn_i)
             print('GT: {}, TP: {}, FP: {}, FN: {}, P: {:1.4f}, R: {:1.4f}'.format(gt_id, tp_i, fp_i, fn_i, precision_i, recall_i))
-            debug_vol_e[tuple(np.hsplit(gt_nodes[np.all(distance > matching_radius, axis=1), :], 3))] = 3 #fn
-            debug_vol_e[tuple(np.hsplit(p_nodes[np.any(distance <= matching_radius, axis=0), :], 3))] = 1 #tp
-            debug_vol_e[tuple(np.hsplit(p_nodes[np.any(distance > matching_radius, axis=0), :], 3))] = 2 #fp
+            debug_vol_e[tuple(np.hsplit(gt_nodes[~g_matched_mask, :], 3))] = 3 #fn
+            debug_vol_e[tuple(np.hsplit(p_nodes[p_matched_mask, :], 3))] = 1 #tp
+            debug_vol_e[tuple(np.hsplit(p_nodes[~p_matched_mask, :], 3))] = 2 #fp
             debug_vol[tuple(np.hsplit(gt_nodes, 3))] = np.uint16(gt_id)
             debug_vol_prediction[tuple(np.hsplit(p_nodes.astype(np.int32), 3))] = np.uint16(gt_id)
 
@@ -331,15 +346,18 @@ def calculate_binary_errors_batch(pred_skeletons, gt_skeleton_paths, resolution,
     print('F score:   ' + ' '.join([('{:3.4f}'.format(x/n_vol)) for x in f_avg]))
     return errors
 
-def calculate_errors_batch(pred_skeletons, gt_skeleton_paths, gt_skeleton_ctx_paths, resolution, temp_folder, num_cpu):
+def calculate_errors_batch(pred_skeletons, gt_skeleton_paths, gt_skeleton_ctx_paths, resolution, temp_folder, num_cpu, matching_radius=None):
     errors = [None] * len(pred_skeletons)
     for i, pred_skeleton_all_steps in enumerate(tqdm(pred_skeletons)):
         gt_skeleton = read_data(gt_skeleton_paths[i])
         gt_context = read_data(gt_skeleton_ctx_paths[i])
         errors[i] = []
         for pred_skeleton in pred_skeleton_all_steps:
-            p, r, f, c, hm = calculate_error_metric_2(pred_skeleton, gt_skeleton, gt_context,
-                                                      resolution, temp_folder, num_cpu)
+            if pred_skeleton.max() == 0:
+                p, r, f, c, hm = 0, 0, 0, 0, 0
+            else:
+                p, r, f, c, hm = calculate_error_metric_2(pred_skeleton, gt_skeleton, gt_context,
+                                                          resolution, temp_folder, num_cpu, matching_radius)
             errors[i].append({'p':p, 'r':r, 'f':f, 'c':c, 'hm':hm})
 
     p_avg, r_avg, f_avg, c_avg, hm_avg = [0.0]*len(pred_skeletons[0]), [0.0]*len(pred_skeletons[0]), [0.0]*len(pred_skeletons[0]), [0.0]*len(pred_skeletons[0]), [0.0]*len(pred_skeletons[0])

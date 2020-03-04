@@ -95,7 +95,7 @@ def test(args, test_loader, model, flux_model, device, logger, model_io_size, sa
                 edges[2:-1:2] = np.arange(1, path.shape[0] - 1)
                 output_dict[predicted_path_count] = {'vertices':path, 'states':state, 'sids':end_ids, 'edges':edges}
     if save_output:
-        with open(args.output + 'predicted_paths.h5', 'wb') as pfile:
+        with open(args.output + 'predicted_paths.pkl', 'wb') as pfile:
             pickle.dump(output_dict, pfile, protocol=pickle.HIGHEST_PROTOCOL)
     return output_dict
 

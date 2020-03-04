@@ -169,14 +169,14 @@ class SkeletonGrowingRNNSampler:
             if self.predicted_state[-1] < self.continue_growing_th:
                 state = torch.tensor(path_state['STOP'], dtype=torch.float32)
             else:
-                path_section = self.interpolate_linear(self.predicted_path[-2], self.current_pos)
-                skeletons_hit = self.skeleton[path_section]
+                path_section_f, path_section_d = self.interpolate_linear(self.predicted_path[-2], self.current_pos)
+                skeletons_hit = self.skeleton[path_section_d]
                 idx_mask = (skeletons_hit > 0) & (skeletons_hit != self.start_sid)
                 first_hit_idx = np.argmax(idx_mask)
                 if idx_mask[first_hit_idx] == True:
-                    self.stop_sid = self.skeleton[path_section[0][first_hit_idx], path_section[1][first_hit_idx], path_section[2][first_hit_idx]]
+                    self.stop_sid = self.skeleton[path_section_d[0][first_hit_idx], path_section_d[1][first_hit_idx], path_section_d[2][first_hit_idx]]
                     state = torch.tensor(path_state['STOP'], dtype=torch.float32)
-                    predicted_end = np.array([path_section[0][first_hit_idx], path_section[1][first_hit_idx], path_section[2][first_hit_idx]], dtype=np.float32)
+                    predicted_end = np.array([path_section_f[0][first_hit_idx], path_section_f[1][first_hit_idx], path_section_f[2][first_hit_idx]], dtype=np.float32)
                     self.current_pos = predicted_end
                     self.predicted_path[-1] = self.current_pos.copy()
                     # update the center and corner positions again
@@ -226,11 +226,29 @@ class SkeletonGrowingRNNSampler:
         # stop state occurs
         # 1) if any of the points between the current position and the previous position is on the correct skeleton fragment
         # 2) if the next direction gt is zero, which occurs when the current position is very near to the end of the GT path
+        if len(self.predicted_path) >= 2:
+            path_section_f, path_section_d = self.interpolate_linear(self.predicted_path[-2], self.current_pos)
+
         if (torch.abs(direction).sum() == 0):
             state = torch.tensor(path_state['STOP'], dtype=torch.float32)
             path_state_loss_weight = len(self.predicted_path)*torch.ones_like(self.path_state_loss_weight)
-        elif len(self.predicted_path) >= 2 and \
-                np.any(self.skeleton[self.interpolate_linear(self.current_pos, self.predicted_path[-2])] == self.stop_sid):
+        elif len(self.predicted_path) >= 2 and np.any(self.skeleton[path_section_d] == self.stop_sid):
+            # if correct skeleton is intersected, update the current position to the first skeleton hit position
+            skeletons_hit = self.skeleton[path_section_d]
+            idx_mask = skeletons_hit == self.stop_sid
+            first_hit_idx = np.argmax(idx_mask)
+            self.stop_sid = self.skeleton[path_section_d[0][first_hit_idx],
+                                          path_section_d[1][first_hit_idx],
+                                          path_section_d[2][first_hit_idx]]
+            predicted_end = np.array([path_section_f[0][first_hit_idx],
+                                      path_section_f[1][first_hit_idx],
+                                      path_section_f[2][first_hit_idx]], dtype=np.float32)
+            self.current_pos = predicted_end
+            self.predicted_path[-1] = self.current_pos.copy()
+
+            # update the center and corner positions again
+            center_pos = self.current_pos.astype(np.int32)
+            corner_pos = center_pos - self.half_input_sz
             state = torch.tensor(path_state['STOP'], dtype=torch.float32)
             path_state_loss_weight = len(self.predicted_path)*torch.ones_like(self.path_state_loss_weight)
         else:
@@ -312,7 +330,7 @@ class SkeletonGrowingRNNSampler:
 
         #calculate lateral adjustment direction
         if (self.first_split_node > 0 and nearest_skel_node_idx >= self.first_split_node)\
-                or closest_distance > (1.5*self.anisotropy[0]): # if they are not close force the points to be closer to the skeleton path
+                or closest_distance > (2*self.anisotropy[0]): # if they are not close force the points to be closer to the skeleton path
             lateral_dir = self.path[nearest_skel_node_idx] - self.current_pos
             lateral_dir = self.normalize(lateral_dir)
         else:
@@ -332,10 +350,9 @@ class SkeletonGrowingRNNSampler:
             directions = directions[~zero_mask]/norms[~zero_mask, np.newaxis]
             direction = directions.sum(axis=0)
             direction = self.normalize(direction)
-
         if self.first_split_node > 0 and nearest_skel_node_idx >= self.first_split_node:
             # calculate directions which forces predicted path to converge with the skeleton
-            direction = 0.25*direction + 0.75*lateral_dir
+            direction = 0.65*direction + 0.35*lateral_dir
         else:
             direction = 0.75*direction + 0.25*lateral_dir
 
@@ -414,5 +431,7 @@ class SkeletonGrowingRNNSampler:
 
     def interpolate_linear(self, start_pos, stop_pos):
         sampled_points = start_pos + self._sampling_idxs[:, np.newaxis] * (stop_pos - start_pos)
-        sampled_points = sampled_points.astype(np.int32)
-        return (tuple(sampled_points[:, 0]), tuple(sampled_points[:, 1]), tuple(sampled_points[:, 2]))
+        sampled_points_discrete = sampled_points.astype(np.int32)
+        d = (tuple(sampled_points_discrete[:, 0]), tuple(sampled_points_discrete[:, 1]), tuple(sampled_points_discrete[:, 2]))
+        f = (tuple(sampled_points[:, 0]), tuple(sampled_points[:, 1]), tuple(sampled_points[:, 2]))
+        return f, d
