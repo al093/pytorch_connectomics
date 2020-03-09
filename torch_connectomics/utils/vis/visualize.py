@@ -155,8 +155,11 @@ def vec_to_RGB(grad_field):
     return n_grad_field
 
 def save_data(data, fileName):
-    with h5py.File(fileName, 'w') as hfile:
-        hfile.create_dataset('main', data=data, compression='gzip')
+    if data is None:
+        print('Data not saved because it was none')
+    else:
+        with h5py.File(fileName, 'w') as hfile:
+            hfile.create_dataset('main', data=data, compression='gzip')
 
 def save_all(input, gt_label, gt_flux, gt_skeleton, out_flux, out_mask, data_name_prefix, path):
     save_data((input.cpu().detach().numpy()*255).astype(np.uint8),  path + '/input_' + data_name_prefix + '.h5')

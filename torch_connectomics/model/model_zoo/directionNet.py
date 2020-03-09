@@ -55,7 +55,9 @@ class DirectionNet(nn.Module):
         self.down = nn.MaxPool3d(kernel_size=(1, 2, 2), stride=(1, 2, 2))
         self.down_z = nn.MaxPool3d(kernel_size=(2, 2, 2), stride=(2, 2, 2))
 
-        self.dropout = nn.Dropout3d(p=0.10)
+        self.dropout = nn.Dropout3d(p=0.15)
+        # self.dropoutfc = nn.Dropout(p=0.10)
+
         self.act_1 = nn.LeakyReLU()
         self.act_2 = nn.Tanh()
         self.act_3 = nn.Sigmoid()
@@ -64,8 +66,6 @@ class DirectionNet(nn.Module):
         ortho_init(self)
 
     def forward(self, x, lstm_hidden_state=None, lstm_cell_state=None):
-
-        # encoding path
         x = self.layer1_E(x)
         x = self.down(x)
         x = self.dropout(x)
@@ -82,12 +82,15 @@ class DirectionNet(nn.Module):
 
         x = self.layer4_E(x)
         x = self.down_z(x)
+        # x = self.dropout(x)
 
         x = self.layer5_E(x)
+        # x = self.dropout(x)
 
         x = x.view(-1, self.linear_layer_in_sz)
         x = self.fc_1(x)
         x = self.act_1(x)
+        # x = self.dropoutfc(x)
 
         x = self.fc_2(x)
         x = self.act_1(x)

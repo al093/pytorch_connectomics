@@ -3,9 +3,11 @@ import h5py
 import edt
 from tqdm import tqdm
 from sklearn.neighbors import NearestNeighbors
-
+from scipy import ndimage
 from torch_connectomics.utils.vis import save_data, read_data
+from skimage.morphology import skeletonize_3d
 from .computeParallel import *
+from .gradientProcessing import remove_small_skeletons
 
 def write_hf(data, name):
     with h5py.File(name, 'w') as hf:
@@ -97,7 +99,7 @@ def calculate_error_metric(pred_skel, gt_skel, gt_context, gt_skel_ids, anisotro
 
     return precision, recall, f_score, mean_connectivity
 
-def calculate_error_metric_2(pred_skel, gt_skel, gt_context, resolution, temp_folder, num_cpu, debug=False, matching_radius=None):
+def calculate_error_metric_2(pred_skel, gt_skel, gt_context, resolution, temp_folder, num_cpu, matching_radius=None, evaluate_thinned=False, debug=False):
     if matching_radius is None:
         matching_radius = np.float32(np.max(resolution) * 2.0)
     pred_skel_ids = np.unique(pred_skel)
@@ -141,12 +143,15 @@ def calculate_error_metric_2(pred_skel, gt_skel, gt_context, resolution, temp_fo
 
     if p_sids.size == 0:
         if debug is True:
-            return -1, -1, -1, -1, (None, None, None)
+            return -1, -1, -1, -1, -1, (None, None, None)
         else:
-            return -1, -1, -1, -1
+            return -1, -1, -1, -1, -1
 
-    p_nodes_dict = get_thin_skeletons_nodes(relabelled_p_skel, p_sids, resolution, np.array([1, 1, 1]), temp_folder,
-                                            num_cpu, method='skimage_skeletonize')
+    if evaluate_thinned is True:
+        p_nodes_dict = get_thin_skeletons_nodes(relabelled_p_skel, p_sids, resolution, np.array([1, 1, 1]), temp_folder,
+                                                num_cpu, method='skimage_skeletonize')
+    else:
+        p_nodes_dict = get_skeletons_nodes(relabelled_p_skel)
 
     tp, fp, fn = 0.0, 0.0, 0.0
     if debug is True:
@@ -173,10 +178,10 @@ def calculate_error_metric_2(pred_skel, gt_skel, gt_context, resolution, temp_fo
         p_nodes_s = resolution*p_nodes
         nbrs = NearestNeighbors(n_neighbors=1, algorithm='kd_tree', metric='euclidean', n_jobs=-1).fit(gt_nodes_s)
         p_distance, p_indices = nbrs.kneighbors(p_nodes_s)
-        p_matched_mask = p_distance <= matching_radius
+        p_matched_mask = (p_distance <= matching_radius)[:,0]
         nbrs = NearestNeighbors(n_neighbors=1, algorithm='kd_tree', metric='euclidean', n_jobs=-1).fit(p_nodes_s)
         g_distance, g_indices = nbrs.kneighbors(gt_nodes_s)
-        g_matched_mask = g_distance <= matching_radius
+        g_matched_mask = (g_distance <= matching_radius)[:,0]
 
         tp += p_matched_mask.sum()
         fp += p_nodes.shape[0] - p_matched_mask.sum()
@@ -198,7 +203,6 @@ def calculate_error_metric_2(pred_skel, gt_skel, gt_context, resolution, temp_fo
     precision = tp / (tp + fp)
     recall = tp / (tp + fn)
     f_score = 2 * precision * recall / (precision + recall)
-
     connectivity = {}
     mean_connectivity = 0.0
     count = 0
@@ -263,13 +267,15 @@ def calculate_error_metric_binary_overlap(pred_skel, gt_skel, resolution, temp_f
 
     return precision, recall, f_score
 
-def calculate_error_metric_binary_overlap_like_l3dfrom2d(pred_skel, gt_skel, dilated_gt_skel):
-    pred_skel_ids = pred_skel_ids[pred_skel_ids > 0]
-    if pred_skel_ids.size == 0:
-        return -1, -1, -1
+def calculate_error_metric_binary_overlap_like_l3dfrom2d(pred_skel, gt_skel, maxpooled_gt_skel, debug=False):
+    if pred_skel is None or (pred_skel > 0).sum() == 0:
+        if debug is True:
+            return -1, -1, -1, None
+        else:
+            return -1, -1, -1
 
-    # ignore all voxels in the dilated region
-    valid_mask = (~dilated_gt_skel | gt_skel)
+    # ignore all voxels in the maxpooled region
+    valid_mask = (~maxpooled_gt_skel) | gt_skel
     pred = pred_skel[valid_mask]
     gt = gt_skel[valid_mask]
 
@@ -281,6 +287,18 @@ def calculate_error_metric_binary_overlap_like_l3dfrom2d(pred_skel, gt_skel, dil
     precision = tp / (tp + fp)
     recall = tp / (tp + fn)
     f_score = 2 * precision * recall / (precision + recall)
+
+    if debug is True:
+        error_volume = np.zeros_like(pred_skel, dtype=np.uint16)
+        error_volume[((pred_skel == True) & (gt_skel == True) & valid_mask)] = 1  # TRUE POSITIVE
+        error_volume[((pred_skel == True) & (gt_skel == False) & valid_mask)] = 2 # False Positive
+        error_volume[((pred_skel == False) & (gt_skel == True) & valid_mask)] = 3 # False Negative
+
+        # save_data(error_volume.astype(np.uint16), '/n/home11/averma/temp/error_volume.h5')
+        # save_data(pred_skel.astype(np.uint16), '/n/home11/averma/temp/prediction.h5')
+        # save_data(gt_skel.astype(np.uint16), '/n/home11/averma/temp/gt.h5')
+        # save_data(maxpooled_gt_skel.astype(np.uint16), '/n/home11/averma/temp/gt_mp.h5')
+        return precision, recall, f_score, error_volume
 
     return precision, recall, f_score
 
@@ -314,22 +332,39 @@ def get_thin_skeletons_nodes(skeleton, sids, input_resolution, downsample_factor
                     nodes[int(key[8:])] = np.asarray(hfile[key])
     return nodes
 
-def calculate_binary_errors_batch(pred_skeletons, gt_skeleton_paths, resolution, temp_folder, num_cpu, like_l3dfrom2d=False, dilation_kernel_sz=5):
+def get_skeletons_nodes(skeleton):
+    idx_sorted = np.argsort(skeleton.ravel())
+    skel_ids, idx_start, count = np.unique(skeleton.ravel()[idx_sorted], return_counts=True, return_index=True)
+    nodes = {}
+    for i, id in enumerate(skel_ids):
+        if id > 0:
+            nodes[id] = np.transpose(
+                np.unravel_index(idx_sorted[idx_start[i]:idx_start[i] + count[i]], skeleton.shape)).astype(np.uint16)
+    return nodes
+
+def calculate_binary_errors_batch(pred_skeletons, gt_skeleton_paths, resolution, temp_folder, num_cpu, like_l3dfrom2d=True, maxpool_kernel_sz=5):
     errors = [None] * len(pred_skeletons)
-    for i, pred_skeleton_all_steps in enumerate(tqdm(pred_skeletons)):
+    for i, pred_skeleton_all_steps in enumerate(pred_skeletons):
         gt_skeleton = read_data(gt_skeleton_paths[i])
         if like_l3dfrom2d is True:
             gt_skeleton = gt_skeleton > 0
-            sel = np.ones([dilation_kernel_sz, dilation_kernel_sz, dilation_kernel_sz])
-            gt_skeleton_dilated = ndimage.morphology.binary_dilation(gt_skeleton, sel)
+            gt_skeleton_maxpooled = ndimage.filters.maximum_filter(gt_skeleton, size=maxpool_kernel_sz, mode='constant', cval=0)
         errors[i] = []
         for pred_skeleton in pred_skeleton_all_steps:
-            if like_l3dfrom2d is True:
-                p, r, f = calculate_error_metric_binary_overlap_like_l3dfrom2d(pred_skeleton > 0, gt_skeleton, gt_skeleton_dilated)
+            if pred_skeleton is None or pred_skeleton.max() == 0:
+                p, r, f = -1, -1, -1
+                print('Predicion was empty/None')
             else:
-                p, r, f = calculate_error_metric_binary_overlap(pred_skeleton, gt_skeleton, resolution, temp_folder, num_cpu)
+                if like_l3dfrom2d is True:
+                    # pred_skeleton = remove_small_skeletons(pred_skeleton, 200)
+                    # binary_pred = skeletonize_3d(pred_skeleton > 0)
+                    # dilation_kernel = np.ones([4, 4, 4], dtype=np.bool)
+                    # binary_pred = ndimage.morphology.binary_dilation(binary_pred, structure=dilation_kernel)
+                    p, r, f, _ = calculate_error_metric_binary_overlap_like_l3dfrom2d(pred_skeleton > 0, gt_skeleton, gt_skeleton_maxpooled, debug=True)
+                else:
+                    p, r, f = calculate_error_metric_binary_overlap(pred_skeleton, gt_skeleton, resolution, temp_folder, num_cpu)
 
-            errors[i].append({'p':p, 'r':r, 'f':f})
+            errors[i].append({'p':p, 'r':r, 'pr':f})
 
     p_avg, r_avg, f_avg = [0.0]*len(pred_skeletons[0]), [0.0]*len(pred_skeletons[0]), [0.0]*len(pred_skeletons[0])
     # calculate avg error
@@ -337,30 +372,42 @@ def calculate_binary_errors_batch(pred_skeletons, gt_skeleton_paths, resolution,
         for i in range(len(errors)):
             p_avg[j] += errors[i][j]['p']
             r_avg[j] += errors[i][j]['r']
-            f_avg[j] += errors[i][j]['f']
+            f_avg[j] += errors[i][j]['pr']
 
     # print results
     n_vol = len(pred_skeletons)
-    print('Precision: ' + ' '.join([('{:3.4f}'.format(x/n_vol)) for x in p_avg]))
-    print('Recall:    ' + ' '.join([('{:3.4f}'.format(x/n_vol)) for x in p_avg]))
-    print('F score:   ' + ' '.join([('{:3.4f}'.format(x/n_vol)) for x in f_avg]))
-    return errors
+    for i in range(len(p_avg)):
+        p_avg[i] = p_avg[i] / n_vol
+        r_avg[i] = r_avg[i] / n_vol
+        f_avg[i] = f_avg[i] / n_vol
 
-def calculate_errors_batch(pred_skeletons, gt_skeleton_paths, gt_skeleton_ctx_paths, resolution, temp_folder, num_cpu, matching_radius=None):
+    print('Precision: ' + ' '.join([('{:3.4f}'.format(x)) for x in p_avg]))
+    print('Recall:    ' + ' '.join([('{:3.4f}'.format(x)) for x in r_avg]))
+    print('F score:   ' + ' '.join([('{:3.4f}'.format(x)) for x in f_avg]))
+
+    avg_errors = []
+    for i, _ in enumerate(p_avg):
+        avg_errors.append({'p':p_avg[i], 'r':r_avg[i], 'pr':f_avg[i]})
+
+    return avg_errors
+
+def calculate_errors_batch(pred_skeletons, gt_skeleton_paths, gt_skeleton_ctx_paths, resolution, temp_folder, num_cpu, matching_radius):
     errors = [None] * len(pred_skeletons)
-    for i, pred_skeleton_all_steps in enumerate(tqdm(pred_skeletons)):
+    for i, pred_skeleton_all_steps in enumerate(pred_skeletons):
         gt_skeleton = read_data(gt_skeleton_paths[i])
         gt_context = read_data(gt_skeleton_ctx_paths[i])
         errors[i] = []
         for pred_skeleton in pred_skeleton_all_steps:
-            if pred_skeleton.max() == 0:
-                p, r, f, c, hm = 0, 0, 0, 0, 0
+            if pred_skeleton is None or pred_skeleton.max() == 0:
+                p, r, f, c, hm = -1, -1, -1, -1, -1
+                print('Predicion was empty/None')
             else:
                 p, r, f, c, hm = calculate_error_metric_2(pred_skeleton, gt_skeleton, gt_context,
                                                           resolution, temp_folder, num_cpu, matching_radius)
             errors[i].append({'p':p, 'r':r, 'f':f, 'c':c, 'hm':hm})
 
-    p_avg, r_avg, f_avg, c_avg, hm_avg = [0.0]*len(pred_skeletons[0]), [0.0]*len(pred_skeletons[0]), [0.0]*len(pred_skeletons[0]), [0.0]*len(pred_skeletons[0]), [0.0]*len(pred_skeletons[0])
+    steps = len(pred_skeletons[0])
+    p_avg, r_avg, f_avg, c_avg, hm_avg = [0.0]*steps, [0.0]*steps, [0.0]*steps, [0.0]*steps, [0.0]*steps
     # calculate avg error
     for j in range(len(errors[0])):
         for i in range(len(errors)):
@@ -370,12 +417,22 @@ def calculate_errors_batch(pred_skeletons, gt_skeleton_paths, gt_skeleton_ctx_pa
             c_avg[j] += errors[i][j]['c']
             hm_avg[j] += errors[i][j]['hm']
 
-    # print results
     n_vol = len(pred_skeletons)
-    print('P:    ' + ' '.join([('{:3.4f}'.format(x/n_vol)) for x in p_avg]))
-    print('R:    ' + ' '.join([('{:3.4f}'.format(x/n_vol)) for x in r_avg]))
-    print('PR:   ' + ' '.join([('{:3.4f}'.format(x/n_vol)) for x in f_avg]))
-    print('C:    ' + ' '.join([('{:3.4f}'.format(x / n_vol)) for x in c_avg]))
-    print('PRC:  ' + ' '.join([('{:3.4f}'.format(x / n_vol)) for x in hm_avg]))
+    for i in range(len(p_avg)):
+        p_avg[i] = p_avg[i] / n_vol
+        r_avg[i] = r_avg[i] / n_vol
+        f_avg[i] = f_avg[i] / n_vol
+        c_avg[i] = c_avg[i] / n_vol
+        hm_avg[i] = hm_avg[i] / n_vol
 
-    return errors
+    # print results
+    print('P:    ' + ' '.join(['{:3.4f}'.format(x) for x in p_avg]))
+    print('R:    ' + ' '.join(['{:3.4f}'.format(x) for x in r_avg]))
+    print('PR:   ' + ' '.join(['{:3.4f}'.format(x) for x in f_avg]))
+    print('C:    ' + ' '.join(['{:3.4f}'.format(x) for x in c_avg]))
+    print('PRC:  ' + ' '.join(['{:3.4f}'.format(x) for x in hm_avg]))
+
+    avg_errors = []
+    for i, _ in enumerate(p_avg):
+        avg_errors.append({'p':p_avg[i], 'r':r_avg[i], 'pr':f_avg[i], 'c':c_avg[i], 'hm':hm_avg[i]})
+    return avg_errors

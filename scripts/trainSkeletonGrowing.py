@@ -45,7 +45,7 @@ def train(args, train_loader, model, flux_model, device, criterion, criterion_bc
             continue_samplers = list(range(batch_size))
             no_data_for_forward = False
             do_not_log = False
-            for t in range(32):
+            for t in range(16):
                 if no_data_for_forward:
                     # if no forward pass could be made in last iteration then break
                     break
@@ -115,11 +115,10 @@ def train(args, train_loader, model, flux_model, device, criterion, criterion_bc
                     flux_loss, angular_l, scale_l = criterion(output_direction, gt_direction)  # direction loss
                     state_loss = criterion_bce(output_path_state, gt_path_state, path_state_loss_weight)  # state loss
 
-                    state_loss_alpha = 0.90
+                    state_loss_alpha = 0.70
                     loss = loss + (1-state_loss_alpha)*flux_loss + state_loss_alpha*state_loss
 
                     partwise_iteraton_loss['angle'] += (1-state_loss_alpha)*angular_l.detach().item()
-                    partwise_iteraton_loss['magnitude'] += (1-state_loss_alpha)*scale_l.detach().item()
                     partwise_iteraton_loss['state'] += state_loss_alpha*state_loss.detach().item()
 
                     do_backpropagate = True
@@ -130,8 +129,8 @@ def train(args, train_loader, model, flux_model, device, criterion, criterion_bc
                         # do not log this if in the first iteration no data could be collected for forward pass
                         do_not_log = True
 
-                #after every 10 steps backpropagate or do it before exiting the for loop because no forward passes could be made
-                if (t + 1) % 16 == 0 or (do_backpropagate and no_data_for_forward):
+                #after every n steps backpropagate or do it before exiting the for loop because no forward passes could be made
+                if (t + 1) % 8 == 0 or (do_backpropagate and no_data_for_forward):
                     optimizer.zero_grad()
                     loss.backward(retain_graph=train_end_to_end)
                     optimizer.step()

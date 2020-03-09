@@ -119,7 +119,7 @@ def compute_skeleton_like_deepflux(direction, lmd, k1, k2, binned_directions=Non
             for px in [-1, 0, 1]:
                 if px == 0 and py == 0 and pz == 0:
                     continue
-                mask_val_neighbor = ndimage.affine_transform(mask_inv, matrix=(1, 1, 1), offset=(pz, py, px), order=0)
+                mask_val_neighbor = ndimage.affine_transform(mask_inv, matrix=np.diag([1, 1, 1]), offset=(pz, py, px), order=0)
                 direction_mask = (binned_directions == count)
                 binary_skel |= (mask_val_neighbor * mask * direction_mask)
                 count += 1

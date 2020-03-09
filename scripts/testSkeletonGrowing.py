@@ -26,7 +26,7 @@ def test(args, test_loader, model, flux_model, device, logger, model_io_size, sa
             samplers = []
             for i in range(batch_size):
                 samplers.append(SkeletonGrowingRNNSampler(image=image[i], skeleton=skeleton[i], flux=flux[i],
-                                          start_pos=start_pos[i], start_sid=start_sid[i], continue_growing_th=0.80,
+                                          start_pos=start_pos[i], start_sid=start_sid[i], continue_growing_th=0.95,
                                           sample_input_size=model_io_size, stride=2.0, anisotropy=[30.0, 6.0, 6.0], mode='test', features_repo=features_repo))
                 samplers[-1].init_global_feature_models(flux_model, None, np.array([64, 192, 192], dtype=np.int32), device)
 
