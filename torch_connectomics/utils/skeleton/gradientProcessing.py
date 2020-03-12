@@ -142,6 +142,8 @@ def compute_skeleton_like_deepflux(direction, lmd, k1, k2, binned_directions=Non
     return label_cc, binned_directions
 
 def remove_small_skeletons(label_cc, min_skel_th):
+    if label_cc is None:
+        return None
     ids, counts = np.unique(label_cc, return_counts=True)
     m = ((ids > 0) & (counts >= min_skel_th))
     skel_large = remove_ids(label_cc, ids[~m], np.max(ids))

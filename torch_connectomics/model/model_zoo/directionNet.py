@@ -55,7 +55,7 @@ class DirectionNet(nn.Module):
         self.down = nn.MaxPool3d(kernel_size=(1, 2, 2), stride=(1, 2, 2))
         self.down_z = nn.MaxPool3d(kernel_size=(2, 2, 2), stride=(2, 2, 2))
 
-        self.dropout = nn.Dropout3d(p=0.15)
+        # self.dropout = nn.Dropout3d(p=0.5)
         # self.dropoutfc = nn.Dropout(p=0.10)
 
         self.act_1 = nn.LeakyReLU()
@@ -68,15 +68,15 @@ class DirectionNet(nn.Module):
     def forward(self, x, lstm_hidden_state=None, lstm_cell_state=None):
         x = self.layer1_E(x)
         x = self.down(x)
-        x = self.dropout(x)
+        # x = self.dropout(x)
 
         x = self.layer2_E(x)
         x = self.down_z(x)
-        x = self.dropout(x)
+        # x = self.dropout(x)
 
         x = self.layer3_E(x)
         x = self.down_z(x)
-        x = self.dropout(x)
+        # x = self.dropout(x)
 
         lstm_hidden_state_next, lstm_cell_state_next = self.convLSTMCell3D(x, lstm_hidden_state, lstm_cell_state)
 

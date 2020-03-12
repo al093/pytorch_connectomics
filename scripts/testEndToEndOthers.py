@@ -70,7 +70,7 @@ if args.dataset == 'snemi':
         raise Exception('Method {:%s} is not defined'.format(args.method))
 
 elif args.dataset == 'syntheticVessel':
-    matching_radius = 2.0
+    matching_radius = 1.0
     resolution = (1.0, 1.0, 1.0)
     with open('/n/home11/averma/pytorch_connectomics/cmdArgs/synVesselPaths.pkl', 'rb') as phandle:
         syn_paths = pickle.load(phandle)
@@ -122,6 +122,8 @@ if args.method == 'dvn':
             pred = np.array(nibabel.load(dvn_files[i]).dataobj)
             pred = (pred > lmd)
             skeleton = skimage.measure.label(pred, return_num=False).astype(np.uint16)
+            min_skel_threshold = 400
+            skeleton = remove_small_skeletons(skeleton, min_skel_threshold)
             skeletons.append(skeleton)
             save_data(skeleton, output_base_path + exp_name + '/' + str(data_idx) + '_skeletons_' +
                       '{:.2f}'.format(lmd) + '.h5')
@@ -159,8 +161,8 @@ if args.method == 'deepflux':
         dilation_filter_sz = 3
         erosion_filter_sz = 4
     elif args.dataset == 'syntheticVessel':
-        dilation_filter_sz = 4
-        erosion_filter_sz = 3
+        dilation_filter_sz = 3
+        erosion_filter_sz = 4
     else:
         raise Exception('Not defined')
     all_errors = {}
@@ -174,8 +176,10 @@ if args.method == 'deepflux':
                                                                          k2=erosion_filter_sz,
                                                                          binned_directions=binned_directions[i])
             binned_directions[i] = bd
+            min_skel_threshold = 400
+            skeleton = remove_small_skeletons(skeleton, min_skel_threshold)
             skeletons.append(skeleton)
-            save_data(skeleton, output_base_path + exp_name + '/' + str(data_idxs[i]) + '_skeletons_' +  '{:.2f}'.format(lmd) + '.h5')
+            # save_data(skeleton, output_base_path + exp_name + '/' + str(data_idxs[i]) + '_skeletons_' +  '{:.2f}'.format(lmd) + '.h5')
         if args.tune is True:
             print('Computing Errors.')
             errors = calculate_errors_batch(list(zip(skeletons)), gt_skel_path, gt_context_path,resolution,
@@ -192,8 +196,10 @@ elif args.method == 'distanceTx' or args.method == 'dilated':
         for i, pred_i in enumerate(prediction):
             skeleton = compute_skeleton_from_scalar_field(pred_i, method=args.method, threshold=lmd,
                                                           k1=dilation_filter_sz, k2=erosion_filter_sz)
+            min_skel_threshold = 400
+            skeleton = remove_small_skeletons(skeleton, min_skel_threshold)
             skeletons.append(skeleton)
-            save_data(skeleton, output_base_path + exp_name + '/' + str(data_idxs[i]) + '_skeletons_' + '{:.2f}'.format(lmd) + '.h5')
+            # save_data(skeleton, output_base_path + exp_name + '/' + str(data_idxs[i]) + '_skeletons_' + '{:.2f}'.format(lmd) + '.h5')
         if args.tune is True:
             print('Computing Errors.')
             errors = calculate_errors_batch(list(zip(skeletons)), gt_skel_path, gt_context_path, resolution,

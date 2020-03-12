@@ -35,9 +35,10 @@ def get_input(args, model_io_size, mode='train', model=None):
         s_points = [None] * len(img_name)
         skeleton = [None] * len(img_name)
         flux = [None] * len(img_name)
+        flux_2 = [None] * len(img_name)
         weight = [None] * len(img_name)
 
-    if args.task != 5 and args.task != 6 :
+    if args.task != 5 and args.task != 6:
         if mode=='validation':
             seg_name = args.val_seg_name.split('@')
         elif mode=='train':
@@ -59,6 +60,10 @@ def get_input(args, model_io_size, mode='train', model=None):
         weight_files = None
         if args.weight_name is not None:
             weight_files = args.weight_name.split('@')
+
+        flux_files_2 = None
+        if args.flux_name_gt is not None:
+            flux_files_2 = args.flux_name_gt.split('@')
 
     # 1. load data
     model_input = [None]*len(img_name)
@@ -91,11 +96,15 @@ def get_input(args, model_io_size, mode='train', model=None):
     SHUFFLE = (mode=='train' or mode=='validation')
     print('Batch size: ', args.batch_size)
 
-    if mode == 'test' and (args.task != 5 and args.task != 6):
+
+    if mode == 'test' and args.task not in [5]:
+        pad_size = np.array(model_io_size//2, dtype=np.int64)
+    elif args.task == 6:
         pad_size = np.array(model_io_size//2, dtype=np.int64)
     else:
         pad_size = np.array((0, 0, 0), dtype=np.int64)
         # pad_size = augmentor.sample_size//2
+    pad_size_tuple = ((pad_size[0], pad_size[0]), (pad_size[1], pad_size[1]), (pad_size[2], pad_size[2]))
 
     for i in range(len(img_name)):
         image = np.array((h5py.File(img_name[i], 'r')['main']))
@@ -125,7 +134,7 @@ def get_input(args, model_io_size, mode='train', model=None):
                 with h5py.File(seed_points_files[i], 'r') as hf:
                     for g in hf.keys():
                         d = {}
-                        d['path'] = np.asarray(hf.get(g)['vertices'])
+                        d['path'] = np.asarray(hf.get(g)['vertices']) + pad_size.astype(np.float32)
                         d['sids'] = np.asarray(hf.get(g)['sids'])
                         data[int(g)] = d
                 s_points[i] = data
@@ -133,11 +142,13 @@ def get_input(args, model_io_size, mode='train', model=None):
                 # load skeletons
                 if skeleton_files is not None:
                     skeleton[i] = np.array((h5py.File(skeleton_files[i], 'r')['main']))
+                    skeleton[i] = np.pad(skeleton[i], pad_size_tuple)
 
                 if flux_files is not None:
                     flux[i] = np.array((h5py.File(flux_files[i], 'r')['main']))
+                    flux[i] = np.pad(flux[i], ((0, 0),) + pad_size_tuple)
 
-        if mode == 'train' or mode == 'validation':
+        elif mode == 'train' or mode == 'validation':
             if args.task != 5 and args.task != 6:
                 model_label[i] = np.array((h5py.File(seg_name[i], 'r')['main']))
 
@@ -154,7 +165,7 @@ def get_input(args, model_io_size, mode='train', model=None):
                         new_list.append(b)
                 s_points[i] = new_list
             elif args.task == 5:
-                # TODO it must be ensured externally that all centroid points have enough crop area around them,
+                #  it must be ensured externally that all centroid points have enough crop area around them,
                 #  no check is done here. Rotation Augmentation is not supported yet
                 #  These Points are the origin.
                 npf = np.load(seed_points_files[i], allow_pickle=True)
@@ -166,42 +177,56 @@ def get_input(args, model_io_size, mode='train', model=None):
                 with h5py.File(seed_points_files[i], 'r') as hf:
                     for g in hf.keys():
                         d = {}
-                        d['path'] = np.asarray(hf.get(g)['vertices'])
+                        d['path'] = np.asarray(hf.get(g)['vertices']) + pad_size.astype(np.float32)
                         if d['path'].shape[0] <= 2:
                             continue
+                        # TODO remove this.
+                        # if d['path'].shape[0] <= 50:
+                        #     continue
                         d['sids'] = np.asarray(hf.get(g)['sids'])
                         if 'first_split_node' in hf.get(g).keys():
                             d['first_split_node'] = np.asarray(hf.get(g)['first_split_node'])[0]
+                            # TODO remove this.
+                            # if d['first_split_node'] <= 50:
+                            #     continue
                         data[int(g)] = d
                 s_points[i] = data
 
             # load skeletons
             if skeleton_files is not None:
                 skeleton[i] = np.array((h5py.File(skeleton_files[i], 'r')['main']))
+                skeleton[i] = np.pad(skeleton[i], pad_size_tuple)
 
             if flux_files is not None:
                 flux[i] = np.array((h5py.File(flux_files[i], 'r')['main']))
+                flux[i] = np.pad(flux[i], ((0,0),) + pad_size_tuple)
+
+            if args.train_end_to_end is True:
+                assert (flux_files_2 is not None)
+                flux_2[i] = np.array((h5py.File(flux_files_2[i], 'r')['main']))
+                flux_2[i] = np.pad(flux_2[i], ((0,0),) + pad_size_tuple)
+            else:
+                flux_2 = None
 
             #load weight files:
             if weight_files is not None:
                 weight[i] = np.array((h5py.File(weight_files[i], 'r')['main']))
+                weight[i] = np.pad(weight[i], pad_size_tuple)
 
             print(img_name[i])
 
-        model_input[i] = np.pad(model_input[i], ((pad_size[0], pad_size[0]),
-                                                 (pad_size[1], pad_size[1]),
-                                                 (pad_size[2], pad_size[2])), 'reflect')
+        if args.task != 6:
+            model_input[i] = np.pad(model_input[i], pad_size_tuple, 'reflect')
+        else:
+            model_input[i] = np.pad(model_input[i], pad_size_tuple)
+
         print("Volume shape: ", model_input[i].shape)
         volume_shape.append(model_input[i].shape)
         model_input[i] = model_input[i].astype(np.float32)
 
-        if args.task != 5 and args.task != 6:
+        if args.task not in [5, 6]:
             if mode=='train' or mode=='validation':
-                model_label[i] = np.pad(model_label[i], ((pad_size[0], pad_size[0]),
-                                                               (pad_size[1], pad_size[1]),
-                                                               (pad_size[2], pad_size[2])), 'reflect')
-                model_label[i] = model_label[i]
-
+                model_label[i] = np.pad(model_label[i], pad_size_tuple, 'reflect')
                 print("label shape: ", model_label[i].shape)
                 assert model_input[i].shape == model_label[i].shape
 
@@ -218,9 +243,7 @@ def get_input(args, model_io_size, mode='train', model=None):
             initial_seg = np.array((h5py.File(args.initial_seg, 'r')['main']))
             # initial_seg = np.array((h5py.File(args.initial_seg, 'r')['main'])[bs[0]:be[0], bs[1]:be[1], bs[2]:be[2]])
             initial_seg = (initial_seg == args.segment_id)
-            initial_seg = np.pad(initial_seg, ((pad_size[0], pad_size[0]),
-                                               (pad_size[1], pad_size[1]),
-                                               (pad_size[2], pad_size[2])), 'reflect')
+            initial_seg = np.pad(initial_seg, pad_size_tuple, 'reflect')
 
     if mode=='train' or mode=='validation':
         if augmentor is None:
@@ -259,7 +282,7 @@ def get_input(args, model_io_size, mode='train', model=None):
 
         elif args.task == 6:  # skeleton match prediction
             dataset = SkeletonGrowingDataset(image=model_input, skeleton=skeleton, flux=flux,
-                                             growing_data=s_points, augmentor=None, mode='train')
+                                             growing_data=s_points, flux_gt=flux_2, mode='train')
 
         if args.task == 6:
             c_fn = collate_fn_growing
@@ -298,7 +321,7 @@ def get_input(args, model_io_size, mode='train', model=None):
                                            pad_size=pad_size.astype(np.uint32))
         elif args.task == 6:
             dataset = SkeletonGrowingDataset(image=model_input, skeleton=skeleton, flux=flux,
-                                             growing_data=s_points, augmentor=None, mode='test')
+                                             growing_data=s_points, mode='test')
 
         if args.task == 6:
             c_fn = collate_fn_growing

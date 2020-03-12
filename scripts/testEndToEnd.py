@@ -25,7 +25,7 @@ def get_cmdline_args():
 origin_time = time.time()
 args = get_cmdline_args()
 
-args_flux = ['-mi', '64,192,192', '-g', '1', '-c', '12', '-b', '12',
+args_flux = ['-mi', '64,192,192', '-g', '1', '-c', '12', '-b', '32',
              '-ac', 'fluxNet', '-lm', 'True', '--task', '4', '--in-channel', '1', '--out-channel', '3']
 
 if args.dataset == 'snemi':
@@ -49,43 +49,48 @@ if args.dataset == 'snemi':
     resolution = (30.0, 6.0, 6.0)
     matching_radius = 60.0
     flux_model_path =          '/n/home11/averma/pytorch_connectomics/outputs/snemi/snemi_abStudy_interpolated+gradient/snemi_abStudy_interpolated+gradient_120000.pth'
-    flux_model_path_tracking = '/n/home11/averma/pytorch_connectomics/outputs/snemi/snemi_abStudy_interpolated+gradient/snemi_abStudy_interpolated+gradient_120000.pth'
-    # L2 Ablation model
-    # flux_model_path = '/n/home11/averma/pytorch_connectomics/outputs/snemi/snemi_abStudy_ours_onlyL2/snemi_abStudy_ours_onlyL2_120000.pth'
 
-    tracking_model_path = '/n/home11/averma/pytorch_connectomics/outputs/snemi/snemiGrowing_32_steps_6/snemiGrowing_32_steps_6_20000.pth'
+    # tracking_model_path = '/n/home11/averma/pytorch_connectomics/outputs/snemi/snemiGrowing_32_steps_6/snemiGrowing_32_steps_6_20000.pth'
+    flux_model_path_tracking = '/n/home11/averma/pytorch_connectomics/outputs/snemi/snemiGrowing_32_steps_dropout_e2e_3/snemiGrowing_32_steps_dropout_e2e_3_fluxNet_30000.pth'
+    tracking_model_path = '/n/home11/averma/pytorch_connectomics/outputs/snemi/snemiGrowing_32_steps_dropout_e2e_3/snemiGrowing_32_steps_dropout_e2e_3_30000.pth'
+
     output_base_path = '/n/pfister_lab2/Lab/alok/results/snemi/'
+
+
 elif args.dataset == 'syntheticVessel':
     exp_name = 'synVessel_abStudy_ours_valVols'
     flux_model_path = '/n/home11/averma/pytorch_connectomics/outputs/syntheticVessel/synVessel_flux_ours_2/synVessel_flux_ours_2_110000.pth'
     # tracking_model_path = '/n/home11/averma/pytorch_connectomics/outputs/snemi/snemiGrowing_32_steps_3/snemiGrowing_32_steps_3_12000.pth'
     output_base_path = '/n/pfister_lab2/Lab/alok/results/syntheticVessel/'
     resolution = (1.0, 1.0, 1.0)
-    matching_radius = 2.0
+    matching_radius = 1.0
 
     with open('/n/home11/averma/pytorch_connectomics/cmdArgs/synVesselPaths.pkl', 'rb') as phandle:
         syn_paths = pickle.load(phandle)
     data_path, gt_skel_path, gt_context_path, gt_skel_graphs_path = [], [], [], []
-    data_idxs = list(range(16, 21))
+    data_idxs = list(range(21, 26))
     for i, vol_data in syn_paths.items():
         if i in data_idxs:
             data_path.append(vol_data['dn'])
             gt_skel_path.append(vol_data['skn'])
             gt_context_path.append(vol_data['ln'])
             gt_skel_graphs_path.append(vol_data['gn'])
+
+
 elif args.dataset == 'mri':
-    exp_name = 'mri_abStudy_ours_valVols'
-    flux_model_path = '/n/home11/averma/pytorch_connectomics/outputs/mri/mri_ours_3/mri_ours_3_12000.pth'
+    exp_name = 'mri_abStudy_ours_trainVols'
+    flux_model_path = '/n/home11/averma/pytorch_connectomics/outputs/mri/mri_ours_3/mri_ours_3_40000.pth'
     # tracking_model_path = '/n/home11/averma/pytorch_connectomics/outputs/snemi/snemiGrowing_32_steps_3/snemiGrowing_32_steps_3_12000.pth'
     output_base_path = '/n/pfister_lab2/Lab/alok/results/mri/'
     resolution = (1.0, 1.0, 1.0)
+    matching_radius = 2.0
 
     with open('/n/home11/averma/pytorch_connectomics/cmdArgs/mriPaths.pkl', 'rb') as phandle:
         syn_paths = pickle.load(phandle)
 
     data_path, gt_skel_path, gt_context_path, gt_skel_graphs_path = [], [], [], []
     keys = list(syn_paths.keys()); keys.sort()
-    data_idxs = keys[26:31] # TODO|DEBUG change this to 26:31 for validation
+    data_idxs = keys[10:26] # TODO|DEBUG change this to 26:31 for validation
     for i, vol_data in syn_paths.items():
         if i in data_idxs:
             data_path.append(vol_data['dn'])
@@ -94,11 +99,11 @@ elif args.dataset == 'mri':
             gt_skel_graphs_path.append(vol_data['gn'])
 
 if args.dataset == 'snemi':
-    var_params = [0.60] if args.tune is False else np.arange(.50, .75, .05) # tuned
+    var_params = [0.50] if args.tune is False else np.arange(.50, .75, .05) # tuned (0.60)
 elif args.dataset == 'syntheticVessel':
-    var_params = [0.35] if args.tune is False else np.arange(.20, .75, .05) # tuned
+    var_params = [0.60] if args.tune is False else np.arange(.20, .75, .05) # tuned
 elif args.dataset == 'mri':
-    var_params = [0.80] if args.tune is False else np.arange(.10, .95, .05)
+    var_params = [0.75] if args.tune is False else np.arange(.10, .95, .05)
 else:
     raise Exception('dataset not defined')
 
@@ -126,7 +131,7 @@ initial_skeletons = []
 if args.skip_initial_skel == False:
     print('Computing skeleton from flux.')
     skel_params = {}
-    skel_params['filter_size'] = 3
+    skel_params['filter_size'] = 0 if args.dataset == 'syntheticVessel' else 3
     skel_params['absolute_threshold'] = 0.25
     skel_params['block_size'] = [32, 100, 100]  # Z, Y, X
     all_errors = {}
@@ -135,12 +140,14 @@ if args.skip_initial_skel == False:
         skel_params['adaptive_threshold'] = 100 * var_param
         initial_skeletons = []
         for i, pred_flux_i in enumerate(pred_flux):
-            skeleton, skel_divergence = compute_skeleton_from_gradient(pred_flux_i, skel_params)
+            skeleton, _ = compute_skeleton_from_gradient(pred_flux_i, skel_params)
+            min_skel_threshold = 400
+            skeleton = remove_small_skeletons(skeleton, min_skel_threshold)
             initial_skeletons.append(skeleton)
-            save_data(skel_divergence, output_base_path + exp_name + '/' + str(data_idxs[i]) + '_skeleton_divergence_' + '{:.2f}'.format(var_param) + '.h5')
+            # save_data(skel_divergence, output_base_path + exp_name + '/' + str(data_idxs[i]) + '_skeleton_divergence_' + '{:.2f}'.format(var_param) + '.h5')
             save_data(skeleton, output_base_path + exp_name + '/' + str(data_idxs[i]) + '_initial_skeletons_' + '{:.2f}'.format(var_param) + '.h5')
         if args.tune is True:
-            if args.dataset == 'mri':
+            if args.dataset == 'mri' and False:
                 errors = calculate_binary_errors_batch(list(zip(initial_skeletons)), gt_skel_path, resolution,
                                                 temp_folder, 0)
             else:
@@ -173,7 +180,7 @@ else:
 if args.stop_after_initial is True:
     if args.tune is False:
         print('Computing Error.')
-        if args.dataset == 'mri':
+        if args.dataset == 'mri' and False:
             errors = calculate_binary_errors_batch(list(zip(initial_skeletons)), gt_skel_path, resolution, temp_folder, 0)
         else:
             errors = calculate_errors_batch(list(zip(initial_skeletons)), gt_skel_path, gt_context_path, resolution, temp_folder, 0, matching_radius)
@@ -199,7 +206,7 @@ else:
 
 if args.stop_after_split is True:
     print('Computing Error.')
-    if args.dataset == 'mri':
+    if args.dataset == 'mri' and False:
         errors = calculate_binary_errors_batch(list(zip(initial_skeletons)), gt_skel_path, resolution, temp_folder, 0)
     else:
         errors = calculate_binary_errors_batch(list(zip(initial_skeletons, split_skeletons)), gt_skel_path, resolution, temp_folder, 0, matching_radius)
@@ -223,7 +230,7 @@ if args.skip_tracking == False:
         args_tracking.extend(['-skn', output_base_path + exp_name + '/' + str(data_idxs[i]) + '_split_skeletons.h5'])
         args_tracking.extend(['-fn', output_base_path + exp_name + '/' + str(data_idxs[i]) + '_flux.h5'])
 
-        tracking_result = testSkeletonGrowing.run(args_tracking, save_output=False)
+        tracking_result = testSkeletonGrowing.run(args_tracking, save_output=False)[0]
         predicted_paths.append(tracking_result)
         with open(output_base_path + exp_name + '/' + str(data_idxs[i]) + '_predicted_paths.pkl', 'wb') as pfile:
             pickle.dump(tracking_result, pfile, protocol=pickle.HIGHEST_PROTOCOL)
@@ -241,7 +248,7 @@ for i, di in enumerate(tqdm(data_idxs)):
     merged_skeletons.append(merged_skeleton)
 
 print('Computing Errors.')
-if args.dataset == 'mri':
+if args.dataset == 'mri' and False:
     errors = calculate_binary_errors_batch(list(zip(initial_skeletons)), gt_skel_path, resolution, temp_folder, 0)
 else:
     errors = calculate_errors_batch(list(zip(initial_skeletons, split_skeletons, merged_skeletons)), gt_skel_path, gt_context_path,

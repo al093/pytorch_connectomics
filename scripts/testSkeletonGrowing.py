@@ -10,24 +10,24 @@ from torch_connectomics.model.loss import *
 from torch_connectomics.utils.net import *
 from torch_connectomics.utils.vis import *
 
-def test(args, test_loader, model, flux_model, device, logger, model_io_size, save_output):
+def test(args, test_loader, model, flux_model, device, logger, model_io_size, save_output, num_volumes, resolution):
 
     predicted_path_count = 0
     dataset_length = len(test_loader.dataset)
-    output_dict = {}
+    output_dicts = [{} for i in range(num_volumes)]
     features_repo = DeepFluxFeatures(max_size=200)
     with torch.no_grad():
         for iteration, data in tqdm(enumerate(test_loader)):
 
             sys.stdout.flush()
-            image, flux, skeleton, start_pos, start_sid, id = data
+            image, flux, skeleton, start_pos, start_sid, did, sid = data
             # initialize samplers
             batch_size = len(image)
             samplers = []
             for i in range(batch_size):
                 samplers.append(SkeletonGrowingRNNSampler(image=image[i], skeleton=skeleton[i], flux=flux[i],
-                                          start_pos=start_pos[i], start_sid=start_sid[i], continue_growing_th=0.95,
-                                          sample_input_size=model_io_size, stride=2.0, anisotropy=[30.0, 6.0, 6.0], mode='test', features_repo=features_repo))
+                                          start_pos=start_pos[i], start_sid=start_sid[i], did=did[i], sid=sid[i], continue_growing_th=0.80,
+                                          sample_input_size=model_io_size, stride=2.0, anisotropy=resolution, mode='test', features_repo=features_repo))
                 samplers[-1].init_global_feature_models(flux_model, None, np.array([64, 192, 192], dtype=np.int32), device)
 
             continue_samplers = list(range(batch_size))
@@ -93,11 +93,13 @@ def test(args, test_loader, model, flux_model, device, logger, model_io_size, sa
                 edges = np.zeros(2 * (path.shape[0] - 1), dtype=np.uint16)
                 edges[1::2] = np.arange(1, path.shape[0])
                 edges[2:-1:2] = np.arange(1, path.shape[0] - 1)
-                output_dict[predicted_path_count] = {'vertices':path, 'states':state, 'sids':end_ids, 'edges':edges}
+                output_dicts[sampler.did][sampler.sid] = {'vertices':path, 'states':state, 'sids':end_ids, 'edges':edges}
     if save_output:
-        with open(args.output + 'predicted_paths.pkl', 'wb') as pfile:
-            pickle.dump(output_dict, pfile, protocol=pickle.HIGHEST_PROTOCOL)
-    return output_dict
+        for i, output_dict in enumerate(output_dicts):
+            with open(args.output + str(i) + '_predicted_paths.pkl', 'wb') as pfile:
+                pickle.dump(output_dict, pfile, protocol=pickle.HIGHEST_PROTOCOL)
+
+    return output_dicts
 
 def _run(args, save_output):
     save_cmd_line(args)  # Saving the command line args with machine name and time for later reference
@@ -106,6 +108,7 @@ def _run(args, save_output):
     print('Initial setup')
     torch.backends.cudnn.enabled = False
     model_io_size, device = init(args)
+    resolution = np.array([x for x in args.resolution.split(',')], dtype=np.float32)
 
     if args.disable_logging is not True:
         logger, _ = get_logger(args)
@@ -122,11 +125,13 @@ def _run(args, save_output):
     flux_model = setup_model(flux_model_args, device, np.array([64, 192, 192], dtype=np.int32), non_linearity=(torch.tanh,))
     flux_model.eval()
 
+    num_volumes = len(args.img_name.split('@'))
+
     print('Setup data')
     test_loader, _, _ = get_input(args, model_io_size, 'test', model=None)
 
     print('Start testing')
-    result = test(args, test_loader, model, flux_model, device, logger, model_io_size, save_output)
+    result = test(args, test_loader, model, flux_model, device, logger, model_io_size, save_output, num_volumes, resolution)
 
     print('Finished testing')
     if args.disable_logging is not True:

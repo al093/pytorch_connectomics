@@ -77,7 +77,7 @@ def main():
 
     print('Setup loss function')
     # TODO | NOTE change to MSE for distance transform skeletons
-    criterion = WeightedMSE()
+    criterion = WeightedBCE()
 
     print('Setup optimizer')
     model_parameters = list(model.parameters())

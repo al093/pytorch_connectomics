@@ -104,11 +104,20 @@ def get_args(mode='train', input_args=None):
     parser.add_argument('-en', '--exp-name', type=str, default=None,
                         help='Name of the model files to be saved while training, for testing name for the folder to save the output files')
 
-    parser.add_argument('-skn','--skeleton-name', type=str, default=None,
+    parser.add_argument('-skn', '--skeleton-name', type=str, default=None,
                         help='Ground-truth skeleton path')
 
-    parser.add_argument('-fn','--flux-name', type=str, default=None,
+    parser.add_argument('-fn', '--flux-name', type=str, default=None,
                         help='Ground-truth Flux path')
+
+    parser.add_argument('-fngt', '--flux-name-gt', type=str, default=None,
+                        help='Ground-truth Flux path for end-to-end training of skeleton growing.')
+
+    parser.add_argument('-te2e', '--train-end-to-end', type=my_bool, default=False,
+                        help='Train skeleton growing end to end, will need fn_2 to be defined.')
+
+    parser.add_argument('-res', '--resolution', type=str, default='30.0,6.0,6.0',
+                        help='Resolution of input volumes (Z, Y, X)')
 
     parser.add_argument('-wn', '--weight-name', type=str, default=None,
                         help='Weight array to be used for loss calculations.')

@@ -104,14 +104,14 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
 
             out_skeleton_blurred = ndimage.morphology.distance_transform_edt((out_skeleton == 0)).astype(np.float32)
             # TODO | NOTE use 4.0 for distance and other methods, use 2.0 for dilated skeletons
-            distance_th = np.float32(4.0)
+            distance_th = np.float32(2.0)
             valid_distance_mask = (out_skeleton_blurred <= distance_th) & out_label_mask
             out_skeleton_blurred = distance_th - out_skeleton_blurred
             out_skeleton_blurred[~valid_distance_mask] = 0
             # TODO this is for distnce transform of skeletons, the distance_th should be 4.0
-            out_skeleton_blurred /= distance_th
-            # TODO | NOTE this is for dilated skeletons, remove this and use the above
-            # out_skeleton_blurred[valid_distance_mask] = 1
+            # out_skeleton_blurred /= distance_th
+            # TODO | NOTE this is for dilated skeletons
+            out_skeleton_blurred[valid_distance_mask] = 1
 
             out_input = out_input.astype(np.float32)
             out_flux = out_flux.astype(np.float32)
