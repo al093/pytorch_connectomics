@@ -1,0 +1,6 @@
+-dn /n/pfister_lab2/Lab/alok/snemi/train_image.h5
+-sp /n/pfister_lab2/Lab/alok/results/snemi/snemi_abStudy_ours_trainVol_junctionsFocus/growing_paths.h5
+-skn /n/pfister_lab2/Lab/alok/results/snemi/snemi_abStudy_ours_trainVol_junctionsFocus/0_split_skeletons.h5
+-fn /n/pfister_lab2/Lab/alok/results/snemi/snemi_abStudy_ours_trainVol_junctionsFocus/0_flux.h5
+-divn /n/pfister_lab2/Lab/alok/results/snemi/snemi_abStudy_ours_trainVol_junctionsFocus/0_div.h5
+-fngt /n/pfister_lab2/Lab/alok/snemi/skeleton/splineInterp/1_0x/grad_distance_context.h5

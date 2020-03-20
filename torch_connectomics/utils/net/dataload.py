@@ -37,6 +37,7 @@ def get_input(args, model_io_size, mode='train', model=None):
         flux = [None] * len(img_name)
         flux_2 = [None] * len(img_name)
         weight = [None] * len(img_name)
+        divergence = [None] * len(img_name)
 
     if args.task != 5 and args.task != 6:
         if mode=='validation':
@@ -64,6 +65,11 @@ def get_input(args, model_io_size, mode='train', model=None):
         flux_files_2 = None
         if args.flux_name_gt is not None:
             flux_files_2 = args.flux_name_gt.split('@')
+
+    if args.task in [6]:
+        divergence_files = None
+        if args.div_name is not None:
+            divergence_files = args.div_name.split('@')
 
     # 1. load data
     model_input = [None]*len(img_name)
@@ -101,6 +107,7 @@ def get_input(args, model_io_size, mode='train', model=None):
         pad_size = np.array(model_io_size//2, dtype=np.int64)
     elif args.task == 6:
         pad_size = np.array(model_io_size//2, dtype=np.int64)
+        pad_size = np.array((0, 0, 0), dtype=np.int64)
     else:
         pad_size = np.array((0, 0, 0), dtype=np.int64)
         # pad_size = augmentor.sample_size//2
@@ -126,7 +133,6 @@ def get_input(args, model_io_size, mode='train', model=None):
                 # These Points are the origin.
                 npf = np.load(seed_points_files[i], allow_pickle=True)
                 s_points[i] = [np.vstack([npf.item().get('match'), npf.item().get('no_match')])]
-                # s_points[i] = [npf.item().get('no_match')[0:15000]]
                 skeleton[i] = np.array((h5py.File(skeleton_files[i], 'r')['main']))
                 flux[i] = np.array((h5py.File(flux_files[i], 'r')['main']))
             elif args.task == 6:
@@ -147,6 +153,10 @@ def get_input(args, model_io_size, mode='train', model=None):
                 if flux_files is not None:
                     flux[i] = np.array((h5py.File(flux_files[i], 'r')['main']))
                     flux[i] = np.pad(flux[i], ((0, 0),) + pad_size_tuple)
+
+                if divergence_files is not None:
+                    divergence[i] = np.array((h5py.File(divergence_files[i], 'r')['main']))
+                    divergence[i] = np.pad(divergence[i], pad_size_tuple)
 
         elif mode == 'train' or mode == 'validation':
             if args.task != 5 and args.task != 6:
@@ -176,19 +186,16 @@ def get_input(args, model_io_size, mode='train', model=None):
                 data = {}
                 with h5py.File(seed_points_files[i], 'r') as hf:
                     for g in hf.keys():
+                        # if int(g) not in [107, 108, 159, 165, 166, 176, 177, 223, 244, 245, 248, 249, 251, 370, 411,
+                        #                   429, 430, 509, 510, 555, 588, 597, 598, 599, 617, 618, 641, 652, 653, 668, 686, 687, 694]:
+                        #     continue
                         d = {}
                         d['path'] = np.asarray(hf.get(g)['vertices']) + pad_size.astype(np.float32)
                         if d['path'].shape[0] <= 2:
                             continue
-                        # TODO remove this.
-                        # if d['path'].shape[0] <= 50:
-                        #     continue
                         d['sids'] = np.asarray(hf.get(g)['sids'])
                         if 'first_split_node' in hf.get(g).keys():
                             d['first_split_node'] = np.asarray(hf.get(g)['first_split_node'])[0]
-                            # TODO remove this.
-                            # if d['first_split_node'] <= 50:
-                            #     continue
                         data[int(g)] = d
                 s_points[i] = data
 
@@ -213,13 +220,13 @@ def get_input(args, model_io_size, mode='train', model=None):
                 weight[i] = np.array((h5py.File(weight_files[i], 'r')['main']))
                 weight[i] = np.pad(weight[i], pad_size_tuple)
 
-            print(img_name[i])
+            if divergence_files is not None:
+                divergence[i] = np.array((h5py.File(divergence_files[i], 'r')['main']))
+                divergence[i] = np.pad(divergence[i], pad_size_tuple)
 
-        if args.task != 6:
-            model_input[i] = np.pad(model_input[i], pad_size_tuple, 'reflect')
-        else:
-            model_input[i] = np.pad(model_input[i], pad_size_tuple)
+        print(img_name[i])
 
+        model_input[i] = np.pad(model_input[i], pad_size_tuple, 'reflect')
         print("Volume shape: ", model_input[i].shape)
         volume_shape.append(model_input[i].shape)
         model_input[i] = model_input[i].astype(np.float32)
@@ -281,7 +288,7 @@ def get_input(args, model_io_size, mode='train', model=None):
                                              pad_size=pad_size.astype(np.uint32))
 
         elif args.task == 6:  # skeleton match prediction
-            dataset = SkeletonGrowingDataset(image=model_input, skeleton=skeleton, flux=flux,
+            dataset = SkeletonGrowingDataset(image=model_input, skeleton=skeleton, flux=flux, divergence=divergence,
                                              growing_data=s_points, flux_gt=flux_2, mode='train')
 
         if args.task == 6:
@@ -320,7 +327,7 @@ def get_input(args, model_io_size, mode='train', model=None):
                                            augmentor=None, mode='test', seed_points=s_points,
                                            pad_size=pad_size.astype(np.uint32))
         elif args.task == 6:
-            dataset = SkeletonGrowingDataset(image=model_input, skeleton=skeleton, flux=flux,
+            dataset = SkeletonGrowingDataset(image=model_input, skeleton=skeleton, flux=flux, divergence=divergence,
                                              growing_data=s_points, mode='test')
 
         if args.task == 6:

@@ -11,9 +11,8 @@ from torch_connectomics.utils.vis import *
 
 def train(args, train_loader, model, flux_model, device, criterion, criterion_bce, criterion_2, optimizer, scheduler,
           logger, writer, regularization, model_io_size, train_end_to_end, num_volumes, resolution, flux_model_io_size):
-    total_steps = 24
-    backprop_frequency = 12
-
+    total_steps = args.tracking_steps
+    backprop_frequency = total_steps // 2
     debug = False
     if debug:
         print('DEBUG MODE IS ON!!, No training will be performed')
@@ -33,19 +32,19 @@ def train(args, train_loader, model, flux_model, device, criterion, criterion_bc
             iteration_loss = 0
             partwise_iteraton_loss = {'direction':0.0, 'flux':0.0, 'state':0.0}
 
-            image, flux, flux_gt, skeleton, path, start_pos, stop_pos, start_sid, stop_sid, ft_params, path_state_loss_weight, first_split_node, did, sid = data
+            image, flux, flux_gt, skeleton, divergence, path, start_pos, stop_pos, start_sid, stop_sid, ft_params, path_state_loss_weight, first_split_node, did, sid = data
 
             # initialize samplers
             batch_size = len(image)
             samplers = []
             for i in range(batch_size):
-                samplers.append(SkeletonGrowingRNNSampler(image=image[i], skeleton=skeleton[i], flux=flux[i],
+                samplers.append(SkeletonGrowingRNNSampler(image=image[i], skeleton=skeleton[i], flux=flux[i], divergence=divergence[i],
                                                           path=path[i], start_pos=start_pos[i], stop_pos=stop_pos[i],
                                                           start_sid=start_sid[i], stop_sid=stop_sid[i], first_split_node=first_split_node[i],
                                                           ft_params=ft_params[i], path_state_loss_weight=path_state_loss_weight[i],
-                                                          did=did[i], sid=sid[i], sample_input_size=model_io_size, stride=6.0,
+                                                          did=did[i], sid=sid[i], sample_input_size=model_io_size, stride=2.0,
                                                           anisotropy=resolution, d_avg=24, mode='train',
-                                                          train_flux_model=train_end_to_end, flux_gt=flux_gt[i], debug=debug))
+                                                          train_flux_model=train_end_to_end, flux_gt=flux_gt[i], debug=True))
 
                 samplers[-1].init_global_feature_models(flux_model, None, np.array(flux_model_io_size, dtype=np.int32), device)
 
@@ -60,11 +59,12 @@ def train(args, train_loader, model, flux_model, device, criterion, criterion_bc
                     # if no forward pass could be made in last iteration then break
                     break
 
-                input_image, input_flux = [], []
+                input_image, input_flux, input_divergence = [], [], [] # they are precomputed
                 start_skeleton_mask, other_skeleton_mask = [], []
                 gt_direction, gt_path_state, center_pos = [], [], []
                 path_state_loss_weight, global_features= [], []
-                p_flux, gt_flux = [], []
+                p_flux, p_divergence = [], [], # they are on the GPU
+                gt_flux = []
 
                 temp_c_samplers = []
                 sampler_idx_matching = {}
@@ -74,7 +74,7 @@ def train(args, train_loader, model, flux_model, device, criterion, criterion_bc
                 for s_idx in continue_samplers:
                     next_step_data = samplers[s_idx].get_next_step()
                     if next_step_data[0] == True: # if it could fetch data add the data to the lists
-                        if next_step_data[6] == torch.tensor(path_state['CONTINUE'], dtype=torch.float32):
+                        if next_step_data[7] == torch.tensor(path_state['CONTINUE'], dtype=torch.float32):
                             # Only continue predicting in the next step if the current state is Continue, otherwise we have reached the end
                             temp_c_samplers.append(s_idx)
 
@@ -82,14 +82,16 @@ def train(args, train_loader, model, flux_model, device, criterion, criterion_bc
                         input_flux.append(next_step_data[2])
                         start_skeleton_mask.append(next_step_data[3])
                         other_skeleton_mask.append(next_step_data[4])
-                        gt_direction.append(next_step_data[5])
-                        gt_path_state.append(next_step_data[6])
-                        center_pos.append(next_step_data[7])
-                        path_state_loss_weight.append(next_step_data[8])
-                        global_features.append(next_step_data[9].cpu())
+                        input_divergence.append(next_step_data[5])
+                        gt_direction.append(next_step_data[6])
+                        gt_path_state.append(next_step_data[7])
+                        center_pos.append(next_step_data[8])
+                        path_state_loss_weight.append(next_step_data[9])
+                        global_features.append(next_step_data[10]) # on GPU
+                        p_flux.append(next_step_data[11]) # on GPU
+                        p_divergence.append(next_step_data[12]) # on GPU
                         if train_end_to_end is True:
-                            p_flux.append(next_step_data[10])
-                            gt_flux.append(next_step_data[11])
+                            gt_flux.append(next_step_data[13])
 
                         if t == 0:
                             prev_hidden_state = None
@@ -108,14 +110,18 @@ def train(args, train_loader, model, flux_model, device, criterion, criterion_bc
                 if len(input_image) > 0:
                     input_image = torch.stack(input_image, 0)
                     input_flux = torch.stack(input_flux, 0)
+                    input_divergence = torch.stack(input_divergence, 0)
                     start_skeleton_mask = torch.stack(start_skeleton_mask, 0)
                     other_skeleton_mask = torch.stack(other_skeleton_mask, 0)
+                    global_features = torch.stack(global_features, 0) # on GPU
+                    p_flux = torch.stack(p_flux, 0) # on GPU
+                    p_divergence = torch.stack(p_divergence, 0) # on GPU
+
                     gt_direction = torch.stack(gt_direction, 0).to(device)
                     gt_path_state = torch.stack(gt_path_state, 0).to(device)
                     path_state_loss_weight = torch.cat(path_state_loss_weight).to(device)
-                    global_features = torch.stack(global_features, 0)
+
                     if train_end_to_end is True:
-                        p_flux = torch.stack(p_flux, 0)
                         gt_flux = torch.stack(gt_flux, 0).to(device)
 
                     if prev_hidden_state is not None:
@@ -124,7 +130,11 @@ def train(args, train_loader, model, flux_model, device, criterion, criterion_bc
                         prev_cell_state = torch.stack(prev_cell_state, 0).to(device)
 
                     # concatenate image + flux + masks and compute forward pass
-                    input = torch.cat((input_image, input_flux, start_skeleton_mask, other_skeleton_mask, global_features), 1).to(device)
+                    if args.use_precomputed is True:
+                        input = torch.cat((input_image, start_skeleton_mask, other_skeleton_mask, input_flux, input_divergence), 1).to(device)
+                    else:
+                        input = torch.cat((input_image, start_skeleton_mask, other_skeleton_mask), 1).to(device)
+                        input = torch.cat((input, p_flux, p_divergence), 1)
 
                     # forward pass
                     if debug is not True:
@@ -137,7 +147,7 @@ def train(args, train_loader, model, flux_model, device, criterion, criterion_bc
 
                     direction_loss, _, _ = criterion(output_direction, gt_direction)  # direction loss
                     state_loss = criterion_bce(output_path_state, gt_path_state, path_state_loss_weight)  # state loss
-                    state_loss_alpha = 0.50
+                    state_loss_alpha = 0.60
                     state_loss = state_loss_alpha*state_loss
                     direction_loss = (1.0-state_loss_alpha)*direction_loss
 
@@ -254,7 +264,7 @@ def main():
     print('Setup model')
     model = setup_model(args, device, model_io_size)
 
-    flux_model_io_size = np.array([64, 192, 192], dtype=np.int32)
+    flux_model_io_size = np.array([96, 256, 256], dtype=np.int32)
     flux_model_args = Namespace(architecture='fluxNet', task=4, out_channel=3, in_channel=1,
                                 batch_size=1, load_model=True, pre_model=args.pre_model_second, num_gpu=args.num_gpu)
     flux_model = setup_model(flux_model_args, device, flux_model_io_size, non_linearity=(torch.tanh,))

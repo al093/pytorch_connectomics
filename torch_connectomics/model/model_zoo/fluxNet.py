@@ -51,7 +51,7 @@ class FluxNet(nn.Module):
                           kernel_size=(3,3,3), stride=1, padding=(1,1,1)),
             residual_block_2d(filters[0], filters[0], projection=False),
             conv3d_bn_non(in_planes=filters[0], out_planes=out_channel,
-                          kernel_size=(3,3,3), stride=1, padding=(1,1,1))
+                          kernel_size=(3,3,3), stride=1, Uppadding=(1,1,1))
         )
         self.layer2_D = nn.Sequential(
             conv3d_bn_elu(in_planes=filters[1], out_planes=filters[1],

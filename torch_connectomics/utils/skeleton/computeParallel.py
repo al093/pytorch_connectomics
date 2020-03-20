@@ -146,6 +146,30 @@ def compute_thinned_nodes(process_id, seg_ids, skel_vol_full, temp_folder, input
                 continue
             hf_nodes.create_dataset('allNodes' + str(seg_id), data=nodes, compression='gzip')
 
+def compute_ibex_skeleton_graphs(skeleton, out_folder, input_resolution, downsample_fac):
+    input_resolution = np.array(input_resolution)
+    downsample_fac = np.array(downsample_fac)
+    downsample_res = input_resolution * downsample_fac
+
+    # skeleton_ids = np.unique(skeleton)
+    # skeleton_ids = skeleton_ids[skeleton_ids > 0]
+    #
+    # locations = scipy.ndimage.find_objects(skeleton)
+    #
+    # ibex_skeletons = []
+    # for idx, skeleton_id in enumerate(skeleton_ids):
+    #     loc = locations[int(skeleton_id) - 1]
+    #     start_pos = np.array([loc[0].start, loc[1].start, loc[2].start], dtype=np.uint16)
+    #     skel_mask = (skeleton[loc] == int(skeleton_id))
+    #     CreateSkeleton(skeleton, out_folder, input_resolution, downsample_res)
+    #     ibex_skeletons.append(ReadSkeletons(out_folder, skeleton_algorithm='thinning',  downsample_resolution=downsample_res, read_edges=True)[0])
+    CreateSkeleton(skeleton, out_folder, input_resolution, downsample_res)
+    ibex_skeletons = ReadSkeletons(out_folder, skeleton_algorithm='thinning', downsample_resolution=downsample_res, read_edges=True)
+
+    keep_indices = [0] + [i for i, skel in enumerate(ibex_skeletons) if skel.get_nodes().shape[0] > 0]
+    ibex_skeletons = [ibex_skeletons[i] for i in keep_indices]
+    return ibex_skeletons
+
 def compute_thinned_nodes_skimage_skeletonize(process_id, seg_ids, skel_vol_full, temp_folder, output_file_name):
     process_id = str(process_id)
     out_folder = temp_folder + '/' + process_id

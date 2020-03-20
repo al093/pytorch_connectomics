@@ -14,15 +14,16 @@ from torch_connectomics.utils.vis import save_data
 
 class SkeletonGrowingDataset(torch.utils.data.Dataset):
     def __init__(self,
-                 image, skeleton, flux, growing_data,
+                 image, skeleton, flux, growing_data, divergence,
                  flux_gt=None, mode='train'):
         self.mode = mode
         self.image = image
         self.skeleton = skeleton
         self.growing_data = growing_data
         self.flux = flux
+        self.divergence = divergence
         self.flux_gt = flux_gt if flux_gt is not None else [None]*len(image)
-
+        
         self.ids = []
         for gd in growing_data:
             self.ids.append(list(gd.keys()))
@@ -56,11 +57,11 @@ class SkeletonGrowingDataset(torch.utils.data.Dataset):
 
             # calculate the approx class weights for the state preciction
             state_bce_weight = np.float32(5.0 / len (path)) # this is the loss weight which should be applied to all non-state predition positions
-            return self.image[did], self.flux[did], self.flux_gt[did], self.skeleton[did], path, start_pos, stop_pos, start_sid, stop_sid, ft_params, state_bce_weight, first_split_node, did, k
+            return self.image[did], self.flux[did], self.flux_gt[did], self.skeleton[did], self.divergence[did], path, start_pos, stop_pos, start_sid, stop_sid, ft_params, state_bce_weight, first_split_node, did, k
         elif self.mode == 'test':
             start_pos = self.growing_data[did][k]['path'][0]
             start_sid = self.growing_data[did][k]['sids'][0]
-            return self.image[did], self.flux[did], self.skeleton[did], start_pos, start_sid, did, k
+            return self.image[did], self.flux[did], self.skeleton[did], self.divergence[did], start_pos, start_sid, did, k
 
     def get_flip_transpose_params(self):
         xflip, yflip, zflip, xytranspose = np.random.randint(2, size=4)

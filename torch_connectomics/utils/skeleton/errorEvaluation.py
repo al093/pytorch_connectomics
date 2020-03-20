@@ -9,6 +9,9 @@ from skimage.morphology import skeletonize_3d
 from .computeParallel import *
 from .gradientProcessing import remove_small_skeletons
 
+sys.path.append('/n/home11/averma/repositories/cerebellum/')
+from cerebellum.error_analysis.skel_methods import SkeletonEvaluation
+
 def write_hf(data, name):
     with h5py.File(name, 'w') as hf:
         hf.create_dataset('main', data=data, compression='gzip')
@@ -227,26 +230,31 @@ def calculate_error_metric_2(pred_skel, gt_skel, gt_context, resolution, temp_fo
     else:
         return precision, recall, f_score, mean_connectivity, prc_hmean
 
-def calculate_error_metric_binary_overlap(pred_skel, gt_skel, resolution, temp_folder, num_cpu, debug=False):
+def calculate_error_metric_binary_overlap(pred_skel, gt_skel, resolution, temp_folder, num_cpu, matching_radius, debug=False):
     pred_skel_ids = np.unique(pred_skel)
     pred_skel_ids = pred_skel_ids[pred_skel_ids > 0]
     if pred_skel_ids.size == 0:
         return -1, -1, -1
-    p_nodes_dict = get_thin_skeletons_nodes(pred_skel, pred_skel_ids, resolution, np.array([1, 1, 1]), temp_folder,
-                                            num_cpu, method='ibex') # method='skimage_skeletonize'
-    gt_nodes = np.transpose(np.nonzero(gt_skel)).astype(np.int16)
+    gt_nodes = np.transpose(np.nonzero(gt_skel))
+    p_nodes = np.transpose(np.nonzero(pred_skel))
 
-    # collect all predicted skeleton points
-    p_nodes = []
-    for _, pn in p_nodes_dict.items():
-        p_nodes.append(pn)
-    p_nodes = np.concatenate(p_nodes)
+    # p_nodes_dict = get_thin_skeletons_nodes(pred_skel, pred_skel_ids, resolution, np.array([1, 1, 1]), temp_folder, num_cpu, method='ibex') # method='skimage_skeletonize'
+    # for _, pn in p_nodes_dict.items():
+    #     p_nodes.append(pn)
+    # p_nodes = np.concatenate(p_nodes)
 
-    matched_points_mask = np.all(np.abs(gt_nodes[:, np.newaxis, :] - p_nodes[np.newaxis, :, :]) <= 1, axis=2)
+    gt_nodes_s = resolution * gt_nodes
+    p_nodes_s = resolution * p_nodes
+    nbrs = NearestNeighbors(n_neighbors=1, algorithm='kd_tree', metric='euclidean', n_jobs=-1).fit(gt_nodes_s)
+    p_distance, p_indices = nbrs.kneighbors(p_nodes_s)
+    p_matched_mask = (p_distance <= matching_radius)[:, 0]
+    nbrs = NearestNeighbors(n_neighbors=1, algorithm='kd_tree', metric='euclidean', n_jobs=-1).fit(p_nodes_s)
+    g_distance, g_indices = nbrs.kneighbors(gt_nodes_s)
+    g_matched_mask = (g_distance <= matching_radius)[:, 0]
 
-    tp = np.any(matched_points_mask, axis=0).sum()
-    fp = p_nodes.shape[0] - tp
-    fn = np.all(~matched_points_mask, axis=1).sum()
+    tp = p_matched_mask.sum()
+    fp = p_nodes.shape[0] - p_matched_mask.sum()
+    fn = gt_nodes.shape[0] - g_matched_mask.sum()
 
     precision = tp / (tp + fp)
     recall = tp / (tp + fn)
@@ -342,7 +350,7 @@ def get_skeletons_nodes(skeleton):
                 np.unravel_index(idx_sorted[idx_start[i]:idx_start[i] + count[i]], skeleton.shape)).astype(np.uint16)
     return nodes
 
-def calculate_binary_errors_batch(pred_skeletons, gt_skeleton_paths, resolution, temp_folder, num_cpu, like_l3dfrom2d=True, maxpool_kernel_sz=5):
+def calculate_binary_errors_batch(pred_skeletons, gt_skeleton_paths, resolution, temp_folder, num_cpu, matching_radius, like_l3dfrom2d=False, maxpool_kernel_sz=5):
     errors = [None] * len(pred_skeletons)
     for i, pred_skeleton_all_steps in enumerate(pred_skeletons):
         gt_skeleton = read_data(gt_skeleton_paths[i])
@@ -362,7 +370,7 @@ def calculate_binary_errors_batch(pred_skeletons, gt_skeleton_paths, resolution,
                     # binary_pred = ndimage.morphology.binary_dilation(binary_pred, structure=dilation_kernel)
                     p, r, f, _ = calculate_error_metric_binary_overlap_like_l3dfrom2d(pred_skeleton > 0, gt_skeleton, gt_skeleton_maxpooled, debug=True)
                 else:
-                    p, r, f = calculate_error_metric_binary_overlap(pred_skeleton, gt_skeleton, resolution, temp_folder, num_cpu)
+                    p, r, f = calculate_error_metric_binary_overlap(pred_skeleton, gt_skeleton, resolution, temp_folder, num_cpu, matching_radius)
 
             errors[i].append({'p':p, 'r':r, 'pr':f})
 
@@ -391,23 +399,26 @@ def calculate_binary_errors_batch(pred_skeletons, gt_skeleton_paths, resolution,
 
     return avg_errors
 
-def calculate_errors_batch(pred_skeletons, gt_skeleton_paths, gt_skeleton_ctx_paths, resolution, temp_folder, num_cpu, matching_radius):
+def calculate_errors_batch(pred_skeletons, gt_skeleton_paths, gt_skeleton_ctx_paths, resolution, temp_folder, num_cpu,
+                           matching_radius, ibex_downsample_fac, erl_overlap_allowance):
     errors = [None] * len(pred_skeletons)
     for i, pred_skeleton_all_steps in enumerate(pred_skeletons):
         gt_skeleton = read_data(gt_skeleton_paths[i])
         gt_context = read_data(gt_skeleton_ctx_paths[i])
+        ibex_skeletons = compute_ibex_skeleton_graphs(gt_context, temp_folder + '/ibex_graphs/', resolution, ibex_downsample_fac)
         errors[i] = []
         for pred_skeleton in pred_skeleton_all_steps:
             if pred_skeleton is None or pred_skeleton.max() == 0:
-                p, r, f, c, hm = -1, -1, -1, -1, -1
+                p, r, f, c, hm, erl = -1, -1, -1, -1, -1, -1
                 print('Predicion was empty/None')
             else:
                 p, r, f, c, hm = calculate_error_metric_2(pred_skeleton, gt_skeleton, gt_context,
                                                           resolution, temp_folder, num_cpu, matching_radius)
-            errors[i].append({'p':p, 'r':r, 'f':f, 'c':c, 'hm':hm})
+                erl = 0 #calculate_erl(pred_skeleton, ibex_skeletons, erl_overlap_allowance)
+            errors[i].append({'p':p, 'r':r, 'f':f, 'c':c, 'hm':hm, 'erl':erl})
 
     steps = len(pred_skeletons[0])
-    p_avg, r_avg, f_avg, c_avg, hm_avg = [0.0]*steps, [0.0]*steps, [0.0]*steps, [0.0]*steps, [0.0]*steps
+    p_avg, r_avg, f_avg, c_avg, hm_avg, erl_avg = [0.0]*steps, [0.0]*steps, [0.0]*steps, [0.0]*steps, [0.0]*steps, [0.0]*steps
     # calculate avg error
     for j in range(len(errors[0])):
         for i in range(len(errors)):
@@ -416,6 +427,7 @@ def calculate_errors_batch(pred_skeletons, gt_skeleton_paths, gt_skeleton_ctx_pa
             f_avg[j] += errors[i][j]['f']
             c_avg[j] += errors[i][j]['c']
             hm_avg[j] += errors[i][j]['hm']
+            erl_avg[j] += errors[i][j]['erl']
 
     n_vol = len(pred_skeletons)
     for i in range(len(p_avg)):
@@ -424,6 +436,7 @@ def calculate_errors_batch(pred_skeletons, gt_skeleton_paths, gt_skeleton_ctx_pa
         f_avg[i] = f_avg[i] / n_vol
         c_avg[i] = c_avg[i] / n_vol
         hm_avg[i] = hm_avg[i] / n_vol
+        erl_avg[i] = erl_avg[i] / n_vol
 
     # print results
     print('P:    ' + ' '.join(['{:3.4f}'.format(x) for x in p_avg]))
@@ -431,8 +444,15 @@ def calculate_errors_batch(pred_skeletons, gt_skeleton_paths, gt_skeleton_ctx_pa
     print('PR:   ' + ' '.join(['{:3.4f}'.format(x) for x in f_avg]))
     print('C:    ' + ' '.join(['{:3.4f}'.format(x) for x in c_avg]))
     print('PRC:  ' + ' '.join(['{:3.4f}'.format(x) for x in hm_avg]))
+    print('ERL:  ' + ' '.join(['{:3.4f}'.format(x) for x in erl_avg]))
 
     avg_errors = []
     for i, _ in enumerate(p_avg):
-        avg_errors.append({'p':p_avg[i], 'r':r_avg[i], 'pr':f_avg[i], 'c':c_avg[i], 'hm':hm_avg[i]})
+        avg_errors.append({'p':p_avg[i], 'r':r_avg[i], 'pr':f_avg[i], 'c':c_avg[i], 'hm':hm_avg[i], 'erl':erl_avg[i]})
     return avg_errors
+
+def calculate_erl(pred_skeleton, gt_ibex_skels, overlap_allowance):
+    eval = SkeletonEvaluation("syn", gt_ibex_skels, pred_skeleton, t_om=0.9, t_m=0.2, t_s=0.8, include_zero_split=False,
+                              include_zero_merge=False, calc_erl=True, overlap_allowance=overlap_allowance)
+    eval.summary()
+    return eval.erl_pred

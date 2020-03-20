@@ -48,8 +48,8 @@ ipython --pdb trainSkeleton.py -- -o ~/pytorch_connectomics/outputs/snemi/ -lr 8
 ipython --pdb trainFlux.py -- -o ~/pytorch_connectomics/outputs/snemi/ -lr 8e-05 --iteration-total 300000 --iteration-save 2000 -mi 64,192,192 -g 1 -c 12 -b 12 -ac fluxNet --argsFile ../cmdArgs/trainArgsSNEMISkelAbStudy.txt --task 4 --out-channel 3 --in-channel 1 -en snemi_abStudy_ours_onlyL2
 
 
-Growing commands:
 
+Growing commands:
 
 ipython --pdb trainSkeletonGrowing.py -- -o ~/pytorch_connectomics/outputs/snemi/ -lr 3e-05 --iteration-total 600000 --iteration-save 500 -mi 16,96,96 -g 1 -c 0 -b 12 -ac directionNet --argsFile ../cmdArgs/trainArgsSNEMISkeletonGrowing.txt --task 6 --out-channel 3 --in-channel 14 -en snemiGrowing_gf_all_4steps -pm_2 ~/pytorch_connectomics/outputs/liver/snemi_abStudy_interpolated+gradient/snemi_abStudy_interpolated+gradient_274000.pth
 
@@ -58,3 +58,6 @@ ipython --pdb trainSkeletonGrowing.py -- -o ~/pytorch_connectomics/outputs/snemi
 
 
 ipython --pdb testSkeletonGrowing.py -- -o ~/pytorch_connectomics/outputs/snemi/ -mi 16,96,96 -g 1 -c 0 -b 8 -ac directionNet --argsFile ../cmdArgs/trainArgsSNEMISkeletonGrowing.txt --task 6 --out-channel 3 --in-channel 14 -en growing_test_debug -lm True -pm ~/pytorch_connectomics/outputs/snemi/snemiGrowing_gf_all_4steps/snemiGrowing_gf_all_4steps_2500.pth -pm_2 ~/pytorch_connectomics/outputs/snemi/snemi_abStudy_interpolated+gradient/snemi_abStudy_interpolated+gradient_274000.pth
+
+
+ipython --pdb testSkeletonGrowing.py -- -o ~/pytorch_connectomics/outputs/snemi/ -mi 16,96,96 -g 1 -c 0 -b 18 -ac directionNet --argsFile ../cmdArgs/trainArgsSNEMISkeletonGrowingArtificial.txt --task 6 --out-channel 3 --in-channel 14 -en growing_debug -lm True -pm /n/home11/averma/pytorch_connectomics/outputs/snemi/snemi_artifical_8/snemi_artifical_8_3000.pth -pm_2 ~/pytorch_connectomics/outputs/snemi/snemi_abStudy_interpolated+gradient/snemi_abStudy_interpolated+gradient_120000.pth

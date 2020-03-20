@@ -131,8 +131,8 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
             skeleton_weight = self.compute_flux_weights(all_ones, valid_distance_mask, alpha=1.0)
 
             if self.weight:
-                flux_weight *= pre_weight
-                skeleton_weight *= pre_weight
+                flux_weight[pre_weight>0] *= 4
+                skeleton_weight[pre_weight>0] *= 4
 
             flux_weight = torch.from_numpy(flux_weight).unsqueeze(0)
             skeleton_weight = torch.from_numpy(skeleton_weight).unsqueeze(0)

@@ -88,8 +88,8 @@ def main():
 
     print('Setup loss function')
     # TODO | NOTE change loss fn and weight, alpha = 0.08 for all ours experiement
-    # criterion = AngularAndScaleLoss(alpha=0.08)
-    criterion = WeightedMSE()
+    criterion = AngularAndScaleLoss(alpha=0.08)
+    # criterion = WeightedMSE()
 
     print('Setup optimizer')
     model_parameters = list(model.parameters())

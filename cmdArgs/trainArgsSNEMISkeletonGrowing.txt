@@ -3,3 +3,4 @@
 -skn /n/pfister_lab2/Lab/alok/results/snemi/snemi_abStudy_fluxOnly_trainVol/split_skeletons.h5
 -fn /n/pfister_lab2/Lab/alok/results/snemi/snemi_abStudy_fluxOnly_trainVol/flux.h5
 -fngt /n/pfister_lab2/Lab/alok/snemi/skeleton/splineInterp/1_0x/grad_distance_context.h5
+-divn /n/pfister_lab2/Lab/alok/results/snemi/snemi_abStudy_fluxOnly_trainVol/flux_divergence.h5

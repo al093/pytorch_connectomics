@@ -9,13 +9,6 @@ import edt
 import multiprocessing as mp
 import networkx as nx
 
-# add ibexHelper path
-# https://github.com/donglaiw/ibexHelper
-# sys.path.append('/n/home11/averma/repositories/ibexHelper')
-# from ibexHelper.skel import CreateSkeleton,ReadSkeletons
-# from ibexHelper.graph import GetNodeList, GetEdgeList
-# from ibexHelper.skel2graph import GetGraphFromSkeleton
-
 def divergence_3d(field):
     dz = np.gradient(field[0], axis=0)
     dy = np.gradient(field[1], axis=1)
@@ -158,8 +151,9 @@ def compute_skeleton_from_scalar_field(skel_probability, method, threshold, k1, 
     dilation_kernel = np.ones([k1, k1, k1], dtype=np.bool)
     binary_skel = ndimage.morphology.binary_dilation(binary_skel, structure=dilation_kernel)
 
-    erosion_kernel = np.ones([k2, k2, k2], dtype=np.bool)
-    binary_skel = ndimage.morphology.binary_erosion(binary_skel, structure=erosion_kernel)
+    if k2 > 0:
+        erosion_kernel = np.ones([k2, k2, k2], dtype=np.bool)
+        binary_skel = ndimage.morphology.binary_erosion(binary_skel, structure=erosion_kernel)
 
     label_cc, num_cc = skimage.measure.label(binary_skel, return_num=True)
     if num_cc > np.iinfo(np.uint32).max:

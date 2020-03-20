@@ -101,7 +101,19 @@ def generate_skeleton_growing_data(skeleton, output_file, input_resolution, down
                     hg.create_dataset('sids', data=np.array([int(key[1:])]).astype(np.uint16))
     print('Total ends: ', count)
 
+
+def interpolate_using_spline(nodes, limits, order=3, smoothing=10000):
+    tck, u = interpolate.splprep([nodes[:, 0], nodes[:, 1], nodes[:, 2]], k=order, s=smoothing)
+    u_fine = np.linspace(0, 1, 100)
+    z_fine, y_fine, x_fine = interpolate.splev(u_fine, tck)
+    new_nodes = np.vstack((z_fine, y_fine, x_fine)).T
+    if new_nodes.shape[0] > 0:
+        new_nodes = new_nodes[(new_nodes[:, 0])>=0 & (new_nodes[:,1]>=0) & (new_nodes[:,2]>=0), :]
+        new_nodes = new_nodes[(new_nodes[:, 0]<limits[0]-1.0) & (new_nodes[:, 1]<limits[1]-1.0) & (new_nodes[:, 2]<limits[2]-1.0), :]
+    return np.concatenate([nodes[0:1,:], new_nodes, nodes[-1:-2:-1]], axis=0)
+
 def merge(split_skeleton, merge_data):
+    split_skeleton = split_skeleton.copy()
     merge_ids = []
     graph = nx.Graph()
 
@@ -114,6 +126,20 @@ def merge(split_skeleton, merge_data):
 
     for c in nx.connected_components(graph):
         merge_ids.append(list(graph.subgraph(c).nodes(data=False)))
+
+    # merge graphs
+    merged = []
+    gg = np.mgrid[-1:2, -2:3, -2:3]
+    grid = np.transpose((gg[0].flatten(), gg[1].flatten(), gg[2].flatten())).astype(np.int32)
+    for g in merge_data.keys():
+        match_ids = merge_data[g]['sids']
+        if np.all(match_ids > 0) and tuple(match_ids) not in merged:
+            merged.append(tuple(match_ids))
+            i_vertices = interpolate_using_spline(merge_data[g]['vertices'], np.array(split_skeleton.shape), order=2, smoothing=100)
+            i_vertices = np.unique(i_vertices.astype(np.int32), axis=0)
+            i_vertices = (i_vertices[:, np.newaxis, :] + grid).reshape(-1, 3)
+            i_vertices = i_vertices[np.all(i_vertices >= 0, axis=1) & np.all(i_vertices < np.array(split_skeleton.shape), axis=1), :]
+            split_skeleton[i_vertices[:,0], i_vertices[:,1], i_vertices[:,2]] = match_ids[0]
 
     # relable merged skeletons
     labels = np.arange(split_skeleton.max() + 1, dtype=split_skeleton.dtype)

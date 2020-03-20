@@ -1,0 +1,6 @@
+-dn /n/pfister_lab2/Lab/alok/snemi/train_image.h5
+-sp /n/pfister_lab2/Lab/alok/results/snemi/artificialSplit/growing_paths.h5
+-skn /n/pfister_lab2/Lab/alok/results/snemi/artificialSplit/split_skeleton.h5
+-fn /n/pfister_lab2/Lab/alok/results/snemi/artificialSplit/flux.h5
+-fngt /n/pfister_lab2/Lab/alok/snemi/skeleton/splineInterp/1_0x/grad_distance_context.h5
+-divn /n/pfister_lab2/Lab/alok/results/snemi/artificialSplit/skeleton_divergence.h5

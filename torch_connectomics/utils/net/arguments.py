@@ -113,11 +113,20 @@ def get_args(mode='train', input_args=None):
     parser.add_argument('-fngt', '--flux-name-gt', type=str, default=None,
                         help='Ground-truth Flux path for end-to-end training of skeleton growing.')
 
+    parser.add_argument('-divn', '--div-name', type=str, default=None,
+                        help='Divergence volumes path for skeleton tracking.')
+
     parser.add_argument('-te2e', '--train-end-to-end', type=my_bool, default=False,
                         help='Train skeleton growing end to end, will need fn_2 to be defined.')
 
     parser.add_argument('-res', '--resolution', type=str, default='30.0,6.0,6.0',
                         help='Resolution of input volumes (Z, Y, X)')
+
+    parser.add_argument('-tsteps', '--tracking-steps', type=int, default=32,
+                        help='Total allowed steps for tracking network ')
+
+    parser.add_argument('-upc', '--use-precomputed', type=my_bool, default=True,
+                        help='Use precomputed flux, gradient and global features for training tracking')
 
     parser.add_argument('-wn', '--weight-name', type=str, default=None,
                         help='Weight array to be used for loss calculations.')

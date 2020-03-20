@@ -7,6 +7,8 @@ path_state = {'STOP':0.0, 'CONTINUE':1.0}
 
 
 def get_ar_in_window(ar, center, sz):
+    if np.any(ar.shape < sz):
+        raise Exception('Cannot sample a larger array from a smaller array.')
     sz = np.array(sz).astype(np.int64)
     center = np.array(center).astype(np.int64)
     ar_sz = np.array(ar.shape).astype(np.int64)
@@ -21,11 +23,12 @@ def get_ar_in_window(ar, center, sz):
     sub_ar = ar[center[0] - h_sz[0]: center[0] - h_sz[0] + sz[0],
              center[1] - h_sz[1]: center[1] - h_sz[1] + sz[1],
              center[2] - h_sz[2]: center[2] - h_sz[2] + sz[2]]
+
     return sub_ar, center - h_sz
 
 class SkeletonGrowingRNNSampler:
 
-    def __init__(self, image, skeleton, flux, start_pos, start_sid, sample_input_size,
+    def __init__(self, image, skeleton, flux, divergence, start_pos, start_sid, sample_input_size,
                  stride, anisotropy, did, sid, mode='train', continue_growing_th=0.5,
                  stop_pos=None, stop_sid=None, path=None, ft_params=None,
                  path_state_loss_weight=None, d_avg=None, train_flux_model=None,
@@ -34,6 +37,7 @@ class SkeletonGrowingRNNSampler:
         self.image = image
         self.skeleton = skeleton
         self.flux = flux
+        self.divergence = divergence
         self.mode = mode
         self.start_pos = start_pos
         self.start_sid = start_sid
@@ -99,32 +103,36 @@ class SkeletonGrowingRNNSampler:
 
     def get_roi_from_global_features(self, center_pos_growing, corner_pos_growing):
         '''
-        A logic for running the global features models is implemented
-        depending on the current position, the global features may need to be calculated again
-        a state needs to be maintained, defining where the current global features were calculated from
-        and can a roi be extracted
+        A logic for running the global features models minimum number of times is implemented.
+        Depending on the current position, the global features may need to be calculated again.
+        A state needs to be maintained, defining where the previous global features were calculated from
+        and can a roi be extracted in the current step
         '''
+
         compute_new_global_features = False
+
         if self.global_features is None:
             compute_new_global_features = True
-        elif np.any((corner_pos_growing - self.corner_pos_global) < 10) or \
-                np.any((corner_pos_growing + self.sample_input_size + 10) > (self.corner_pos_global + self.flux_model_input_size)):
+        elif np.any((corner_pos_growing - self.corner_pos_global) < 5) or \
+                np.any((corner_pos_growing + self.sample_input_size + 5) > (self.corner_pos_global + self.flux_model_input_size)):
 
-            out_idxs_1 = (corner_pos_growing - self.corner_pos_global) < 10
-            out_idxs_2 = (corner_pos_growing + self.sample_input_size + 10) > (self.corner_pos_global + self.flux_model_input_size)
+            out_idxs_1 = (corner_pos_growing - self.corner_pos_global) < 5
+            out_idxs_2 = (corner_pos_growing + self.sample_input_size + 5) > (self.corner_pos_global + self.flux_model_input_size)
             oob_idx = out_idxs_2 | out_idxs_1
             _, corner_pos_global = get_ar_in_window(self.image, center_pos_growing, self.flux_model_input_size)
             if np.any(corner_pos_global[oob_idx] != self.corner_pos_global[oob_idx]):
                 compute_new_global_features = True
-        if compute_new_global_features:
+
+        if compute_new_global_features is True:
             if self.mode == 'test':
-                corner_pos_global, global_features = self.features_repo.get((corner_pos_growing, corner_pos_growing + self.sample_input_size))
+                corner_pos_global, global_features, predicted_flux = self.features_repo.get((corner_pos_growing, corner_pos_growing + self.sample_input_size))
             else:
                 corner_pos_global = None
 
             if corner_pos_global is not None:
                 self.corner_pos_global = corner_pos_global
                 self.global_features = torch.from_numpy(global_features).to(self.device)
+                self.predicted_flux = torch.from_numpy(predicted_flux).to(self.device)
             else:
                 # we may have to shift the corner position because the flux_model_input_size is larger than the growing model input size
                 input_image, corner_pos_global = get_ar_in_window(self.image, center_pos_growing, self.flux_model_input_size)
@@ -133,17 +141,15 @@ class SkeletonGrowingRNNSampler:
                 #run model and get global features
                 self.global_features, self.predicted_flux = self.get_global_features(input_image)
                 if self.mode == 'test':
-                    self.features_repo.add(self.global_features, (self.corner_pos_global, self.corner_pos_global + self.flux_model_input_size))
+                    self.features_repo.add(self.global_features, self.predicted_flux, (self.corner_pos_global, self.corner_pos_global + self.flux_model_input_size))
 
         # find the relative corner_pos_growing wrt global features volumes and crop an roi
         corner_pos_growing_relative = corner_pos_growing - self.corner_pos_global
         roi_global_features = crop_volume_mul(self.global_features, self.sample_input_size, corner_pos_growing_relative)
+        roi_p_flux = crop_volume_mul(self.predicted_flux, self.sample_input_size, corner_pos_growing_relative)
+        roi_p_div = self.divergence_3d_tensor(roi_p_flux)
 
-        if self.mode == 'train' and self.train_flux_model is True:
-            roi_p_flux = crop_volume_mul(self.predicted_flux, self.sample_input_size, corner_pos_growing_relative)
-            return roi_global_features, roi_p_flux
-        else:
-            return roi_global_features
+        return roi_global_features, roi_p_flux, roi_p_div
 
     def get_next_step(self):
         if self.mode == 'train': return self.get_next_step_train()
@@ -195,14 +201,16 @@ class SkeletonGrowingRNNSampler:
         start_skeleton_mask = (cropped_skeleton == self.start_sid).astype(np.float32)
         other_skeleton_mask = ((cropped_skeleton != self.start_sid) & (cropped_skeleton != 0)).astype(np.float32)
         input_flux = crop_volume_mul(self.flux, input_size, corner_pos)
+        cropped_divergence = crop_volume(self.divergence, input_size, corner_pos)
 
         input_image = torch.from_numpy(input_image.copy()).unsqueeze(0)
         input_flux = torch.from_numpy(input_flux.copy())
         start_skeleton_mask = torch.from_numpy(start_skeleton_mask).unsqueeze(0)
         other_skeleton_mask = torch.from_numpy(other_skeleton_mask).unsqueeze(0)
+        cropped_divergence = torch.from_numpy(cropped_divergence.copy()).unsqueeze(0)
 
-        global_features = self.get_roi_from_global_features(center_pos, corner_pos)
-        return True, input_image, input_flux, start_skeleton_mask, other_skeleton_mask, state, center_pos, global_features
+        global_features, predicted_flux, predicted_div = self.get_roi_from_global_features(center_pos, corner_pos)
+        return True, input_image, input_flux, start_skeleton_mask, other_skeleton_mask, cropped_divergence, state, center_pos, global_features, predicted_flux, predicted_div
 
     def get_next_step_train(self):
         '''
@@ -259,6 +267,7 @@ class SkeletonGrowingRNNSampler:
         cropped_skeleton = crop_volume(self.skeleton, input_size, corner_pos)
         start_skeleton_mask = (cropped_skeleton == self.start_sid).astype(np.float32)
         other_skeleton_mask = ((cropped_skeleton != self.start_sid) & (cropped_skeleton != 0)).astype(np.float32)
+        cropped_divergence = crop_volume(self.divergence, input_size, corner_pos)
 
         input_flux = crop_volume_mul(self.flux, input_size, corner_pos)
         # flux vectors need to be flipped or transposed as per the ft_params, ensure a copy is passed.
@@ -273,18 +282,18 @@ class SkeletonGrowingRNNSampler:
         input_flux = torch.from_numpy(input_flux.copy())
         start_skeleton_mask = torch.from_numpy(start_skeleton_mask).unsqueeze(0)
         other_skeleton_mask = torch.from_numpy(other_skeleton_mask).unsqueeze(0)
+        cropped_divergence = torch.from_numpy(cropped_divergence.copy()).unsqueeze(0)
 
         # calculate direction
         direction = self.calculate_direction()
         direction = torch.from_numpy(direction)
+        global_features, p_flux, p_div = self.get_roi_from_global_features(center_pos, corner_pos)
         if self.train_flux_model is True:
-            global_features, p_flux = self.get_roi_from_global_features(center_pos, corner_pos)
-            return True, input_image, input_flux, start_skeleton_mask, other_skeleton_mask, \
-                   direction, state, center_pos, path_state_loss_weight, global_features, p_flux, gt_flux
+            return True, input_image, input_flux, start_skeleton_mask, other_skeleton_mask, cropped_divergence, \
+                   direction, state, center_pos, path_state_loss_weight, global_features, p_flux, p_div, gt_flux
         else:
-            global_features = self.get_roi_from_global_features(center_pos, corner_pos)
-            return True, input_image, input_flux, start_skeleton_mask, other_skeleton_mask, \
-                   direction, state, center_pos, path_state_loss_weight, global_features
+            return True, input_image, input_flux, start_skeleton_mask, other_skeleton_mask, cropped_divergence,\
+                   direction, state, center_pos, path_state_loss_weight, global_features, p_flux, p_div
 
     def calculate_next_position(self, p_direction):
         '''
@@ -379,9 +388,9 @@ class SkeletonGrowingRNNSampler:
             direction = self.normalize(direction)
         if self.first_split_node > 0 and nearest_skel_node_idx >= self.first_split_node:
             # calculate directions which forces predicted path to converge with the skeleton
-            direction = 0.65*direction + 0.35*lateral_dir
-        else:
             direction = 0.75*direction + 0.25*lateral_dir
+        else:
+            direction = 0.85*direction + 0.15*lateral_dir
 
         direction = self.normalize(direction)
         return direction
@@ -404,6 +413,7 @@ class SkeletonGrowingRNNSampler:
                 self.image = self.image[:, :, ::-1]
                 self.skeleton = self.skeleton[:, :, ::-1]
                 self.flux = self.flux[:, :, :, ::-1]
+                self.divergence = self.divergence[:, :, ::-1]
                 self.path[:, 2] = self.image.shape[2] - self.path[:, 2] - 1
                 self.stop_pos[2] = self.image.shape[2] - self.stop_pos[2] - 1
                 self.start_pos[2] = self.image.shape[2] - self.start_pos[2] - 1
@@ -411,6 +421,7 @@ class SkeletonGrowingRNNSampler:
                 self.image = self.image[:, ::-1, :]
                 self.skeleton = self.skeleton[:, ::-1, :]
                 self.flux = self.flux[:, :, ::-1, :]
+                self.divergence = self.divergence[:, ::-1, :]
                 self.path[:, 1] = self.image.shape[1] - self.path[:, 1] - 1
                 self.stop_pos[1] = self.image.shape[1] - self.stop_pos[1] - 1
                 self.start_pos[1] = self.image.shape[1] - self.start_pos[1] - 1
@@ -418,6 +429,7 @@ class SkeletonGrowingRNNSampler:
                 self.image = self.image[::-1, :, :]
                 self.skeleton = self.skeleton[::-1, :, :]
                 self.flux = self.flux[:, ::-1, :, :]
+                self.divergence = self.divergence[::-1, :, :]
                 self.path[:, 0] = self.image.shape[0] - self.path[:, 0] - 1
                 self.stop_pos[0] = self.image.shape[0] - self.stop_pos[0] - 1
                 self.start_pos[0] = self.image.shape[0] - self.start_pos[0] - 1
@@ -425,6 +437,7 @@ class SkeletonGrowingRNNSampler:
                 self.image = self.image.transpose(0, 2, 1)
                 self.skeleton = self.skeleton.transpose(0, 2, 1)
                 self.flux = self.flux.transpose(0, 1, 3, 2)
+                self.divergence = self.divergence.transpose(0, 2, 1)
                 self.path = self.path[:, [0, 2, 1]]
                 self.stop_pos = self.stop_pos[[0, 2, 1]]
                 self.start_pos = self.start_pos[[0, 2, 1]]
@@ -462,3 +475,12 @@ class SkeletonGrowingRNNSampler:
         d = (tuple(sampled_points_discrete[:, 0]), tuple(sampled_points_discrete[:, 1]), tuple(sampled_points_discrete[:, 2]))
         f = (tuple(sampled_points[:, 0]), tuple(sampled_points[:, 1]), tuple(sampled_points[:, 2]))
         return f, d
+
+    def divergence_3d_tensor(self, field):
+        # TODO make back propagable
+        device = field.device
+        field = field.detach().cpu().numpy()
+        dz = np.gradient(field[0], axis=0)
+        dy = np.gradient(field[1], axis=1)
+        dx = np.gradient(field[2], axis=2)
+        return torch.from_numpy(dz + dy + dx).to(device).unsqueeze(0)
