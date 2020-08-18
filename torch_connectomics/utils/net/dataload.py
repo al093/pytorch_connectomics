@@ -79,29 +79,31 @@ def get_input(args, model_io_size, mode='train', model=None):
             assert len(img_name)==len(seg_name)
             model_label = [None]*len(seg_name)
 
-    if args.task != 6 and (mode=='train' or mode=='validation'):
+    if args.task != 6 and (mode=='train' or mode=='validation') and args.data_aug is True:
         # setup augmentor
         elastic_augmentor = Elastic(alpha=6.0, p=0.75)
-        augmentor = Compose([
-                             Rotate(p=1.0),
-                             # Rescale(p=0.5),
-                             Flip(p=1.0),
-                             elastic_augmentor,
-                             Grayscale(p=0.75),
-                             Blur(min_sigma=1, max_sigma=2, min_slices=model_io_size[0]//6, max_slices=model_io_size[0]//4, p=0.4),
-                             MissingParts(p=0.5)
-                             # MissingSection(p=0.5),
-                             # MisAlignment2(p=1.0, displacement=16)
-                             ],
-                             input_size=model_io_size)
+        augmentation_methods = [
+            Rotate(p=1.0),
+            Flip(p=1.0),
+            elastic_augmentor,
+            Grayscale(p=0.75),
+            Blur(min_sigma=1, max_sigma=2, min_slices=model_io_size[0]//6, max_slices=model_io_size[0]//4, p=0.4),
+            MissingParts(p=0.5)
+            # MissingSection(p=0.5),
+            # MisAlignment2(p=1.0, displacement=16)
+            ]
+        augmentor = Compose(augmentation_methods,
+                            input_size=model_io_size)
         elastic_augmentor.set_input_sz(augmentor.sample_size)
+        sample_input_size = augmentor.sample_size
     else:
         augmentor = None
+        sample_input_size = model_io_size
 
     print('Data augmentation: ', augmentor is not None)
+
     SHUFFLE = (mode=='train' or mode=='validation')
     print('Batch size: ', args.batch_size)
-
 
     if mode == 'test' and args.task not in [5]:
         pad_size = np.array(model_io_size//2, dtype=np.int64)
@@ -164,7 +166,7 @@ def get_input(args, model_io_size, mode='train', model=None):
 
             if args.task == 3 or args.task == 4:
                 s_points[i] = load_list_from_h5(seed_points_files[i])
-                half_aug_sz = augmentor.sample_size//2
+                half_aug_sz = sample_input_size//2
                 vol_size = model_input[i].shape
                 new_list = []
                 for idx in range(len(s_points[i])):
@@ -186,9 +188,6 @@ def get_input(args, model_io_size, mode='train', model=None):
                 data = {}
                 with h5py.File(seed_points_files[i], 'r') as hf:
                     for g in hf.keys():
-                        # if int(g) not in [107, 108, 159, 165, 166, 176, 177, 223, 244, 245, 248, 249, 251, 370, 411,
-                        #                   429, 430, 509, 510, 555, 588, 597, 598, 599, 617, 618, 641, 652, 653, 668, 686, 687, 694]:
-                        #     continue
                         d = {}
                         d['path'] = np.asarray(hf.get(g)['vertices']) + pad_size.astype(np.float32)
                         if d['path'].shape[0] <= 2:
@@ -198,6 +197,10 @@ def get_input(args, model_io_size, mode='train', model=None):
                             d['first_split_node'] = np.asarray(hf.get(g)['first_split_node'])[0]
                         data[int(g)] = d
                 s_points[i] = data
+
+                if divergence_files is not None:
+                    divergence[i] = np.array((h5py.File(divergence_files[i], 'r')['main']))
+                    divergence[i] = np.pad(divergence[i], pad_size_tuple)
 
             # load skeletons
             if skeleton_files is not None:
@@ -219,10 +222,6 @@ def get_input(args, model_io_size, mode='train', model=None):
             if weight_files is not None:
                 weight[i] = np.array((h5py.File(weight_files[i], 'r')['main']))
                 weight[i] = np.pad(weight[i], pad_size_tuple)
-
-            if divergence_files is not None:
-                divergence[i] = np.array((h5py.File(divergence_files[i], 'r')['main']))
-                divergence[i] = np.pad(divergence[i], pad_size_tuple)
 
         print(img_name[i])
 
@@ -253,11 +252,6 @@ def get_input(args, model_io_size, mode='train', model=None):
             initial_seg = np.pad(initial_seg, pad_size_tuple, 'reflect')
 
     if mode=='train' or mode=='validation':
-        if augmentor is None:
-            sample_input_size = model_io_size
-        else:
-            sample_input_size = augmentor.sample_size
-
         if args.task == 0: # affininty prediction
             dataset = AffinityDataset(volume=model_input, label=model_label, sample_input_size=sample_input_size,
                                       sample_label_size=sample_input_size, augmentor=augmentor, mode = 'train')

@@ -71,7 +71,7 @@ def main():
     args.output = args.output + args.exp_name + '/'
 
     print('Initial setup')
-    torch.backends.cudnn.enabled = False
+    torch.backends.cudnn.enabled = True
     model_io_size, device = init(args)
 
     if args.disable_logging is not True:

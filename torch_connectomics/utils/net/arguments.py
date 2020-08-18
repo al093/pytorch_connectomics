@@ -81,6 +81,9 @@ def get_args(mode='train', input_args=None):
         parser.add_argument('-tgdtx','--train-grad-dtx', type=my_bool, default=True,
                             help='If False, will train from gradient to skeleton predictions')
 
+        parser.add_argument('--data-aug', type=my_bool, default=False,
+                            help='Augment data')
+
         # optimization option
         parser.add_argument('-lt', '--loss', type=int, default=1,
                             help='Loss function')
@@ -90,6 +93,7 @@ def get_args(mode='train', input_args=None):
                             help='Total number of iteration')
         parser.add_argument('--iteration-save', type=int, default=100,
                             help='Number of iteration to save')
+
 
     if mode == 'test':
         parser.add_argument('-ta', '--test-augmentation',  type=my_bool, default=False,
@@ -134,9 +138,9 @@ def get_args(mode='train', input_args=None):
     parser.add_argument('--argsFile', type=open, action=LoadFromFile)
 
     if input_args is not None:
-        args = parser.parse_args(input_args)
+        args, unknown = parser.parse_known_args(input_args)
     else:
-        args = parser.parse_args()
+        args, unknown = parser.parse_known_args()
 
     return args
 
