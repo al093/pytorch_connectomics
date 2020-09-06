@@ -88,11 +88,13 @@ def get_args(mode='train', input_args=None):
         parser.add_argument('-lt', '--loss', type=int, default=1,
                             help='Loss function')
         parser.add_argument('-lr', type=float, default=0.0001,
-                            help='Learning rate')
+                            help='Initial learning rate')
         parser.add_argument('--iteration-total', type=int, default=1000,
                             help='Total number of iteration')
         parser.add_argument('--iteration-save', type=int, default=100,
                             help='Number of iteration to save')
+        rser.add_argument('--lr-scheduler', type=str, default='stepLR',
+                          help='Learning rate schedule. Possible values: stepLR')
 
 
     if mode == 'test':

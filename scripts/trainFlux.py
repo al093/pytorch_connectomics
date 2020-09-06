@@ -40,7 +40,8 @@ def train(args, train_loader, model, device, criterion, optimizer, scheduler, lo
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-
+        scheduler.step()
+        
         print('[Iteration %d] train_loss=%0.4f lr=%.6f' % (iteration,
                                                            loss.item(), optimizer.param_groups[0]['lr']))
 
@@ -55,9 +56,7 @@ def train(args, train_loader, model, device, criterion, optimizer, scheduler, lo
                           iteration, writer, mode='Train',
                           color_data=torch.cat((vec_to_RGB(output_flux.cpu()), vec_to_RGB(flux.cpu())), 1))
 
-            scheduler.step(loss)
-
-        #Save model
+        #Save model, update lr
         if iteration % args.iteration_save == 0 or iteration >= args.iteration_total:
             torch.save(model.state_dict(), args.output+(args.exp_name + '_%d.pth' % iteration))
 
@@ -96,9 +95,16 @@ def main():
     optimizer = torch.optim.Adam(model_parameters, lr=args.lr, betas=(0.9, 0.999),
                                  eps=1e-08, weight_decay=1e-6, amsgrad=True)
 
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, 
-                patience=1000, verbose=False, threshold=0.0001, threshold_mode='rel', cooldown=0, 
-                min_lr=1e-7, eps=1e-08)
+    # TODO(alok) maybe we need this back
+    # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1,
+    #             patience=1000, verbose=False, threshold=0.0001, threshold_mode='rel', cooldown=0,
+    #             min_lr=1e-7, eps=1e-08)
+
+    if args.scheduler is 'stepLR':
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=round(args.iteration_total/5), gamma=0.5)
+    else:
+        print("Learning rate scheduler is not defined to any known types.")
+        return
 
     print('4. start training')
     train(args, train_loader, model, device, criterion, optimizer, scheduler, logger, writer)
