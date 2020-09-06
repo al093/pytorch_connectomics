@@ -399,12 +399,13 @@ def calculate_binary_errors_batch(pred_skeletons, gt_skeleton_paths, resolution,
 
     return avg_errors
 
-def calculate_errors_batch(pred_skeletons, gt_skeleton_paths, gt_skeleton_ctx_paths, resolution, temp_folder, num_cpu,
+def calculate_errors_batch(pred_skeletons, gt_skeletons, gt_skeleton_ctxs, resolution, temp_folder, num_cpu,
                            matching_radius, ibex_downsample_fac, erl_overlap_allowance):
     errors = [None] * len(pred_skeletons)
     for i, pred_skeleton_all_steps in enumerate(pred_skeletons):
-        gt_skeleton = read_data(gt_skeleton_paths[i])
-        gt_context = read_data(gt_skeleton_ctx_paths[i])
+        gt_skeleton = read_data(gt_skeletons[i]) if gt_skeletons[i] is str else gt_skeletons[i]
+        gt_context = read_data(gt_skeleton_ctxs[i]) if gt_skeleton_ctxs[i] is str else gt_skeleton_ctxs[i]
+
         ibex_skeletons = compute_ibex_skeleton_graphs(gt_context, temp_folder + '/ibex_graphs/', resolution, ibex_downsample_fac)
         errors[i] = []
         for pred_skeleton in pred_skeleton_all_steps:
@@ -412,9 +413,12 @@ def calculate_errors_batch(pred_skeletons, gt_skeleton_paths, gt_skeleton_ctx_pa
                 p, r, f, c, hm, erl = -1, -1, -1, -1, -1, -1
                 print('Predicion was empty/None')
             else:
-                p, r, f, c, hm = calculate_error_metric_2(pred_skeleton, gt_skeleton, gt_context,
-                                                          resolution, temp_folder, num_cpu, matching_radius)
-                erl = 0 #calculate_erl(pred_skeleton, ibex_skeletons, erl_overlap_allowance)
+                # p, r, f, c, hm = calculate_error_metric_2(pred_skeleton, gt_skeleton, gt_context,
+                #                                           resolution, temp_folder, num_cpu, matching_radius)
+                p, r, f = calculate_error_metric_binary_overlap(pred_skeleton, gt_skeleton, resolution, temp_folder,
+                                                                num_cpu, matching_radius)
+                c, hm = -1, -1
+                erl = calculate_erl(pred_skeleton, ibex_skeletons, erl_overlap_allowance)
             errors[i].append({'p':p, 'r':r, 'f':f, 'c':c, 'hm':hm, 'erl':erl})
 
     steps = len(pred_skeletons[0])
