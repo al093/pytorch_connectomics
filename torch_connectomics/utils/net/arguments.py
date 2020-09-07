@@ -93,7 +93,7 @@ def get_args(mode='train', input_args=None):
                             help='Total number of iteration')
         parser.add_argument('--iteration-save', type=int, default=100,
                             help='Number of iteration to save')
-        rser.add_argument('--lr-scheduler', type=str, default='stepLR',
+        parser.add_argument('--lr-scheduler', type=str, default='stepLR',
                           help='Learning rate schedule. Possible values: stepLR')
 
 

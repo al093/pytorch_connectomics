@@ -100,7 +100,7 @@ def main():
     #             patience=1000, verbose=False, threshold=0.0001, threshold_mode='rel', cooldown=0,
     #             min_lr=1e-7, eps=1e-08)
 
-    if args.scheduler is 'stepLR':
+    if args.lr_scheduler is 'stepLR':
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=round(args.iteration_total/5), gamma=0.5)
     else:
         print("Learning rate scheduler is not defined to any known types.")
