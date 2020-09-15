@@ -17,15 +17,15 @@ class residual_block_2d(nn.Module):
         out_planes (int): number of output channels.
         projection (bool): projection of the input with a conv layer.
     """
-    def __init__(self, in_planes, out_planes, projection=True):
+    def __init__(self, in_planes, out_planes, projection=False):
         super(residual_block_2d, self).__init__()
         self.projection = projection
         self.conv = nn.Sequential(
-            conv3d_bn_elu( in_planes, out_planes, kernel_size=(1,3,3), padding=(0,1,1)),
-            conv3d_bn_non(out_planes, out_planes, kernel_size=(1,3,3), padding=(0,1,1))
+            conv3d_bn_relu(in_planes, out_planes, kernel_size=(1, 3, 3), padding=(0, 1, 1)),
+            conv3d_bn_relu(out_planes, out_planes, kernel_size=(1, 3, 3), padding=(0, 1, 1))
         )
         self.projector = conv3d_bn_non(in_planes, out_planes, kernel_size=(1,1,1), padding=(0,0,0))
-        self.elu = nn.ELU(inplace=True)
+        self.lrelu = nn.ReLU(inplace=True)
         
     def forward(self, x):
         y = self.conv(x)
@@ -33,7 +33,7 @@ class residual_block_2d(nn.Module):
             y = y + self.projector(x)
         else:
             y = y + x
-        y = self.elu(y)
+        y = self.lrelu(y)
         return y  
 
 class residual_block_3d(nn.Module):
@@ -48,11 +48,11 @@ class residual_block_3d(nn.Module):
         super(residual_block_3d, self).__init__()
         self.projection = projection
         self.conv = nn.Sequential(
-            conv3d_bn_elu( in_planes, out_planes, kernel_size=(3,3,3), padding=(1,1,1)),
-            conv3d_bn_non(out_planes, out_planes, kernel_size=(3,3,3), padding=(1,1,1))
+            conv3d_bn_relu(in_planes, out_planes, kernel_size=(3, 3, 3), padding=(1, 1, 1)),
+            conv3d_bn_relu(out_planes, out_planes, kernel_size=(3, 3, 3), padding=(1, 1, 1))
         )
         self.projector = conv3d_bn_non(in_planes, out_planes, kernel_size=(1,1,1), padding=(0,0,0))
-        self.elu = nn.ELU(inplace=True)
+        self.relu = nn.ReLU(inplace=True)
         
     def forward(self, x):
         y = self.conv(x)
@@ -60,7 +60,7 @@ class residual_block_3d(nn.Module):
             y = y + self.projector(x)
         else:
             y = y + x
-        y = self.elu(y)
+        y = self.relu(y)
         return y       
 
 class bottleneck_dilated_2d(nn.Module):

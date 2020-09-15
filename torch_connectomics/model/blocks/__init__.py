@@ -5,15 +5,16 @@ from .convlstmcenter import ConvLSTMCenter
 from .slicelstm import SliceLSTM
 from .slicelstmconv import SliceLSTMConv
 from .convLSTMCell3D import ConvLSTMCell3D
+from .aspp_3d import ASPP
 
 __all__ = ['conv2d_pad',
            'conv2d_bn_non',
            'conv2d_bn_elu',
-           'conv2d_bn_lrelu',
+           'conv2d_bn_relu',
            'conv3d_pad',
            'conv3d_bn_non',
            'conv3d_bn_elu',
-           'conv3d_bn_lrelu',
+           'conv3d_bn_relu',
            'residual_block_2d',
            'residual_block_3d',
            'bottleneck_dilated_2d',
@@ -25,4 +26,5 @@ __all__ = ['conv2d_pad',
            'ConvLSTM',
            'SliceLSTM',
            'SliceLSTMConv',
-           'ConvLSTMCell3D']
+           'ConvLSTMCell3D',
+           'ASPP']

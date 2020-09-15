@@ -332,8 +332,12 @@ def get_input(args, model_io_size, mode='train', model=None):
             pin_memory = True
 
         if args.task != 3:
+
+            train_sampler = torch.utils.data.distributed.DistributedSampler(dataset)
+
             img_loader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, shuffle=SHUFFLE,
-                                                     collate_fn=c_fn, num_workers=args.num_cpu, pin_memory=pin_memory)
+                                                     collate_fn=c_fn, num_workers=args.num_cpu, pin_memory=pin_memory,
+                                                     sampler=train_sampler)
             return img_loader, volume_shape, pad_size
         else:
             assert len(img_name) == 1

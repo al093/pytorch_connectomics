@@ -2,7 +2,7 @@ import neuroglancer
 import numpy as np
 import h5py, pickle
 from scipy import ndimage
-import random
+
 
 def write_hf(data, name):
     with h5py.File(name, 'w') as hf:
@@ -53,7 +53,7 @@ def show_grad_as_color(path, name, bounds=None, resolution=None):
 
 def grad_to_RGB(grad_field):
     #shape of grad_field is 3, Z, Y, X
-    norm = np.sqrt(np.sum(grad_field**2, axis=1, keepdims=True))
+    norm = np.sqrt(np.sum(grad_field**2, axis=0))
     mask = (norm < 1e-5)
     loc_mask = np.nonzero(mask)
 
@@ -63,6 +63,21 @@ def grad_to_RGB(grad_field):
 
     n_grad_field[:, loc_mask[0], loc_mask[1], loc_mask[2]] = 0.0
     return n_grad_field
+
+
+# def grad_to_RGB(grad_field):
+#     #shape of grad_field is 3, Z, Y, X
+#     norm = np.sqrt(np.sum(grad_field**2, axis=1, keepdims=True))
+#     mask = (norm < 1e-5)
+#     loc_mask = np.nonzero(mask)
+
+#     norm[norm <= 1.0] = 1.0
+#     n_grad_field = grad_field / (2.0 * norm)
+#     n_grad_field += 0.5
+
+#     n_grad_field[:, loc_mask[0], loc_mask[1], loc_mask[2]] = 0.0
+#     return n_grad_field
+
 
 def show(path, name, bounds=None, is_image=False, resolution=None, normalize=False, bb=False):
     global viewer
@@ -496,6 +511,7 @@ def show_skeleton(filepath, name='skeletons', resolution=None, show_ends=False):
     edges = {}        
     if filepath[-3:] == '.h5':
         with h5py.File(filepath, 'r') as hf:
+            print(f"Skeleton Ids are: {[int(k)for k in hf.keys()]}")
             for g in hf.keys():
                 vertices[g] = np.asarray(hf.get(g)['vertices'])[:, ::-1] * np.array(r)
                 if 'edges' in hf.get(g).keys():
@@ -537,10 +553,12 @@ def show_skeleton(filepath, name='skeletons', resolution=None, show_ends=False):
                     not_selected_alpha=0,
                 ))
 
+
 def read_pkl(filepath):
     with open(filepath, 'rb') as phandle: 
         data = pickle.load(phandle)
     return data
+
 
 ip='localhost' # or public IP of the machine for sharable display
 port=18779 # change to an unused port number
@@ -548,9 +566,37 @@ neuroglancer.set_server_bind_address(bind_address=ip, bind_port=port)
 viewer=neuroglancer.Viewer()
 
 #### SNEMI #####
-res = [6, 6, 30]
+# res = [6, 6, 30]
 # D0 = '/n/pfister_lab2/Lab/alok/snemi/'
 # show(D0 + 'train_image.h5', 'im', is_image=True)
+
+####### SEGEM ########
+# res = [11, 11, 28]
+# D0 = '/n/pfister_lab2/Lab/vcg_connectomics/EM/segEM/skeletonData/processed/'
+# im = read_hf(D0 + 'cortex_training_raw.h5')
+# show_array(im/255.0, 'im-train')
+# show_skeleton(D0 + 'cortex_training_skeletons.h5')
+
+#Neuron Population MICCAI 19
+# res = [5, 5, 5]
+# seg_file ='/n/pfister_lab2/Lab/vcg_connectomics/LM/VISoR-40_dataset/valid_data/valid_10.h5'
+# with h5py.File(seg_file, 'r') as hf:
+#     data = np.asarray(hf['data'])/20000
+#     label = np.asarray(hf['label'])
+
+# show_array(data, 'im')
+# show_array(label, 'label')
+
+
+
+# Coronary Artery dataset
+# res = [36, 36, 40]
+# skel_file ='/n/pfister_lab2/Lab/divyamgoel/skeleton/data/coronary/processed/skeletons00/1_0x/skeleton.h5'
+# show(skel_file, 'skel', is_image=False)
+
+
+
+
 # show(D0 + 'skeleton/train_labels_separated_disjointed_removedGlial.h5', 'gt-seg', is_image=False)
 # show('/n/pfister_lab2/Lab/alok/results/snemi/test_context_L1_22000_14000_denseSupervision/1x/splitted.h5', 'split', is_image=False)
 # show('/n/pfister_lab2/Lab/alok/snemi/skeleton/skeleton.h5', 'gt-skeleton')

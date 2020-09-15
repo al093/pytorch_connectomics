@@ -14,11 +14,11 @@ def train(args, train_loader, model, device, criterion, optimizer, scheduler, lo
     start = time.time()
 
     for iteration, data in enumerate(train_loader):
-        sys.stdout.flush()
-
-        if iteration < 50:
-            print('time taken for itr: ', time.time() - start)
-            start = time.time()
+        if args.local_rank is None or args.local_rank == 0:
+            sys.stdout.flush()
+            if iteration < 50:
+                print('time taken for itr: ', time.time() - start)
+                start = time.time()
 
         _, volume, label, flux, flux_weight, _, _= data
 
@@ -29,10 +29,12 @@ def train(args, train_loader, model, device, criterion, optimizer, scheduler, lo
         if isinstance(criterion, AngularAndScaleLoss):
             flux_loss, angular_l, scale_l = criterion(output_flux, flux, weight=flux_weight)
             loss = flux_loss
-            if writer:
-                writer.add_scalars('Part-wise Losses',
-                                   {'Angular': angular_l.item(),
-                                    'Scale': scale_l.item()}, iteration)
+
+            if args.local_rank is None or args.local_rank == 0:
+                if writer:
+                    writer.add_scalars('Part-wise Losses',
+                                       {'Angular': angular_l.item(),
+                                        'Scale': scale_l.item()}, iteration)
         else:
             loss = criterion(output_flux, flux, weight=flux_weight)
 
@@ -41,43 +43,52 @@ def train(args, train_loader, model, device, criterion, optimizer, scheduler, lo
         loss.backward()
         optimizer.step()
         scheduler.step()
-        
-        print('[Iteration %d] train_loss=%0.4f lr=%.6f' % (iteration,
-                                                           loss.item(), optimizer.param_groups[0]['lr']))
 
-        if logger and writer:
-            logger.write("[Volume %d] train_loss=%0.4f lr=%.5f\n" % (iteration,
-                                                                     loss.item(), optimizer.param_groups[0]['lr']))
-            writer.add_scalars('Loss', {'Overall Loss': loss.item()}, iteration)
+        if args.local_rank is None or args.local_rank == 0:
+            print('[Iteration %d] train_loss=%0.4f lr=%.6f' % (iteration,
+                                                               loss.item(), optimizer.param_groups[0]['lr']))
 
-        if iteration % 500 == 0:
-            if writer:
-                visualize(volume.cpu(), flux_weight.cpu() / flux_weight.max().cpu(), label,
-                          iteration, writer, mode='Train',
-                          color_data=torch.cat((vec_to_RGB(output_flux.cpu()), vec_to_RGB(flux.cpu())), 1))
+            if logger and writer:
+                logger.write("[Volume %d] train_loss=%0.4f lr=%.5f\n" % (iteration,
+                                                                         loss.item(), optimizer.param_groups[0]['lr']))
+                writer.add_scalars('Loss', {'Overall Loss': loss.item()}, iteration)
 
-        #Save model, update lr
-        if iteration % args.iteration_save == 0 or iteration >= args.iteration_total:
-            torch.save(model.state_dict(), args.output+(args.exp_name + '_%d.pth' % iteration))
+            if iteration % 500 == 0:
+                if writer:
+                    visualize(volume.cpu(), flux_weight.cpu() / flux_weight.max().cpu(), label,
+                              iteration, writer, mode='Train',
+                              color_data=torch.cat((vec_to_RGB(output_flux.cpu()), vec_to_RGB(flux.cpu())), 1))
+
+            #Save model, update lr
+            if iteration % args.iteration_save == 0 or iteration >= args.iteration_total:
+                torch.save(model.state_dict(), args.output+(args.exp_name + '_%d.pth' % iteration))
 
         # Terminate
         if iteration >= args.iteration_total:
             break
 
+def setup_ddp(local_rank):
+    torch.distributed.init_process_group(backend='nccl', init_method='env://')
+    torch.cuda.set_device(local_rank)
+
 def main():
     args = get_args(mode='train')
+
     save_cmd_line(args)  # Saving the command line args with machine name and time for later reference
     args.output = args.output + args.exp_name + '/'
 
     print('Initial setup')
+    if args.local_rank is not None:
+        setup_ddp(args.local_rank)
+        print(f'Local rank: {args.local_rank}')
+
     torch.backends.cudnn.enabled = True
     model_io_size, device = init(args)
 
+    logger, writer = None, None
     if args.disable_logging is not True:
-        logger, writer = get_logger(args)
-    else:
-        logger, writer = None, None
-        print('No log file would be created.')
+        if args.local_rank is None or args.local_rank == 0:
+            logger, writer = get_logger(args)
 
     print('Setup model')
     model = setup_model(args, device, model_io_size, non_linearity=(torch.tanh,))

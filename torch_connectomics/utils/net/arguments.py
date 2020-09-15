@@ -96,6 +96,8 @@ def get_args(mode='train', input_args=None):
         parser.add_argument('--lr-scheduler', type=str, default='stepLR',
                           help='Learning rate schedule. Possible values: stepLR')
 
+        parser.add_argument("--local_rank", type=int, default=None)
+
 
     if mode == 'test':
         parser.add_argument('-ta', '--test-augmentation',  type=my_bool, default=False,
