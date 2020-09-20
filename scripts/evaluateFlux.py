@@ -1,6 +1,8 @@
 import os, sys, argparse, glob
 import pickle, nibabel, re, json
 import numpy as np
+from scipy import ndimage
+import skimage
 
 from torch_connectomics.data.dataset.dataset_eval_params import *
 from torch_connectomics.utils.skeleton import *
@@ -23,7 +25,8 @@ def get_cmdline_args(args):
     parser.add_argument('--exp-name',               type=str,               help='Experiment name')
     parser.add_argument('--model-dir',              type=str,               help='directory with one or more models (.pth) files')
     parser.add_argument('--div-threshold',          type=float,             default=None, help='Threshold divergence at this value to get skeletons')
-    parser.add_argument('--min-skeleton-vol-threshold',          type=int,               default=400, help='Remove all skeletons smaller than this size')
+    parser.add_argument('--dataset-scale',          type=float,             default=1.0, help='Get different input scale.')
+    parser.add_argument('--min-skeleton-vol-threshold',          type=int,  default=400, help='Remove all skeletons smaller than this size')
     return parser.parse_known_args(args)[0]
 
 if __name__ == "__main__":
@@ -54,7 +57,7 @@ if __name__ == "__main__":
     # get dataset paths
     (paths, erl_overlap_allowance, ibex_downsample_fac, matching_radius,
     resolution, output_base_path, var_params, data_path, gt_skel_path, \
-    gt_context_path, gt_skel_graphs_path) = get_dataset_fn(args.set, args.method, args.tune)
+    gt_context_path, gt_skel_graphs_path) = get_dataset_fn(args)
 
     # if div threshold is defined override that
     if args.div_threshold:
@@ -63,7 +66,7 @@ if __name__ == "__main__":
     # run method
     if args.method in ['ours']:
         # Read the model files and run them one by one
-        model_files = glob.glob(args.model_dir + "/*.pth")
+        model_files = glob.glob(args.model_dir + "*.pth")
         error_dict = dict()
         output_results_file = output_base_path + exp_name + '/results.json'
         for model_file in model_files:
@@ -132,6 +135,10 @@ if __name__ == "__main__":
                             pred_flux_i = read_data(flux_file_name)
                             skeleton, skel_divergence = compute_skeleton_from_gradient(pred_flux_i, skel_params)
                             skeleton = remove_small_skeletons(skeleton, args.min_skeleton_vol_threshold)
+                            if skeleton.shape != gt_contexts[i].shape:
+                                skeleton = skimage.transform.resize(skeleton, gt_contexts[i].shape, order=0, mode='edge',
+                                                                    clip=True, preserve_range=True, anti_aliasing=False).astype(np.uint16)
+                                # skeleton = ndimage.zoom(skeleton, gt_contexts[i].shape, order=0, prefilter=False)
                             save_data(skeleton, initial_skeletons_filename)
                             if var_param == var_params[0]:
                                 save_data(skel_divergence, div_filename)

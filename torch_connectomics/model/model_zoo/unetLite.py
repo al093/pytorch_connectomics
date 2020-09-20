@@ -23,52 +23,52 @@ class unetLite(nn.Module):
 
         # encoding path
         self.layer1_E = nn.Sequential(
-            conv3d_bn_lrelu(in_planes=in_channel, out_planes=filters[0],
-                            kernel_size=(1,3,3), stride=1, padding=(0,1,1)),
-            conv3d_bn_lrelu(in_planes=filters[0], out_planes=filters[0],
-                            kernel_size=(1,3,3), stride=1, padding=(0,1,1)),
+            conv3d_bn_relu(in_planes=in_channel, out_planes=filters[0],
+                           kernel_size=(1,3,3), stride=1, padding=(0,1,1)),
+            conv3d_bn_relu(in_planes=filters[0], out_planes=filters[0],
+                           kernel_size=(1,3,3), stride=1, padding=(0,1,1)),
         )
 
         self.layer2_E = nn.Sequential(
-            conv3d_bn_lrelu(in_planes=filters[0], out_planes=filters[1],
-                            kernel_size=(1,3,3), stride=1, padding=(0,1,1)),
+            conv3d_bn_relu(in_planes=filters[0], out_planes=filters[1],
+                           kernel_size=(1,3,3), stride=1, padding=(0,1,1)),
         )
 
         self.layer3_E = nn.Sequential(
-            conv3d_bn_lrelu(in_planes=filters[1], out_planes=filters[2],
-                            kernel_size=(1,3,3), stride=1, padding=(0,1,1)),
+            conv3d_bn_relu(in_planes=filters[1], out_planes=filters[2],
+                           kernel_size=(1,3,3), stride=1, padding=(0,1,1)),
         )
 
         self.layer4_E = nn.Sequential(
-            conv3d_bn_lrelu(in_planes=filters[2], out_planes=filters[3],
-                            kernel_size=(1,3,3), stride=1, padding=(0,1,1)),
+            conv3d_bn_relu(in_planes=filters[2], out_planes=filters[3],
+                           kernel_size=(1,3,3), stride=1, padding=(0,1,1)),
         )
 
         # center block
         self.center = nn.Sequential(
-            conv3d_bn_lrelu(in_planes=filters[3], out_planes=filters[4],
-                            kernel_size=(3,3,3), stride=1, padding=(1,1,1)),
+            conv3d_bn_relu(in_planes=filters[3], out_planes=filters[4],
+                           kernel_size=(3,3,3), stride=1, padding=(1,1,1)),
         )
 
         # decoding path
         self.layer1_D = nn.Sequential(
-            conv3d_bn_lrelu(in_planes=filters[0], out_planes=filters[0],
-                            kernel_size=(3,3,3), stride=1, padding=(1,1,1)),
+            conv3d_bn_relu(in_planes=filters[0], out_planes=filters[0],
+                           kernel_size=(3,3,3), stride=1, padding=(1,1,1)),
             conv3d_bn_non(in_planes=filters[0], out_planes=out_channel, 
                           kernel_size=(3,3,3), stride=1, padding=(1,1,1))
         )
         self.layer2_D = nn.Sequential(
-            conv3d_bn_lrelu(in_planes=filters[1], out_planes=filters[1],
-                            kernel_size=(3,3,3), stride=1, padding=(1,1,1)),
+            conv3d_bn_relu(in_planes=filters[1], out_planes=filters[1],
+                           kernel_size=(3,3,3), stride=1, padding=(1,1,1)),
         )
         self.layer3_D = nn.Sequential(
-            conv3d_bn_lrelu(in_planes=filters[2], out_planes=filters[2],
-                            kernel_size=(3,3,3), stride=1, padding=(1,1,1)),
+            conv3d_bn_relu(in_planes=filters[2], out_planes=filters[2],
+                           kernel_size=(3,3,3), stride=1, padding=(1,1,1)),
         )
 
         self.layer4_D = nn.Sequential(
-            conv3d_bn_lrelu(in_planes=filters[3], out_planes=filters[3],
-                            kernel_size=(3,3,3), stride=1, padding=(1,1,1)),
+            conv3d_bn_relu(in_planes=filters[3], out_planes=filters[3],
+                           kernel_size=(3,3,3), stride=1, padding=(1,1,1)),
         )
 
         # pooling & upsample
@@ -77,10 +77,10 @@ class unetLite(nn.Module):
         # self.dropout = nn.Dropout3d(p=0.25)
 
         # conv + upsample
-        self.conv1 = conv3d_bn_lrelu(filters[1], filters[0], kernel_size=(1,1,1), padding=(0,0,0))
-        self.conv2 = conv3d_bn_lrelu(filters[2], filters[1], kernel_size=(1,1,1), padding=(0,0,0))
-        self.conv3 = conv3d_bn_lrelu(filters[3], filters[2], kernel_size=(1,1,1), padding=(0,0,0))
-        self.conv4 = conv3d_bn_lrelu(filters[4], filters[3], kernel_size=(1,1,1), padding=(0,0,0))
+        self.conv1 = conv3d_bn_relu(filters[1], filters[0], kernel_size=(1, 1, 1), padding=(0, 0, 0))
+        self.conv2 = conv3d_bn_relu(filters[2], filters[1], kernel_size=(1, 1, 1), padding=(0, 0, 0))
+        self.conv3 = conv3d_bn_relu(filters[3], filters[2], kernel_size=(1, 1, 1), padding=(0, 0, 0))
+        self.conv4 = conv3d_bn_relu(filters[4], filters[3], kernel_size=(1, 1, 1), padding=(0, 0, 0))
         self.non_linearity = non_linearity
         #initialization
         ortho_init(self)

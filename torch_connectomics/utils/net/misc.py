@@ -34,13 +34,19 @@ class AverageMeter(object):
 # functions
 def init(args):
     sn = args.output+'/'
-    if not os.path.isdir(sn):
-        os.makedirs(sn)
+
+    if args.local_rank in [None, 0]:
+        if not os.path.isdir(sn):
+            os.makedirs(sn)
+
     # I/O size in (z,y,x), no specified channel number
     model_io_size = np.array([x for x in args.model_input.split(',')], dtype=np.uint32)
 
     # select training machine
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if args.local_rank is not None:
+        device = torch.device(f"cuda:{args.local_rank}")
+    else:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("output path: ", sn)
     print("device: ", device)
 
@@ -50,11 +56,11 @@ def get_logger(args):
     log_name = args.output+'/log'
     date = str(datetime.datetime.now()).split(' ')[0]
     time = str(datetime.datetime.now()).split(' ')[1].split('.')[0]
-    log_name += '_approx_'+date+'_'+time
+    log_name += '_approx_' + date + '_' + time + '_' + str(args.local_rank)
     logger = open(log_name+'.txt','w') # unbuffered, write instantly
 
     # tensorboardX
-    writer = SummaryWriter(args.output + '/runs/' + date + '_' + time)
+    writer = SummaryWriter(args.output + '/runs/' + date + '_' + time + '_' + str(args.local_rank))
     return logger, writer
 
 def setup_model(args, device, model_io_size, exact=True, size_match=True, non_linearity=None):
@@ -77,10 +83,26 @@ def setup_model(args, device, model_io_size, exact=True, size_match=True, non_li
         assert args.architecture == 'directionNet'
         model = MODEL_MAP[args.architecture](in_channel=args.in_channel, input_sz=model_io_size)
     else:
-        model = MODEL_MAP[args.architecture](in_channel=args.in_channel, out_channel=args.out_channel, input_sz=model_io_size, batch_sz=args.batch_size, non_linearity=non_linearity)
+        if args.architecture == 'fluxNet':
+            model = MODEL_MAP[args.architecture](in_channel=args.in_channel, out_channel=args.out_channel,
+                                                 input_sz=model_io_size, batch_sz=args.batch_size,
+                                                 non_linearity=non_linearity,
+                                                 aspp_dilation_ratio = args.aspp_dilation_ratio,
+                                                 symmetric=args.symmetric)
+        else:
+            model = MODEL_MAP[args.architecture](in_channel=args.in_channel, out_channel=args.out_channel,
+                                                 input_sz=model_io_size, batch_sz=args.batch_size,
+                                                 non_linearity=non_linearity)
     print('model: ', model.__class__.__name__)
-    model = DataParallelWithCallback(model, device_ids=range(args.num_gpu))
-    model = model.to(device)
+
+    if args.local_rank is not None:
+        model = model.to(device)
+        model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank],
+                                                          output_device=args.local_rank, find_unused_parameters=True)
+    else:
+        model = DataParallelWithCallback(model, device_ids=range(args.num_gpu))
+        model = model.to(device)
 
     if bool(args.load_model):
         print('Load pretrained model:')
@@ -94,12 +116,12 @@ def setup_model(args, device, model_io_size, exact=True, size_match=True, non_li
             pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
             # 2. overwrite entries in the existing state dict 
             if size_match:
-                model_dict.update(pretrained_dict) 
+                model_dict.update(pretrained_dict)
             else:
                 for param_tensor in pretrained_dict:
                     if model_dict[param_tensor].size() == pretrained_dict[param_tensor].size():
-                        model_dict[param_tensor] = pretrained_dict[param_tensor]       
-            # 3. load the new state dict
+                        model_dict[param_tensor] = pretrained_dict[param_tensor]
+                        # 3. load the new state dict
             model.load_state_dict(model_dict)
     return model
 

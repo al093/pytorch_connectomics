@@ -4,8 +4,8 @@ import scipy, skimage
 import h5py
 from tqdm import tqdm
 from scipy import ndimage
+from skimage.morphology import skeletonize_3d
 
-import edt
 import multiprocessing as mp
 import networkx as nx
 
@@ -67,6 +67,7 @@ def compute_skeleton_from_gradient(gradient, params):
     if filter_sz > 0:
         skel = scipy.ndimage.morphology.binary_dilation(skel, structure=np.ones((1, filter_sz, filter_sz)),
                                                         iterations=1)
+    skel = thin_skeletons(skel)
     label_cc, num_cc = skimage.measure.label(skel, return_num=True)
 
     if num_cc > np.iinfo(np.uint32).max:
@@ -141,6 +142,9 @@ def remove_small_skeletons(label_cc, min_skel_th):
     m = ((ids > 0) & (counts >= min_skel_th))
     skel_large = remove_ids(label_cc, ids[~m], np.max(ids))
     return skel_large
+
+def thin_skeletons(skel):
+    return skeletonize_3d(skel > 0)
 
 def compute_skeleton_from_scalar_field(skel_probability, method, threshold, k1, k2):
     binary_skel = skel_probability > threshold

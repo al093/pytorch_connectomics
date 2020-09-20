@@ -9,6 +9,7 @@ from scipy import spatial
 from scipy import ndimage
 import skimage
 import warnings
+import h5py
 
 from .misc import crop_volume, crop_volume_mul, rebalance_binary_class, rebalance_skeleton_weight
 from torch_connectomics.utils.vis import save_data
@@ -28,26 +29,33 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
                 assert len(x) == 1
 
         self.mode = mode
-        self.input = volume
-        self.label = label
-        self.skeleton = skeleton
-        self.flux = flux
 
-        if weight[0] is not None:
-            self.weight = weight
+        if isinstance(volume[0], str):
+            self.input_paths = volume
+            self.label_paths = label
+            self.skeleton_paths = skeleton
+            self.flux_paths = flux
+            self.weight_paths = weight
+            self.h5_files_opened = False
         else:
-            self.weight = None
+            self.input = volume
+            self.label = label
+            self.skeleton = skeleton
+            self.flux = flux
+            self.weight = weight
+            # samples, channels, depths, rows, cols
+            self.input_size = [np.array(x.shape) for x in self.input]  # volume size, could be multi-volume input
+            self.h5_files_opened = True
 
         self.augmentor = augmentor  # data augmentation
 
-        # samples, channels, depths, rows, cols
-        self.input_size = [np.array(x.shape) for x in self.input]  # volume size, could be multi-volume input
         self.sample_input_size = np.array(sample_input_size)  # model input size
         self.sample_label_size = np.array(sample_label_size)  # model label size
 
         self.seed_points = seed_points
-        self.half_input_sz = (sample_input_size//2)
+        self.half_input_sz = (sample_input_size // 2)
         self.seed_points_offset = pad_size - self.half_input_sz
+
         self.sample_num = np.array([(np.sum([y.shape[0] for y in x])) for x in self.seed_points])
         self.sample_num_a = int(np.sum(self.sample_num))
         self.sample_num_c = np.cumsum([0] + list(self.sample_num))
@@ -59,6 +67,8 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
         return self.sample_num_a
 
     def __getitem__(self, index):
+        self.open_files_to_read()
+
         vol_size = self.sample_input_size
 
         # Train Mode Specific Operations:
@@ -273,3 +283,30 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
             return False
         else:
             return True
+
+    def open_files_to_read(self):
+        if not self.h5_files_opened:
+            self.input = []
+            self.label = []
+            self.skeleton = []
+            self.flux = []
+            self.weight = [] if self.weight_paths is not None else None
+
+            for i in range(len(self.input_paths)):
+                self.input.append(h5py.File(self.input_paths[i], 'r')['main'])
+                # check if input is of float32 type
+                if self.input[-1].dtype != np.float32:
+                    raise RuntimeError(f"Input volume {volume[i]} is of type {self.input[-1].dtype.name},"
+                                       f" it should be float32.")
+
+                self.label.append(h5py.File(self.label_paths[i], 'r')['main'])
+                self.skeleton.append(h5py.File(self.skeleton_paths[i], 'r')['main'])
+                self.flux.append(h5py.File(self.flux_paths[i], 'r')['main'])
+
+                if self.weight_paths:
+                    self.weight.append(h5py.File(weight_paths[i], 'r')['main'])
+
+            self.h5_files_opened = True
+
+            # samples, channels, depths, rows, cols
+            self.input_size = [np.array(x.shape) for x in self.input]  # volume size, could be multi-volume input

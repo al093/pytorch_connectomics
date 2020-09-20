@@ -92,6 +92,12 @@ def get_input(args, model_io_size, mode='train', model=None):
             # MissingSection(p=0.5),
             # MisAlignment2(p=1.0, displacement=16)
             ]
+
+        # if the input is symmetric, and more importantly if the resolution is isometric
+        # we can perform swapping of z with (y or x) axis
+        if args.symmetric:
+            augmentation_methods.append(SwapZ(0.5))
+
         augmentor = Compose(augmentation_methods,
                             input_size=model_io_size)
         elastic_augmentor.set_input_sz(augmentor.sample_size)
@@ -116,13 +122,23 @@ def get_input(args, model_io_size, mode='train', model=None):
     pad_size_tuple = ((pad_size[0], pad_size[0]), (pad_size[1], pad_size[1]), (pad_size[2], pad_size[2]))
 
     for i in range(len(img_name)):
-        image = np.array((h5py.File(img_name[i], 'r')['main']))
-        if image.dtype == np.float32 or image.dtype == np.float64:
-            model_input[i] = np.array(image, copy=False, dtype=np.float32)
-        elif image.dtype == np.uint8:
-            model_input[i] = np.array(image/np.float32(255.0), copy=False, dtype=np.float32)
+        if not is_ddp(args):
+            image = np.array((h5py.File(img_name[i], 'r')['main']))
+            model_input[i] = image
         else:
-            raise Exception('Image datatype was not uint8 or float, not sure how to normalize.')
+            image = h5py.File(img_name[i], 'r')['main']
+            if image.dtype in [np.float16, np.float32, np.float64]:
+                model_input[i] = np.array(image, copy=False, dtype=np.float32)
+            elif image.dtype == np.uint8:
+                model_input[i] = np.array(image/np.float32(255.0), copy=False, dtype=np.float32)
+            else:
+                raise Exception('Image datatype was not uint8 or float, not sure how to normalize.')
+            model_input[i] = np.pad(model_input[i], pad_size_tuple, 'reflect')
+            model_input[i] = model_input[i].astype(np.float32)
+
+        print(f"Image name: {img_name[i]}")
+        print("Shape: ", model_input[i].shape)
+        volume_shape.append(model_input[i].shape)
 
         if mode == 'test':
             if args.scale_input != 1 and args.task not in [5, 6]:
@@ -162,7 +178,10 @@ def get_input(args, model_io_size, mode='train', model=None):
 
         elif mode == 'train' or mode == 'validation':
             if args.task != 5 and args.task != 6:
-                model_label[i] = np.array((h5py.File(seg_name[i], 'r')['main']))
+                if is_ddp(args):
+                    model_label[i] = h5py.File(seg_name[i], 'r')['main']
+                else:
+                    model_label[i] = np.array((h5py.File(seg_name[i], 'r')['main']))
 
             if args.task == 3 or args.task == 4:
                 s_points[i] = load_list_from_h5(seed_points_files[i])
@@ -204,12 +223,18 @@ def get_input(args, model_io_size, mode='train', model=None):
 
             # load skeletons
             if skeleton_files is not None:
-                skeleton[i] = np.array((h5py.File(skeleton_files[i], 'r')['main']))
-                skeleton[i] = np.pad(skeleton[i], pad_size_tuple)
+                if is_ddp(args):
+                    skeleton[i] = h5py.File(skeleton_files[i], 'r')['main']
+                else:
+                    skeleton[i] = np.array((h5py.File(skeleton_files[i], 'r')['main']))
+                    skeleton[i] = np.pad(skeleton[i], pad_size_tuple)
 
             if flux_files is not None:
-                flux[i] = np.array((h5py.File(flux_files[i], 'r')['main']))
-                flux[i] = np.pad(flux[i], ((0,0),) + pad_size_tuple)
+                if is_ddp(args):
+                    flux[i] = h5py.File(flux_files[i], 'r')['main']
+                else:
+                    flux[i] = np.array((h5py.File(flux_files[i], 'r')['main']))
+                    flux[i] = np.pad(flux[i], ((0,0),) + pad_size_tuple)
 
             if args.train_end_to_end is True:
                 assert (flux_files_2 is not None)
@@ -220,20 +245,15 @@ def get_input(args, model_io_size, mode='train', model=None):
 
             #load weight files:
             if weight_files is not None:
-                weight[i] = np.array((h5py.File(weight_files[i], 'r')['main']))
-                weight[i] = np.pad(weight[i], pad_size_tuple)
-
-        print(img_name[i])
-
-        model_input[i] = np.pad(model_input[i], pad_size_tuple, 'reflect')
-        print("Volume shape: ", model_input[i].shape)
-        volume_shape.append(model_input[i].shape)
-        model_input[i] = model_input[i].astype(np.float32)
+                if is_ddp(args):
+                    weight[i] = h5py.File(weight_files[i], 'r')['main']
+                else:
+                    weight[i] = np.array((h5py.File(weight_files[i], 'r')['main']))
+                    weight[i] = np.pad(weight[i], pad_size_tuple)
 
         if args.task not in [5, 6]:
             if mode=='train' or mode=='validation':
                 model_label[i] = np.pad(model_label[i], pad_size_tuple, 'reflect')
-                print("label shape: ", model_label[i].shape)
                 assert model_input[i].shape == model_label[i].shape
 
     if mode=='test' and args.task == 3:
@@ -270,10 +290,30 @@ def get_input(args, model_io_size, mode='train', model=None):
                                       sample_label_size=sample_input_size, augmentor_pre=augmentor_1, augmentor=augmentor,
                                       mode='train', seed_points=s_points, pad_size=pad_size.astype(np.uint32), model=model)
         elif args.task == 4:  # skeleton/flux prediction
-            dataset = FluxAndSkeletonDataset(volume=model_input, label=model_label, skeleton=skeleton, flux=flux, weight=weight,
-                                             sample_input_size=sample_input_size, sample_label_size=sample_input_size,
-                                             augmentor=augmentor, mode='train', seed_points=s_points,
-                                             pad_size=pad_size.astype(np.uint32))
+            if args.local_rank is not None:
+                if not all([i == (0,0) for i in pad_size_tuple]):
+                    raise NotImplementedError("In Distributed Data parallel mode padding the input volumes"
+                                              "is not supported yet")
+
+                # if ddp is used call the dataset with paths of the input, label, skeleton, flux and weight
+                # The dataset will read small chunks of data as needed iso of loading the entire volume in memory.
+                model_input_paths = img_name
+                model_label_paths = seg_name
+                skeleton_paths = skeleton_files
+                flux_paths = flux_files
+                weight_paths = weight_files
+                dataset = FluxAndSkeletonDataset(volume=model_input_paths, label=model_label_paths,
+                                                 skeleton=skeleton_paths, flux=flux_paths, weight=weight_paths,
+                                                 sample_input_size=sample_input_size,
+                                                 sample_label_size=sample_input_size,
+                                                 augmentor=augmentor, mode='train', seed_points=s_points,
+                                                 pad_size=pad_size.astype(np.uint32))
+            else:
+                dataset = FluxAndSkeletonDataset(volume=model_input, label=model_label, skeleton=skeleton, flux=flux,
+                                                 weight=weight, sample_input_size=sample_input_size,
+                                                 sample_label_size=sample_input_size,
+                                                 augmentor=augmentor, mode='train', seed_points=s_points,
+                                                 pad_size=pad_size.astype(np.uint32))
 
         elif args.task == 5:  # skeleton match prediction
             dataset = MatchSkeletonDataset(image=model_input, skeleton=skeleton, flux=flux,
@@ -332,8 +372,17 @@ def get_input(args, model_io_size, mode='train', model=None):
             pin_memory = True
 
         if args.task != 3:
-            img_loader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, shuffle=SHUFFLE,
-                                                     collate_fn=c_fn, num_workers=args.num_cpu, pin_memory=pin_memory)
+
+            if is_ddp(args):
+                train_sampler = torch.utils.data.distributed.DistributedSampler(dataset, shuffle=SHUFFLE)
+            else:
+                train_sampler = None
+
+            img_loader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size,
+                                                     shuffle=(SHUFFLE and (not train_sampler)), collate_fn=c_fn,
+                                                     num_workers=args.num_cpu, pin_memory=pin_memory,
+                                                     sampler=train_sampler)
+
             return img_loader, volume_shape, pad_size
         else:
             assert len(img_name) == 1
@@ -392,3 +441,6 @@ def load_seeds_from_txt(txt_path):
         seeds = seeds.reshape((1, 3))
     seeds = seeds.astype(np.uint32)
     return [seeds]
+
+def is_ddp(args):
+    return args.local_rank is not None

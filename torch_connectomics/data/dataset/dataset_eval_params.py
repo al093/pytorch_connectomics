@@ -3,16 +3,11 @@ import pickle, nibabel, re, json
 import numpy as np
 
 
-def get_segEM(set, method, tune):
+def get_segEM(args):
     '''
     Parameters
     ----------
-    set: str
-        val or test or train
-    method: str
-        ours, ...
-    tune: bool
-        if 'True' returns multiple variable parameters
+    args: dict
 
     Returns
     -------
@@ -34,63 +29,75 @@ def get_segEM(set, method, tune):
     gt_skel_graphs_path: list[str]
     '''
 
-    erl_overlap_allowance = np.int32((2, 2, 2))
-    ibex_downsample_fac = np.uint16((2, 2, 2))
-    matching_radius = 2.0
-    resolution = np.uint16((28, 11, 11))
+    erl_overlap_allowance = np.int32((3, 3, 3))
+    ibex_downsample_fac = np.uint16((2, 4, 4))
+    resolution = np.uint16((28, 11, 11)) # nano meters
+    matching_radius = 3 * resolution
     output_base_path = '/n/pfister_lab2/Lab/alok/results/segEM/'
 
-    with open('/n/home11/averma/pytorch_connectomics/cmdArgs/segEMPaths.json', 'r') as phandle:
-        paths = json.load(phandle)[set]
+    with open('/n/home11/averma/pytorch_connectomics/cmdArgs/segEMPaths_scales.json', 'r') as phandle:
+        paths = json.load(phandle)[args.set]
+
+    if args.dataset_scale != 1.0:
+        data_path = paths['dn'][str(args.dataset_scale)]
+    else:
+        data_path = paths['dn']
+
+    gt_skel_path = paths['skn']
+    gt_context_path = paths['ln']
+    gt_skel_graphs_path = paths['gn']
 
     if args.div_threshold:
         var_params = [args.div_threshold]
     else:
-        if method == 'ours':
-            var_params = np.arange(0.30, 0.90, 0.05) if tune else [0.65]
-        elif method == 'deepflux':
-            var_params = [0.65] if tune is False else np.arange(0.05, 0.90, 0.05)
-        elif method == 'distanceTx':
-            var_params = [0.45] if tune is False else np.arange(0.10, 0.90, 0.05)
-        elif method == 'dilated':
-            var_params = [0.85] if tune is False else np.arange(0.10, 0.90, 0.05)
-        elif method == 'dvn':
-            var_params = [0.30] if tune is False else np.arange(0.10, 0.90, 0.05)
+        if args.method == 'ours':
+            var_params = np.arange(0.30, 0.90, 0.05) if args.tune else [0.65]
+        elif args.method == 'deepflux':
+            var_params = [0.65] if args.tune is False else np.arange(0.05, 0.90, 0.05)
+        elif args.method == 'distanceTx':
+            var_params = [0.45] if args.tune is False else np.arange(0.10, 0.90, 0.05)
+        elif args.method == 'dilated':
+            var_params = [0.85] if args.tune is False else np.arange(0.10, 0.90, 0.05)
+        elif args.method == 'dvn':
+            var_params = [0.30] if args.tune is False else np.arange(0.10, 0.90, 0.05)
         else:
-            raise Exception(f'Method {method} is not defined')
+            raise Exception(f'Method {args.method} is not defined')
 
     return paths, erl_overlap_allowance, ibex_downsample_fac, matching_radius, \
            resolution, output_base_path, var_params, data_path, gt_skel_path, \
            gt_context_path, gt_skel_graphs_path
 
 
-def get_visor40(set, method, tune):
-    erl_overlap_allowance = np.int32((2, 2, 2))
+def get_visor40(args):
+    erl_overlap_allowance = np.int32((3, 3, 3)) # in pixels
     ibex_downsample_fac = np.uint16((2, 2, 2))
-    matching_radius = 2.0
-    resolution = np.uint16((1, 1, 1))
+    resolution = np.uint16((1, 1, 1)) #in micro Meters
+    matching_radius = 3 * resolution # in micro Meters
     output_base_path = '/n/pfister_lab2/Lab/alok/results/VISOR40/'
 
     with open('/n/home11/averma/pytorch_connectomics/cmdArgs/VISOR40Paths.json', 'r') as phandle:
-        paths = json.load(phandle)[set]
+        paths = json.load(phandle)[args.set]
 
     data_path = paths['dn']
     gt_skel_path = paths['skn']
     gt_context_path = paths['ln']
     gt_skel_graphs_path = paths['gn']
 
-    if method == 'ours':
-        var_params = np.arange(0.30, 0.90, 0.05) if tune else [0.65]
-    elif method == 'deepflux':
-        var_params = [0.65] if tune is False else np.arange(0.05, 0.90, 0.05)
-    elif method == 'distanceTx':
-        var_params = [0.45] if tune is False else np.arange(0.10, 0.90, 0.05)
-    elif method == 'dilated':
-        var_params = [0.85] if tune is False else np.arange(0.10, 0.90, 0.05)
-    elif method == 'dvn':
-        var_params = [0.30] if tune is False else np.arange(0.10, 0.90, 0.05)
+    if args.div_threshold:
+        var_params = [args.div_threshold]
     else:
-        raise Exception(f'Method {method} is not defined')
+        if args.method == 'ours':
+            var_params = np.arange(0.30, 0.90, 0.05) if args.tune else [0.65]
+        elif args.method == 'deepflux':
+            var_params = [0.65] if args.tune is False else np.arange(0.05, 0.90, 0.05)
+        elif args.method == 'distanceTx':
+            var_params = [0.45] if args.tune is False else np.arange(0.10, 0.90, 0.05)
+        elif args.method == 'dilated':
+            var_params = [0.85] if args.tune is False else np.arange(0.10, 0.90, 0.05)
+        elif args.method == 'dvn':
+            var_params = [0.30] if args.tune is False else np.arange(0.10, 0.90, 0.05)
+        else:
+            raise Exception(f'Method {args.method} is not defined')
 
     return paths, erl_overlap_allowance, ibex_downsample_fac, matching_radius, \
            resolution, output_base_path, var_params, data_path, gt_skel_path, \
