@@ -70,6 +70,6 @@ class Flip(DataAugment):
         output = {}
         for key, val in data.items():
             output[key] = self.flip_and_swap(val, rule)
-            if key == 'flux': # extra step to rotate the vectors
+            if key == 'flux': # extra step to flip the vectors
                 output[key] = self.flip_and_swap_vectors(output[key], rule)
         return output

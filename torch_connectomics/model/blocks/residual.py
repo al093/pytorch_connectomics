@@ -25,7 +25,7 @@ class residual_block_2d(nn.Module):
             conv3d_bn_relu(out_planes, out_planes, kernel_size=(1, 3, 3), padding=(0, 1, 1))
         )
         self.projector = conv3d_bn_non(in_planes, out_planes, kernel_size=(1,1,1), padding=(0,0,0))
-        self.lrelu = nn.ReLU(inplace=True)
+        self.relu = nn.ReLU(inplace=True)
         
     def forward(self, x):
         y = self.conv(x)
@@ -33,7 +33,7 @@ class residual_block_2d(nn.Module):
             y = y + self.projector(x)
         else:
             y = y + x
-        y = self.lrelu(y)
+        y = self.relu(y)
         return y  
 
 class residual_block_3d(nn.Module):

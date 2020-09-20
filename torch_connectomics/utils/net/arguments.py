@@ -51,6 +51,11 @@ def get_args(mode='train', input_args=None):
                         help='Number of output channel(s).')
     parser.add_argument('--in-channel', type=int, default=1,
                         help='Number of input channel(s).')
+    parser.add_argument('--aspp-dilation-ratio', type=int, default=1,
+                        help='Convolutional Dilation along Z slices can be different if ratio is other than 1.'
+                             'Should be ideally equal to the resolution anisotropy. Only defined for FluxNet.')
+    parser.add_argument('--symmetric', type=my_bool, default=False,
+                        help='Pass true if the resolution is isotropic.')
 
     # machine option
     parser.add_argument('-g', '--num-gpu', type=int,  default=1,
@@ -63,6 +68,8 @@ def get_args(mode='train', input_args=None):
     #extra options(task specific)
     parser.add_argument('-sp', '--seed-points', type=str, default=None,
                         help='File path for seed points which need to be trained or tested on')
+
+    parser.add_argument("--local_rank", type=int, default=None)
 
     if mode == 'train':
         parser.add_argument('-ln','--seg-name',  default='seg-groundtruth2-malis.h5',
@@ -95,8 +102,6 @@ def get_args(mode='train', input_args=None):
                             help='Number of iteration to save')
         parser.add_argument('--lr-scheduler', type=str, default='stepLR',
                           help='Learning rate schedule. Possible values: stepLR')
-
-        parser.add_argument("--local_rank", type=int, default=None)
 
 
     if mode == 'test':
