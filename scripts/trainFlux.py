@@ -13,7 +13,9 @@ def train(args, train_loader, model, device, criterion, optimizer, scheduler, lo
     model.train()
     start = time.time()
 
-    for iteration, data in enumerate(train_loader):
+    last_iteration_num, loss = restore_state(optimizer, scheduler, args)
+
+    for iteration, data in enumerate(train_loader, start=last_iteration_num+1):
         if args.local_rank is None or args.local_rank == 0:
             sys.stdout.flush()
             if iteration < 50:
@@ -61,7 +63,12 @@ def train(args, train_loader, model, device, criterion, optimizer, scheduler, lo
 
             #Save model, update lr
             if iteration % args.iteration_save == 0 or iteration >= args.iteration_total:
-                torch.save(model.state_dict(), args.output+(args.exp_name + '_%d.pth' % iteration))
+                torch.save({'model_state_dict': model.state_dict(),
+                            'optimizer_state_dict': optimizer.state_dict(),
+                            'scheduler_state_dict': scheduler.state_dict(),
+                            'loss':loss,
+                            'iteration':iteration},
+                           args.output+(args.exp_name + '_%d.pth' % iteration))
 
         # Terminate
         if iteration >= args.iteration_total:
@@ -87,7 +94,7 @@ def main():
 
     logger, writer = None, None
     if args.disable_logging is not True:
-        if args.local_rank is None or args.local_rank == 0:
+        if args.local_rank in [None, 0]:
             logger, writer = get_logger(args)
 
     print('Setup model')
@@ -97,7 +104,6 @@ def main():
     train_loader = get_input(args, model_io_size, 'train', model=None)
 
     print('Setup loss function')
-    # TODO | NOTE change loss fn and weight, alpha = 0.08 for all ours experiement
     criterion = AngularAndScaleLoss(alpha=0.08)
     # criterion = WeightedMSE()
 
@@ -112,18 +118,19 @@ def main():
     #             min_lr=1e-7, eps=1e-08)
 
     if args.lr_scheduler is 'stepLR':
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=round(args.iteration_total/5), gamma=0.5)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=round(args.iteration_total/5), gamma=0.75)
     else:
         print("Learning rate scheduler is not defined to any known types.")
         return
 
-    print('4. start training')
+    print('Start training')
     train(args, train_loader, model, device, criterion, optimizer, scheduler, logger, writer)
 
-    print('5. finish training')
+    print('Training finished')
     if args.disable_logging is not True:
-        logger.close()
-        writer.close()
+        if args.local_rank in [None, 0]:
+            logger.close()
+            writer.close()
 
 if __name__ == "__main__":
     main()

@@ -102,7 +102,8 @@ def get_args(mode='train', input_args=None):
                             help='Number of iteration to save')
         parser.add_argument('--lr-scheduler', type=str, default='stepLR',
                           help='Learning rate schedule. Possible values: stepLR')
-
+        parser.add_argument('--warm-start', type=my_bool, default=False,
+                            help='If --load-model and --pm is set, and if warm starting the training is needed, set this to true.')
 
     if mode == 'test':
         parser.add_argument('-ta', '--test-augmentation',  type=my_bool, default=False,
