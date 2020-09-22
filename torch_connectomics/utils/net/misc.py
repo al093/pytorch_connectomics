@@ -47,8 +47,10 @@ def init(args):
         device = torch.device(f"cuda:{args.local_rank}")
     else:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print("output path: ", sn)
-    print("device: ", device)
+
+    if args.local_rank in [None, 0]:
+        print("output path: ", sn)
+        print("device: ", device)
 
     return model_io_size, device
 
@@ -104,11 +106,15 @@ def setup_model(args, device, model_io_size, exact=True, size_match=True, non_li
         model = DataParallelWithCallback(model, device_ids=range(args.num_gpu))
         model = model.to(device)
 
-    if bool(args.load_model):
-        print('Load pretrained model:')
+    if args.load_model:
+        print('Loading pretrained model:')
         print(args.pre_model)
         if exact:
-            model.load_state_dict(torch.load(args.pre_model))
+            checkpoint = torch.load(args.pre_model)
+            if checkpoint.get('model_state_dict', None):
+                model.load_state_dict(checkpoint['model_state_dict'])
+            else:
+                model.load_state_dict(checkpoint)
         else:
             pretrained_dict = torch.load(args.pre_model)
             model_dict = model.state_dict()
@@ -124,6 +130,25 @@ def setup_model(args, device, model_io_size, exact=True, size_match=True, non_li
                         # 3. load the new state dict
             model.load_state_dict(model_dict)
     return model
+
+def restore_state(optimizer, scheduler, args):
+    if bool(args.load_model) and args.warm_start:
+        if args.local_rank in [None, 0]:
+            print('Trying to load optimizer and scheduler state from checkpoint.')
+        checkpoint = torch.load(args.pre_model)
+        if checkpoint.get('scheduler_state_dict', None):
+            scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+            if args.local_rank in [None, 0]:
+                print("Scheduler restored.")
+        if checkpoint.get('optimizer_state_dict', None):
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            if args.local_rank in [None, 0]:
+                print("Optimizer restored.")
+        iteration = checkpoint.get('iteration', 0)
+        loss = checkpoint.get('loss', 0)
+        return iteration, loss
+    else:
+        return 0, 0.0
 
 def setup_lstm_model(args, device, model_io_size):
     model = LSTMHead(input_sz=model_io_size)

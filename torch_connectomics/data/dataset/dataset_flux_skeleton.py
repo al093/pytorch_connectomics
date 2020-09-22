@@ -79,6 +79,8 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
             pos = self.get_pos_seed(seed)
             out_label = crop_volume(self.label[pos[0]], vol_size, pos[1:])
             out_input = crop_volume(self.input[pos[0]], vol_size, pos[1:])
+            # TODO(Alok) remove this check
+            out_input = out_input.astype(np.float32, copy=False)
             out_skeleton = crop_volume(self.skeleton[pos[0]], vol_size, pos[1:])
             out_flux = crop_volume_mul(self.flux[pos[0]], vol_size, pos[1:])
 
@@ -296,8 +298,9 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
                 self.input.append(h5py.File(self.input_paths[i], 'r')['main'])
                 # check if input is of float32 type
                 if self.input[-1].dtype != np.float32:
-                    raise RuntimeError(f"Input volume {volume[i]} is of type {self.input[-1].dtype.name},"
-                                       f" it should be float32.")
+                    pass
+                    # raise RuntimeError(f"Input volume {self.input_paths[i]} is of type {self.input[-1].dtype.name},"
+                    #                    f" it should be float32.")
 
                 self.label.append(h5py.File(self.label_paths[i], 'r')['main'])
                 self.skeleton.append(h5py.File(self.skeleton_paths[i], 'r')['main'])
