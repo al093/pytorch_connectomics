@@ -134,8 +134,8 @@ def get_input(args, model_io_size, mode='train', model=None):
             model_input[i] = np.pad(model_input[i], pad_size_tuple, 'reflect')
             model_input[i] = model_input[i].astype(np.float32)
         else:
-            image = h5py.File(img_name[i], 'r')['main']
-            if not all([i == (0, 0) for i in pad_size_tuple]):
+            model_input[i] = h5py.File(img_name[i], 'r')['main']
+            if not all([j == (0, 0) for j in pad_size_tuple]):
                 raise NotImplementedError("In Distributed Data parallel mode padding the input volumes"
                                           "is not supported yet")
 

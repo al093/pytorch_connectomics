@@ -104,7 +104,7 @@ def main():
     train_loader = get_input(args, model_io_size, 'train', model=None)
 
     print('Setup loss function')
-    criterion = AngularAndScaleLoss(alpha=0.08)
+    criterion = AngularAndScaleLoss(alpha=0.16)
     # criterion = WeightedMSE()
 
     print('Setup optimizer')
