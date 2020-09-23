@@ -125,27 +125,25 @@ def get_input(args, model_io_size, mode='train', model=None):
         if not is_ddp(args):
             image = np.array((h5py.File(img_name[i], 'r')['main']))
             model_input[i] = image
-        else:
-            image = h5py.File(img_name[i], 'r')['main']
             if image.dtype in [np.float16, np.float32, np.float64]:
                 model_input[i] = np.array(image, copy=False, dtype=np.float32)
             elif image.dtype == np.uint8:
-                model_input[i] = np.array(image/np.float32(255.0), copy=False, dtype=np.float32)
+                model_input[i] = np.array(image / np.float32(255.0), copy=False, dtype=np.float32)
             else:
                 raise Exception('Image datatype was not uint8 or float, not sure how to normalize.')
             model_input[i] = np.pad(model_input[i], pad_size_tuple, 'reflect')
             model_input[i] = model_input[i].astype(np.float32)
+        else:
+            image = h5py.File(img_name[i], 'r')['main']
+            if not all([i == (0, 0) for i in pad_size_tuple]):
+                raise NotImplementedError("In Distributed Data parallel mode padding the input volumes"
+                                          "is not supported yet")
 
         print(f"Image name: {img_name[i]}")
         print("Shape: ", model_input[i].shape)
         volume_shape.append(model_input[i].shape)
 
         if mode == 'test':
-            if args.scale_input != 1 and args.task not in [5, 6]:
-                print('Original volume size: ', model_input[i].shape)
-                model_input[i] = scipy.ndimage.zoom(model_input[i], [float(args.scale_input), float(args.scale_input), float(args.scale_input)])
-                print('Final volume size: ', model_input[i].shape)
-
             if args.task == 5:
                 # It must be ensured that all centroid points have enough crop area around them
                 # These Points are the origin.
@@ -290,11 +288,7 @@ def get_input(args, model_io_size, mode='train', model=None):
                                       sample_label_size=sample_input_size, augmentor_pre=augmentor_1, augmentor=augmentor,
                                       mode='train', seed_points=s_points, pad_size=pad_size.astype(np.uint32), model=model)
         elif args.task == 4:  # skeleton/flux prediction
-            if args.local_rank is not None:
-                if not all([i == (0,0) for i in pad_size_tuple]):
-                    raise NotImplementedError("In Distributed Data parallel mode padding the input volumes"
-                                              "is not supported yet")
-
+            if is_ddp(args):
                 # if ddp is used call the dataset with paths of the input, label, skeleton, flux and weight
                 # The dataset will read small chunks of data as needed iso of loading the entire volume in memory.
                 model_input_paths = img_name
