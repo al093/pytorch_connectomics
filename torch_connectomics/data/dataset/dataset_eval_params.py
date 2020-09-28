@@ -34,7 +34,14 @@ def get_segEM(args):
     resolution = np.uint16((28, 11, 11)) # nano meters
     matching_radius = 3 * resolution
     output_base_path = '/n/pfister_lab2/Lab/alok/results/segEM/'
+    if args.set == 'val':
+        remove_borders = [(25, 0), (50,50), (50,50)]
+    elif args.set == 'train':
+        remove_borders = [(25, 25), (50,50), (50,50)]
+    elif args.set == 'test':
+        remove_borders = [(0, 25), (50,50), (50,50)]
 
+    # with open('/n/home11/averma/pytorch_connectomics/cmdArgs/segEMPaths.json', 'r') as phandle:
     with open('/n/home11/averma/pytorch_connectomics/cmdArgs/segEMPaths_scales.json', 'r') as phandle:
         paths = json.load(phandle)[args.set]
 
@@ -65,7 +72,7 @@ def get_segEM(args):
 
     return paths, erl_overlap_allowance, ibex_downsample_fac, matching_radius, \
            resolution, output_base_path, var_params, data_path, gt_skel_path, \
-           gt_context_path, gt_skel_graphs_path
+           gt_context_path, gt_skel_graphs_path, remove_borders
 
 
 def get_visor40(args):
@@ -101,7 +108,7 @@ def get_visor40(args):
 
     return paths, erl_overlap_allowance, ibex_downsample_fac, matching_radius, \
            resolution, output_base_path, var_params, data_path, gt_skel_path, \
-           gt_context_path, gt_skel_graphs_path
+           gt_context_path, gt_skel_graphs_path, None
 
 
 def get_mri(set, method, tune):
