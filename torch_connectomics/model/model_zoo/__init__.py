@@ -9,4 +9,18 @@ from .lstmHead import LSTMHead
 from .classificationNet import ClassificationNet
 from .fluxNet import FluxNet
 from .directionNet import DirectionNet
-__all__ = ['unetv0', 'unetv1', 'unetv2', 'unetv3', 'unetLite', 'fpn', 'LSTMHead', 'unetv3DualHead', 'ClassificationNet', 'FluxNet', 'DirectionNet']
+from .fluxToSkeletonHead import FluxToSkeletonHead
+
+
+__all__ = ['unetv0',
+           'unetv1',
+           'unetv2',
+           'unetv3',
+           'unetLite',
+           'fpn',
+           'LSTMHead',
+           'unetv3DualHead',
+           'ClassificationNet',
+           'FluxNet',
+           'DirectionNet',
+           'FluxToSkeletonHead']

@@ -89,13 +89,13 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
             out_input = out_input.copy()
             out_flux = out_flux.copy()
 
-            if self.weight:
+            if self.weight[pos[0]]:
                 pre_weight = crop_volume(self.weight[pos[0]], vol_size, pos[1:])
                 pre_weight = pre_weight.astype(np.float32, copy=True)
 
             # Augmentations
             if self.augmentor is not None:  # augmentation
-                if self.weight:
+                if self.weight[pos[0]]:
                     data = {'image':out_input, 'flux':out_flux.astype(np.float32),
                             'skeleton':out_skeleton.astype(np.float32), 'context':out_label.astype(np.float32), 'weight':pre_weight}
                 else:
@@ -105,7 +105,7 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
                 augmented = self.augmentor(data, random_state=seed)
                 out_input, out_flux = augmented['image'], augmented['flux']
                 out_skeleton, out_label = augmented['skeleton'], augmented['context']
-                if self.weight:
+                if self.weight[pos[0]]:
                     pre_weight = augmented['weight']
 
             # if np.all(out_flux == 0):
@@ -142,7 +142,7 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
             flux_weight = self.compute_flux_weights(all_ones, out_label_mask, alpha=1.0)
             skeleton_weight = self.compute_flux_weights(all_ones, valid_distance_mask, alpha=1.0)
 
-            if self.weight:
+            if self.weight[pos[0]]:
                 flux_weight[pre_weight>0] *= 4
                 skeleton_weight[pre_weight>0] *= 4
 

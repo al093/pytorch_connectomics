@@ -1,6 +1,7 @@
 import os,sys
 import h5py, time, itertools, datetime
 import numpy as np
+import copy
 
 import torch
 
@@ -9,11 +10,14 @@ from torch_connectomics.utils.net import *
 from torch_connectomics.utils.vis import *
 
 
-def train(args, train_loader, model, device, criterion, optimizer, scheduler, logger, writer, regularization=None):
+def train(args, train_loader, model, head_model, device, criterion, optimizer, scheduler, logger, writer, regularization=None):
     model.train()
     start = time.time()
 
     last_iteration_num, loss = restore_state(optimizer, scheduler, args)
+
+    #TODO(alok) do it more generally
+    skeleton_criterion = WeightedL1()
 
     for iteration, data in enumerate(train_loader, start=last_iteration_num+1):
         if args.local_rank is None or args.local_rank == 0:
@@ -22,21 +26,28 @@ def train(args, train_loader, model, device, criterion, optimizer, scheduler, lo
                 print('time taken for itr: ', time.time() - start)
                 start = time.time()
 
-        _, volume, label, flux, flux_weight, _, _= data
+        _, volume, label, flux, flux_weight, skeleton, skeleton_weight = data
 
         volume = volume.to(device)
         output_flux = model(volume)
+
+        #TODO(alok) do it more generally
+        output_skeleton = head_model(output_flux)
+        skeleton, skeleton_weight = skeleton.to(device), skeleton_weight.to(device)
+        skeleton_L1_loss = skeleton_criterion(output_skeleton, skeleton, skeleton_weight)
+
         flux, flux_weight = flux.to(device), flux_weight.to(device)
 
         if isinstance(criterion, AngularAndScaleLoss):
             flux_loss, angular_l, scale_l = criterion(output_flux, flux, weight=flux_weight)
-            loss = flux_loss
+            loss = flux_loss + skeleton_L1_loss
 
             if args.local_rank is None or args.local_rank == 0:
                 if writer:
                     writer.add_scalars('Part-wise Losses',
                                        {'Angular': angular_l.item(),
-                                        'Scale': scale_l.item()}, iteration)
+                                        'Scale': scale_l.item(),
+                                        'Skeleton_L1': skeleton_L1_loss.item()}, iteration)
         else:
             loss = criterion(output_flux, flux, weight=flux_weight)
 
@@ -64,6 +75,7 @@ def train(args, train_loader, model, device, criterion, optimizer, scheduler, lo
             #Save model, update lr
             if iteration % args.iteration_save == 0 or iteration >= args.iteration_total:
                 torch.save({'model_state_dict': model.state_dict(),
+                            'head_model': head_model.dict(),
                             'optimizer_state_dict': optimizer.state_dict(),
                             'scheduler_state_dict': scheduler.state_dict(),
                             'loss':loss,
@@ -100,6 +112,13 @@ def main():
     print('Setup model')
     model = setup_model(args, device, model_io_size, non_linearity=(torch.tanh,))
 
+    # TODO (alok) make this more general
+    print('Setup Flux To Skeleton head.')
+    head_args = copy.deepcopy(args)
+    head_args.architecture = 'fluxToSkeletonHead'
+    head_args.load_model = False
+    head_model = setup_model(head_args, device, model_io_size)
+
     print('Setup data')
     train_loader = get_input(args, model_io_size, 'train', model=None)
 
@@ -108,7 +127,7 @@ def main():
     # criterion = WeightedMSE()
 
     print('Setup optimizer')
-    model_parameters = list(model.parameters())
+    model_parameters = list(model.parameters()) + list(head_model.parameters())
     optimizer = torch.optim.Adam(model_parameters, lr=args.lr, betas=(0.9, 0.999),
                                  eps=1e-08, weight_decay=1e-6, amsgrad=True)
 
@@ -124,7 +143,7 @@ def main():
         return
 
     print('Start training')
-    train(args, train_loader, model, device, criterion, optimizer, scheduler, logger, writer)
+    train(args, train_loader, model, head_model, device, criterion, optimizer, scheduler, logger, writer)
 
     print('Training finished')
     if args.disable_logging is not True:

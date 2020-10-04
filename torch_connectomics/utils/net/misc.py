@@ -76,7 +76,8 @@ def setup_model(args, device, model_io_size, exact=True, size_match=True, non_li
                  'cNet': ClassificationNet,
                  'fluxNet': FluxNet,
                  'directionNet': DirectionNet,
-                 'fpn': fpn}
+                 'fpn': fpn,
+                 'fluxToSkeletonHead': FluxToSkeletonHead}
 
     assert args.architecture in MODEL_MAP.keys()
     if args.task == 2:
@@ -89,8 +90,10 @@ def setup_model(args, device, model_io_size, exact=True, size_match=True, non_li
             model = MODEL_MAP[args.architecture](in_channel=args.in_channel, out_channel=args.out_channel,
                                                  input_sz=model_io_size, batch_sz=args.batch_size,
                                                  non_linearity=non_linearity,
-                                                 aspp_dilation_ratio = args.aspp_dilation_ratio,
+                                                 aspp_dilation_ratio=args.aspp_dilation_ratio,
                                                  symmetric=args.symmetric)
+        elif args.architecture == 'fluxToSkeletonHead':
+            model = MODEL_MAP[args.architecture](xy_z_factor=args.aspp_dilation_ratio)
         else:
             model = MODEL_MAP[args.architecture](in_channel=args.in_channel, out_channel=args.out_channel,
                                                  input_sz=model_io_size, batch_sz=args.batch_size,
