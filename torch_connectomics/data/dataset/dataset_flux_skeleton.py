@@ -292,7 +292,7 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
             self.label = []
             self.skeleton = []
             self.flux = []
-            self.weight = [] if self.weight_paths is not None else None
+            self.weight = [] if self.weight_paths is not None else [None]*len(self.input_paths)
 
             for i in range(len(self.input_paths)):
                 self.input.append(h5py.File(self.input_paths[i], 'r')['main'])
@@ -307,7 +307,7 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
                 self.flux.append(h5py.File(self.flux_paths[i], 'r')['main'])
 
                 if self.weight_paths:
-                    self.weight.append(h5py.File(weight_paths[i], 'r')['main'])
+                    self.weight.append(h5py.File(self.weight_paths[i], 'r')['main'])
 
             self.h5_files_opened = True
 

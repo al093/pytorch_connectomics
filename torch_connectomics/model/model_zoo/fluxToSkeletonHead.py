@@ -13,22 +13,18 @@ class FluxToSkeletonHead(nn.Module):
 
         half_kernel_size = [2, 2*xy_z_factor, 2*xy_z_factor]
         padding, kernel_size = self._get_padding_kernel_size(half_kernel_size)
-        print(f"Kernel size: {kernel_size}, padding: {padding}")
         modules.append(conv3d_bn_relu(in_planes=4, out_planes=1, kernel_size=kernel_size, stride=1, padding=padding))
 
         dilation = [2, 2*xy_z_factor, 2*xy_z_factor]
         padding, kernel_size = self._get_padding_kernel_size(half_kernel_size, dilation)
-        print(f"Kernel size: {kernel_size}, padding: {padding}")
         modules.append(conv3d_bn_relu(in_planes=4, out_planes=1, kernel_size=kernel_size, stride=1, padding=padding, dilation=dilation,))
 
         half_kernel_size = [3, 3*xy_z_factor, 3*xy_z_factor]
         padding, kernel_size = self._get_padding_kernel_size(half_kernel_size)
-        print(f"Kernel size: {kernel_size}, padding: {padding}")
         modules.append(conv3d_bn_relu(in_planes=4, out_planes=1, kernel_size=kernel_size, stride=1, padding=padding))
 
         dilation = [2, 2*xy_z_factor, 2*xy_z_factor]
         padding, kernel_size = self._get_padding_kernel_size(half_kernel_size, dilation)
-        print(f"Kernel size: {kernel_size}, padding: {padding}")
         modules.append(conv3d_bn_relu(in_planes=4, out_planes=1, kernel_size=kernel_size, stride=1, padding=padding, dilation=dilation))
 
         self.convs = nn.ModuleList(modules)
