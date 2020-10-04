@@ -10,15 +10,11 @@ from torch_connectomics.utils.net import *
 from torch_connectomics.utils.vis import *
 
 
-def train(args, train_loader, model, head_model, device, criterion, optimizer, scheduler, logger, writer, regularization=None):
-    model.train()
-    start = time.time()
-
+def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, logger, writer, regularization=None):
+    for m in models: m.train()
     last_iteration_num, loss = restore_state(optimizer, scheduler, args, device)
 
-    #TODO(alok) do it more generally
-    skeleton_criterion = WeightedL1()
-
+    start = time.time()
     for iteration, data in enumerate(train_loader, start=last_iteration_num+1):
         if args.local_rank is None or args.local_rank == 0:
             sys.stdout.flush()
@@ -29,27 +25,29 @@ def train(args, train_loader, model, head_model, device, criterion, optimizer, s
         _, volume, label, flux, flux_weight, skeleton, skeleton_weight = data
 
         volume = volume.to(device)
-        output_flux = model(volume)
+        output_flux = models[0](volume)
 
-        #TODO(alok) do it more generally
-        output_skeleton = head_model(output_flux)
-        skeleton, skeleton_weight = skeleton.to(device), skeleton_weight.to(device)
-        skeleton_L1_loss = skeleton_criterion(output_skeleton, skeleton, skeleton_weight)
+        if args.with_skeleton_head:
+            output_skeleton = models[1](output_flux)
+            skeleton, skeleton_weight = skeleton.to(device), skeleton_weight.to(device)
+            skeleton_loss = loss_fns[1](output_skeleton, skeleton, skeleton_weight)
 
         flux, flux_weight = flux.to(device), flux_weight.to(device)
 
-        if isinstance(criterion, AngularAndScaleLoss):
-            flux_loss, angular_l, scale_l = criterion(output_flux, flux, weight=flux_weight)
-            loss = flux_loss + skeleton_L1_loss
+        losses_dict = dict()
+        if isinstance(loss_fns[0], AngularAndScaleLoss):
+            flux_loss, angular_l, scale_l = loss_fns[0](output_flux, flux, weight=flux_weight)
+            loss = flux_loss
+            losses_dict.update({'Angular': angular_l.item(), 'Scale': scale_l.item()})
 
-            if args.local_rank is None or args.local_rank == 0:
-                if writer:
-                    writer.add_scalars('Part-wise Losses',
-                                       {'Angular': angular_l.item(),
-                                        'Scale': scale_l.item(),
-                                        'Skeleton_L1': skeleton_L1_loss.item()}, iteration)
+            if args.with_skeleton_head:
+                loss += skeleton_loss
+                losses_dict['Skeleton'] = skeleton_loss.item()
         else:
-            loss = criterion(output_flux, flux, weight=flux_weight)
+            loss = loss_fns[0](output_flux, flux, weight=flux_weight)
+
+        if args.local_rank is None or args.local_rank == 0 and writer and losses_dict:
+            writer.add_scalars('Part-wise Losses', losses_dict, iteration)
 
         # compute gradient and do Adam step
         optimizer.zero_grad()
@@ -74,13 +72,16 @@ def train(args, train_loader, model, head_model, device, criterion, optimizer, s
 
             #Save model, update lr
             if iteration % args.iteration_save == 0 or iteration >= args.iteration_total:
-                torch.save({'model_state_dict': model.state_dict(),
-                            'head_model_state_dict': head_model.state_dict(),
+                save_dict = {models[0].__class__.__name__ + '_state_dict': models[0].state_dict(),
                             'optimizer_state_dict': optimizer.state_dict(),
                             'scheduler_state_dict': scheduler.state_dict(),
                             'loss':loss,
-                            'iteration':iteration},
-                           args.output+(args.exp_name + '_%d.pth' % iteration))
+                            'iteration':iteration}
+
+                if args.with_skeleton_head:
+                    save_dict[models[1].__class__.__name__ + '_state_dict'] = models[1].state_dict()
+
+                torch.save(save_dict, args.output+(args.exp_name + '_%d.pth' % iteration))
 
         # Terminate
         if iteration >= args.iteration_total:
@@ -109,25 +110,29 @@ def main():
         if args.local_rank in [None, 0]:
             logger, writer = get_logger(args)
 
-    print('Setup model')
+    print('Setup model.')
     model = setup_model(args, device, model_io_size, non_linearity=(torch.tanh,))
+    models = [model]
 
-    # TODO (alok) make this more general
-    print('Setup Flux To Skeleton head.')
-    head_args = copy.deepcopy(args)
-    head_args.architecture = 'fluxToSkeletonHead'
-    head_args.load_model = False
-    head_model = setup_model(head_args, device, model_io_size)
-
-    print('Setup data')
+    print('Setup data.')
     train_loader = get_input(args, model_io_size, 'train', model=None)
 
-    print('Setup loss function')
-    criterion = AngularAndScaleLoss(alpha=0.16)
-    # criterion = WeightedMSE()
+    print('Setup loss function.')
+    loss_fns = [AngularAndScaleLoss(alpha=0.16)]
+
+    if args.with_skeleton_head:
+        print('Setup Skeleton head model.')
+        head_args = copy.deepcopy(args)
+        head_args.architecture = 'fluxToSkeletonHead'
+        head_args.load_model = False
+        head_model = setup_model(head_args, device, model_io_size)
+        models.append(head_model)
+        loss_fns.append(WeightedL1())
 
     print('Setup optimizer')
-    model_parameters = list(model.parameters()) + list(head_model.parameters())
+    model_parameters = list(model.parameters())
+    if args.with_skeleton_head:
+        model_parameters += list(head_model.parameters())
     optimizer = torch.optim.Adam(model_parameters, lr=args.lr, betas=(0.9, 0.999),
                                  eps=1e-08, weight_decay=1e-6, amsgrad=True)
 
@@ -143,7 +148,7 @@ def main():
         return
 
     print('Start training')
-    train(args, train_loader, model, head_model, device, criterion, optimizer, scheduler, logger, writer)
+    train(args, train_loader, models, device, loss_fns, optimizer, scheduler, logger, writer)
 
     print('Training finished')
     if args.disable_logging is not True:

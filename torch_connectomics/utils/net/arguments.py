@@ -56,6 +56,8 @@ def get_args(mode='train', input_args=None):
                              'Should be ideally equal to the resolution anisotropy. Only defined for FluxNet.')
     parser.add_argument('--symmetric', type=my_bool, default=False,
                         help='Pass true if the resolution is isotropic.')
+    parser.add_argument('--with-skeleton-head', type=my_bool, default=False,
+                        help='To use Skeleton head after the flux model.')
 
     # machine option
     parser.add_argument('-g', '--num-gpu', type=int,  default=1,
