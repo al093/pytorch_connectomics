@@ -49,9 +49,9 @@ class FluxToSkeletonHead(nn.Module):
 
     def _3d_divergence(self, input):
         input_pad = self.pad_fn(input)
-        dx = input_pad[:, 0, 1:-1, 1:-1, 0:-2] - input[:, 0]
+        dx = input_pad[:, 2, 1:-1, 1:-1, 0:-2] - input[:, 2]
         dy = input_pad[:, 1, 1:-1, 0:-2, 1:-1] - input[:, 1]
-        dz = input_pad[:, 2, 0:-2, 1:-1, 1:-1] - input[:, 2]
+        dz = input_pad[:, 0, 0:-2, 1:-1, 1:-1] - input[:, 0]
         return (dz + dy + dx).unsqueeze(1)
 
     def _get_padding_kernel_size(self, half_kernel_size, dilation=(1, 1, 1)):

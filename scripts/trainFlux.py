@@ -14,7 +14,7 @@ def train(args, train_loader, model, head_model, device, criterion, optimizer, s
     model.train()
     start = time.time()
 
-    last_iteration_num, loss = restore_state(optimizer, scheduler, args)
+    last_iteration_num, loss = restore_state(optimizer, scheduler, args, device)
 
     #TODO(alok) do it more generally
     skeleton_criterion = WeightedL1()
