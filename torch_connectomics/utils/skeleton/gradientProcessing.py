@@ -34,7 +34,7 @@ def remove_ids(ar, ids_to_rem, max_id):
     ids[ids_to_rem] = 0
     return ids[ar]
 
-def compute_skeleton_from_gradient(gradient, params):
+def compute_skeleton_from_gradient(gradient, params, remove_borders=False):
     threshold = params['adaptive_threshold']
     filter_sz = params['filter_size']
     absolute_div_th = params['absolute_threshold']
@@ -68,6 +68,15 @@ def compute_skeleton_from_gradient(gradient, params):
         skel = scipy.ndimage.morphology.binary_dilation(skel, structure=np.ones((1, filter_sz, filter_sz)),
                                                         iterations=1)
     skel = thin_skeletons(skel)
+
+    if remove_borders:
+        if remove_borders[0][0]: skel[0:remove_borders[0][0], :, :] = 0
+        if remove_borders[0][1]: skel[-remove_borders[0][1]:, :, :] = 0
+        if remove_borders[1][0]: skel[:, 0:remove_borders[1][0], :] = 0
+        if remove_borders[1][1]: skel[:, -remove_borders[1][0]:, :] = 0
+        if remove_borders[2][0]: skel[:, :, 0:remove_borders[2][0]] = 0
+        if remove_borders[2][1]: skel[:, :, -remove_borders[2][1]:] = 0
+
     label_cc, num_cc = skimage.measure.label(skel, return_num=True)
 
     if num_cc > np.iinfo(np.uint32).max:

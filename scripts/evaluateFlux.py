@@ -24,10 +24,22 @@ def get_cmdline_args(args):
     parser.add_argument('--set',                    type=str,               help='train | val | test')
     parser.add_argument('--exp-name',               type=str,               help='Experiment name')
     parser.add_argument('--model-dir',              type=str,               help='directory with one or more models (.pth) files')
-    parser.add_argument('--div-threshold',          type=float,             default=None, help='Threshold divergence at this value to get skeletons')
-    parser.add_argument('--dataset-scale',          type=float,             default=1.0, help='Get different input scale.')
-    parser.add_argument('--min-skeleton-vol-threshold',          type=int,  default=400, help='Remove all skeletons smaller than this size')
+    parser.add_argument('--div-threshold',          type=float,             default=None,   help='Threshold divergence at this value to get skeletons')
+    parser.add_argument('--dataset-scale',          type=float,             default=1.0,    help='Get different input scale.')
+    parser.add_argument('--min-skeleton-vol-threshold',          type=int,  default=400,    help='Remove all skeletons smaller than this size')
+    parser.add_argument('-c', '--num-cpu',          type=int,               default=12,      help='Number of parallel threads to use.')
     return parser.parse_known_args(args)[0]
+
+def print_best_params(results_dict, metric):
+    best_checkpoint, best_th, best_metric = -1, -1, -1
+    for checkpoint, results in results_dict.items():
+        for th, result in results.items():
+            if best_metric <= result[metric]:
+                best_metric = result[metric]
+                best_checkpoint = checkpoint
+                best_th = th
+    print(f'Best {metric} score is {best_metric} for checkpoint {best_checkpoint} and threshold {best_th}')
+    return best_checkpoint, best_th
 
 if __name__ == "__main__":
     ########################################################################################################################
@@ -38,7 +50,7 @@ if __name__ == "__main__":
 
     # generic arguments for running deepnet which are same for all methods
     exp_name = args.exp_name
-    num_cpu = 12
+    num_cpu = args
 
     if args.dataset == 'snemi':
         get_dataset_fn = get_snemi
@@ -57,7 +69,7 @@ if __name__ == "__main__":
     # get dataset paths
     (paths, erl_overlap_allowance, ibex_downsample_fac, matching_radius,
     resolution, output_base_path, var_params, data_path, gt_skel_path, \
-    gt_context_path, gt_skel_graphs_path) = get_dataset_fn(args)
+    gt_context_path, gt_skel_graphs_path, remove_borders) = get_dataset_fn(args)
 
     # if div threshold is defined override that
     if args.div_threshold:
@@ -133,7 +145,7 @@ if __name__ == "__main__":
                         if (not os.path.isfile(initial_skeletons_filename)) or args.force_run_skeleton:
                             print('Computing skeletons from flux')
                             pred_flux_i = read_data(flux_file_name)
-                            skeleton, skel_divergence = compute_skeleton_from_gradient(pred_flux_i, skel_params)
+                            skeleton, skel_divergence = compute_skeleton_from_gradient(pred_flux_i, skel_params, remove_borders)
                             skeleton = remove_small_skeletons(skeleton, args.min_skeleton_vol_threshold)
                             if skeleton.shape != gt_contexts[i].shape:
                                 skeleton = skimage.transform.resize(skeleton, gt_contexts[i].shape, order=0, mode='edge',
@@ -166,5 +178,9 @@ if __name__ == "__main__":
                 prev_error_dict = dict()
 
             with open(output_results_file, 'w') as handle:
-                json.dump(prev_error_dict.update(error_dict), handle)
+                prev_error_dict.update(error_dict)
+                json.dump(prev_error_dict, handle)
                 print("Results stored at: ", output_results_file)
+
+        print_best_params(prev_error_dict, 'erl')
+        print_best_params(prev_error_dict, 'pr')
