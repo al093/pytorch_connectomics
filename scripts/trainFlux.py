@@ -75,7 +75,7 @@ def train(args, train_loader, model, head_model, device, criterion, optimizer, s
             #Save model, update lr
             if iteration % args.iteration_save == 0 or iteration >= args.iteration_total:
                 torch.save({'model_state_dict': model.state_dict(),
-                            'head_model': head_model.dict(),
+                            'head_model_state_dict': head_model.state_dict(),
                             'optimizer_state_dict': optimizer.state_dict(),
                             'scheduler_state_dict': scheduler.state_dict(),
                             'loss':loss,

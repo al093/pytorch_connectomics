@@ -1,0 +1,2 @@
+-dn /n/pfister_lab2/Lab/alok/p7/segmentations/partial/im_0.h5
+-sp /n/pfister_lab2/Lab/alok/p7/segmentations/partial/nucleus_seeds.h5
