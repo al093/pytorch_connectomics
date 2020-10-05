@@ -46,7 +46,7 @@ class Elastic(DataAugment):
         depth, height, width = image.shape[-3:]  # (z, y, x)
 
         if random_state is None:
-            random_state = np.random.RandomState(1234)
+            random_state = np.random.RandomState()
         dx = np.float32(gaussian_filter((random_state.rand(height, width) * 2 - 1), self.sigma) * self.alpha)
         dy = np.float32(gaussian_filter((random_state.rand(height, width) * 2 - 1), self.sigma) * self.alpha)
         mapy, mapx = np.float32(self.y + dy), np.float32(self.x + dx)

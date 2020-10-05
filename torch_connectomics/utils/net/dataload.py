@@ -327,7 +327,8 @@ def get_input(args, model_io_size, mode='train', model=None):
             pin_memory = True
 
         img_loader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, shuffle=SHUFFLE,
-                                                 collate_fn=c_fn, num_workers=args.num_cpu, pin_memory=pin_memory)
+                                                 collate_fn=c_fn, num_workers=args.num_cpu, pin_memory=pin_memory,
+                                                 worker_init_fn=get_worker_init_fn(args.local_rank))
 
         return img_loader
 
@@ -438,3 +439,11 @@ def load_seeds_from_txt(txt_path):
 
 def is_ddp(args):
     return args.local_rank is not None
+
+def get_worker_init_fn(rank):
+    rank = 0 if rank is None else rank
+    def worker_init_fn(worker_id):
+        initial_seed = torch.initial_seed() % 2 ** 32
+        np.random.seed(initial_seed + worker_id + 123*rank)
+
+    return worker_init_fn

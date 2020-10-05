@@ -65,7 +65,8 @@ class Flip(DataAugment):
 
     def __call__(self, data, random_state):
         if random_state is None:
-            random_state = np.random.RandomState(1234)
+            random_state = np.random.RandomState()
+
         rule = random_state.randint(2, size=4)
         output = {}
         for key, val in data.items():

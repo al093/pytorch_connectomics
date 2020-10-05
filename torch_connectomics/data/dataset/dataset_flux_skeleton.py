@@ -74,9 +74,7 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
         # Train Mode Specific Operations:
         if self.mode == 'train':
             # get input volume
-            seed = np.random.RandomState(index)
-
-            pos = self.get_pos_seed(seed)
+            pos = self.get_pos_seed()
             out_label = crop_volume(self.label[pos[0]], vol_size, pos[1:])
             out_input = crop_volume(self.input[pos[0]], vol_size, pos[1:])
             # TODO(Alok) remove this check
@@ -102,7 +100,7 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
                     data = {'image': out_input, 'flux': out_flux.astype(np.float32),
                             'skeleton': out_skeleton.astype(np.float32), 'context': out_label.astype(np.float32)}
 
-                augmented = self.augmentor(data, random_state=seed)
+                augmented = self.augmentor(data, random_state=None)
                 out_input, out_flux = augmented['image'], augmented['flux']
                 out_skeleton, out_label = augmented['skeleton'], augmented['context']
                 if self.weight[pos[0]]:
@@ -167,7 +165,7 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
     def get_pos_dataset(self, index):
         return np.argmax(index < self.sample_num_c) - 1  # which dataset
 
-    def get_pos_seed(self, seed, offset=None):
+    def get_pos_seed(self, offset=None):
         pos = [0, 0, 0, 0]
         # pick a dataset
         did = np.random.choice(len(self.seed_points))  # sample from all datasets equally

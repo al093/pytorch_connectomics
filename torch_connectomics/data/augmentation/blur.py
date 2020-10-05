@@ -33,7 +33,7 @@ class Blur(DataAugment):
 
     def __call__(self, data, random_state):
         if random_state is None:
-            random_state = np.random.RandomState(1234)
+            random_state = np.random.RandomState()
         img = data['image']
         sigma = random_state.randint(low=self.min_sigma, high=self.max_sigma + 1, dtype=np.uint8)
         n_slices = random_state.randint(low=self.min_slices, high=self.max_slices + 1, dtype=np.uint8)

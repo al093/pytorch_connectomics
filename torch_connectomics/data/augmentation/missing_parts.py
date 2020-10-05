@@ -110,7 +110,7 @@ class MissingParts(DataAugment):
 
     def __call__(self, data, random_state):
         if random_state is None:
-            random_state = np.random.RandomState(1234)
+            random_state = np.random.RandomState()
 
         augmented = self.apply_deform(data['image'], random_state)
         data['image'] = augmented
