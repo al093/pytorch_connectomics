@@ -115,6 +115,8 @@ def setup_model(args, device, model_io_size, exact=True, size_match=True, non_li
             checkpoint = torch.load(args.pre_model, map_location=device)
             if checkpoint.get(model.__class__.__name__ + '_state_dict', None):
                 model.load_state_dict(checkpoint[model.__class__.__name__ + '_state_dict'])
+            elif checkpoint.get('model_state_dict', None):
+                model.load_state_dict(checkpoint['model_state_dict'])
             else:
                 model.load_state_dict(checkpoint)
         else:
