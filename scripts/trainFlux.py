@@ -124,7 +124,8 @@ def main():
         print('Setup Skeleton head model.')
         head_args = copy.deepcopy(args)
         head_args.architecture = 'fluxToSkeletonHead'
-        head_args.load_model = False
+        if not args.warm_start:
+            head_args.load_model = False
         head_model = setup_model(head_args, device, model_io_size)
         models.append(head_model)
         loss_fns.append(WeightedL1())
