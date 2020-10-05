@@ -19,24 +19,24 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
         if args.local_rank is None or args.local_rank == 0:
             sys.stdout.flush()
             if iteration < 50:
-                print('time taken for itr: ', time.time() - start)
+                print('time taken for iteration: ', time.time() - start)
                 start = time.time()
 
         _, volume, label, flux, flux_weight, skeleton, skeleton_weight = data
 
-        volume = volume.to(device)
-        output_flux = models[0](volume)
+        volume_gpu = volume.to(device)
+        output_flux = models[0](volume_gpu)
 
         if args.with_skeleton_head:
             output_skeleton = models[1](output_flux)
-            skeleton, skeleton_weight = skeleton.to(device), skeleton_weight.to(device)
-            skeleton_loss = loss_fns[1](output_skeleton, skeleton, skeleton_weight)
+            skeleton_gpu, skeleton_weight = skeleton.to(device), skeleton_weight.to(device)
+            skeleton_loss = loss_fns[1](output_skeleton, skeleton_gpu, skeleton_weight)
 
-        flux, flux_weight = flux.to(device), flux_weight.to(device)
+        flux_gpu, flux_weight_gpu = flux.to(device), flux_weight.to(device)
 
         losses_dict = dict()
         if isinstance(loss_fns[0], AngularAndScaleLoss):
-            flux_loss, angular_l, scale_l = loss_fns[0](output_flux, flux, weight=flux_weight)
+            flux_loss, angular_l, scale_l = loss_fns[0](output_flux, flux_gpu, weight=flux_weight_gpu)
             loss = flux_loss
             losses_dict.update({'Angular': angular_l.item(), 'Scale': scale_l.item()})
 
@@ -44,7 +44,7 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
                 loss += skeleton_loss
                 losses_dict['Skeleton'] = skeleton_loss.item()
         else:
-            loss = loss_fns[0](output_flux, flux, weight=flux_weight)
+            loss = loss_fns[0](output_flux, flux_gpu, weight=flux_weight_gpu)
 
         if args.local_rank is None or args.local_rank == 0 and writer and losses_dict:
             writer.add_scalars('Part-wise Losses', losses_dict, iteration)
@@ -66,20 +66,20 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
 
             if iteration % 500 == 0:
                 if writer:
-                    visualize(volume.cpu(), flux_weight.cpu() / flux_weight.max().cpu(), label,
+                    visualize(volume, skeleton, output_skeleton.cpu(),
                               iteration, writer, mode='Train',
-                              color_data=torch.cat((vec_to_RGB(output_flux.cpu()), vec_to_RGB(flux.cpu())), 1))
+                              color_data=torch.cat((vec_to_RGB(output_flux.cpu()), vec_to_RGB(flux)), 1))
 
             #Save model, update lr
             if iteration % args.iteration_save == 0 or iteration >= args.iteration_total:
-                save_dict = {models[0].__class__.__name__ + '_state_dict': models[0].state_dict(),
+                save_dict = {models[0].module.__class__.__name__ + '_state_dict': models[0].state_dict(),
                             'optimizer_state_dict': optimizer.state_dict(),
                             'scheduler_state_dict': scheduler.state_dict(),
                             'loss':loss,
                             'iteration':iteration}
 
                 if args.with_skeleton_head:
-                    save_dict[models[1].__class__.__name__ + '_state_dict'] = models[1].state_dict()
+                    save_dict[models[1].module.__class__.__name__ + '_state_dict'] = models[1].state_dict()
 
                 torch.save(save_dict, args.output+(args.exp_name + '_%d.pth' % iteration))
 
