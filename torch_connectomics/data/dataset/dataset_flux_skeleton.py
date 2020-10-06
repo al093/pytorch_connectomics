@@ -116,7 +116,8 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
             # TODO | NOTE use 4.0 for distance and other methods, use 2.0 for dilated skeletons
             distance_th = np.float32(2.0)
             valid_distance_mask = (out_skeleton_blurred <= distance_th) & out_label_mask
-            out_skeleton_blurred = distance_th - out_skeleton_blurred
+            skeleton_weight_mask = (out_skeleton_blurred <= (distance_th + 2.0))
+            # out_skeleton_blurred = distance_th - out_skeleton_blurred
             out_skeleton_blurred[~valid_distance_mask] = 0
             # TODO this is for distnce transform of skeletons, the distance_th should be 4.0
             # out_skeleton_blurred /= distance_th
@@ -138,7 +139,7 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
             # Re-balancing weights for Flux and skeleton in a similar way
             all_ones = np.ones_like(out_label_mask)
             flux_weight = self.compute_flux_weights(all_ones, out_label_mask, alpha=1.0)
-            skeleton_weight = self.compute_flux_weights(all_ones, valid_distance_mask, alpha=1.0)
+            skeleton_weight = self.compute_flux_weights(all_ones, skeleton_weight_mask, alpha=1.0)
 
             if self.weight[pos[0]]:
                 flux_weight[pre_weight>0] *= 4
