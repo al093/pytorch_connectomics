@@ -76,7 +76,8 @@ def setup_model(args, device, model_io_size, exact=True, size_match=True, non_li
                  'cNet': ClassificationNet,
                  'fluxNet': FluxNet,
                  'directionNet': DirectionNet,
-                 'fpn': fpn}
+                 'fpn': fpn,
+                 'fluxToSkeletonHead': FluxToSkeletonHead}
 
     assert args.architecture in MODEL_MAP.keys()
     if args.task == 2:
@@ -89,8 +90,10 @@ def setup_model(args, device, model_io_size, exact=True, size_match=True, non_li
             model = MODEL_MAP[args.architecture](in_channel=args.in_channel, out_channel=args.out_channel,
                                                  input_sz=model_io_size, batch_sz=args.batch_size,
                                                  non_linearity=non_linearity,
-                                                 aspp_dilation_ratio = args.aspp_dilation_ratio,
+                                                 aspp_dilation_ratio=args.aspp_dilation_ratio,
                                                  symmetric=args.symmetric)
+        elif args.architecture == 'fluxToSkeletonHead':
+            model = MODEL_MAP[args.architecture](xy_z_factor=args.aspp_dilation_ratio)
         else:
             model = MODEL_MAP[args.architecture](in_channel=args.in_channel, out_channel=args.out_channel,
                                                  input_sz=model_io_size, batch_sz=args.batch_size,
@@ -107,16 +110,17 @@ def setup_model(args, device, model_io_size, exact=True, size_match=True, non_li
         model = model.to(device)
 
     if args.load_model:
-        print('Loading pretrained model:')
-        print(args.pre_model)
+        print(f'Loading pretrained model: {args.pre_model}')
         if exact:
-            checkpoint = torch.load(args.pre_model)
-            if checkpoint.get('model_state_dict', None):
+            checkpoint = torch.load(args.pre_model, map_location=device)
+            if checkpoint.get(model.module.__class__.__name__ + '_state_dict', None):
+                model.load_state_dict(checkpoint[model.module.__class__.__name__ + '_state_dict'])
+            elif checkpoint.get('model_state_dict', None):
                 model.load_state_dict(checkpoint['model_state_dict'])
             else:
                 model.load_state_dict(checkpoint)
         else:
-            pretrained_dict = torch.load(args.pre_model)
+            pretrained_dict = torch.load(args.pre_model, map_location=device)
             model_dict = model.state_dict()
             # 1. filter out unnecessary keys
             pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
@@ -131,11 +135,11 @@ def setup_model(args, device, model_io_size, exact=True, size_match=True, non_li
             model.load_state_dict(model_dict)
     return model
 
-def restore_state(optimizer, scheduler, args):
+def restore_state(optimizer, scheduler, args, device):
     if bool(args.load_model) and args.warm_start:
         if args.local_rank in [None, 0]:
             print('Trying to load optimizer and scheduler state from checkpoint.')
-        checkpoint = torch.load(args.pre_model)
+        checkpoint = torch.load(args.pre_model, map_location=device)
         if checkpoint.get('scheduler_state_dict', None):
             scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
             if args.local_rank in [None, 0]:
@@ -157,7 +161,7 @@ def setup_lstm_model(args, device, model_io_size):
     if bool(args.load_model_lstm):
         print('Load pretrained LSTM model:')
         print(args.pre_model_lstm)
-        model.load_state_dict(torch.load(args.pre_model_lstm))
+        model.load_state_dict(torch.load(args.pre_model_lstm, map_location=device))
     return model
 
 def blend(sz, sigma=0.5, mu=0.0):  

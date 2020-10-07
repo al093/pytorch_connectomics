@@ -1,0 +1,5 @@
+-dn /n/pfister_lab2/Lab/alok/segEM/image/train/1_0x/image.h5
+-ln /n/pfister_lab2/Lab/alok/segEM/skeleton/train/splineInterp/1_0x/skeleton_context.h5
+-sp /n/pfister_lab2/Lab/alok/segEM/skeleton/train/splineInterp/1_0x/context_positions.h5
+-skn /n/pfister_lab2/Lab/alok/segEM/skeleton/train/splineInterp/1_0x/skeleton.h5
+-fn /n/pfister_lab2/Lab/alok/segEM/skeleton/train/splineInterp/1_0x/grad_distance_context.h5

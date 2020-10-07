@@ -29,7 +29,7 @@ class Grayscale(DataAugment):
 
     def __call__(self, data, random_state):
         if random_state is None:
-            random_state = np.random.RandomState(1234)
+            random_state = np.random.RandomState()
 
         if self.mode == 'mix':
             mode = '3D' if random_state.rand() > 0.5 else '2D'

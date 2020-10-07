@@ -74,9 +74,7 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
         # Train Mode Specific Operations:
         if self.mode == 'train':
             # get input volume
-            seed = np.random.RandomState(index)
-
-            pos = self.get_pos_seed(seed)
+            pos = self.get_pos_seed()
             out_label = crop_volume(self.label[pos[0]], vol_size, pos[1:])
             out_input = crop_volume(self.input[pos[0]], vol_size, pos[1:])
             # TODO(Alok) remove this check
@@ -89,23 +87,23 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
             out_input = out_input.copy()
             out_flux = out_flux.copy()
 
-            if self.weight:
+            if self.weight[pos[0]]:
                 pre_weight = crop_volume(self.weight[pos[0]], vol_size, pos[1:])
                 pre_weight = pre_weight.astype(np.float32, copy=True)
 
             # Augmentations
             if self.augmentor is not None:  # augmentation
-                if self.weight:
+                if self.weight[pos[0]]:
                     data = {'image':out_input, 'flux':out_flux.astype(np.float32),
                             'skeleton':out_skeleton.astype(np.float32), 'context':out_label.astype(np.float32), 'weight':pre_weight}
                 else:
                     data = {'image': out_input, 'flux': out_flux.astype(np.float32),
                             'skeleton': out_skeleton.astype(np.float32), 'context': out_label.astype(np.float32)}
 
-                augmented = self.augmentor(data, random_state=seed)
+                augmented = self.augmentor(data, random_state=None)
                 out_input, out_flux = augmented['image'], augmented['flux']
                 out_skeleton, out_label = augmented['skeleton'], augmented['context']
-                if self.weight:
+                if self.weight[pos[0]]:
                     pre_weight = augmented['weight']
 
             # if np.all(out_flux == 0):
@@ -118,7 +116,8 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
             # TODO | NOTE use 4.0 for distance and other methods, use 2.0 for dilated skeletons
             distance_th = np.float32(2.0)
             valid_distance_mask = (out_skeleton_blurred <= distance_th) & out_label_mask
-            out_skeleton_blurred = distance_th - out_skeleton_blurred
+            skeleton_weight_mask = (out_skeleton_blurred <= (distance_th + 2.0))
+            # out_skeleton_blurred = distance_th - out_skeleton_blurred
             out_skeleton_blurred[~valid_distance_mask] = 0
             # TODO this is for distnce transform of skeletons, the distance_th should be 4.0
             # out_skeleton_blurred /= distance_th
@@ -140,9 +139,9 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
             # Re-balancing weights for Flux and skeleton in a similar way
             all_ones = np.ones_like(out_label_mask)
             flux_weight = self.compute_flux_weights(all_ones, out_label_mask, alpha=1.0)
-            skeleton_weight = self.compute_flux_weights(all_ones, valid_distance_mask, alpha=1.0)
+            skeleton_weight = self.compute_flux_weights(all_ones, skeleton_weight_mask, alpha=1.0)
 
-            if self.weight:
+            if self.weight[pos[0]]:
                 flux_weight[pre_weight>0] *= 4
                 skeleton_weight[pre_weight>0] *= 4
 
@@ -167,7 +166,7 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
     def get_pos_dataset(self, index):
         return np.argmax(index < self.sample_num_c) - 1  # which dataset
 
-    def get_pos_seed(self, seed, offset=None):
+    def get_pos_seed(self, offset=None):
         pos = [0, 0, 0, 0]
         # pick a dataset
         did = np.random.choice(len(self.seed_points))  # sample from all datasets equally
@@ -292,7 +291,7 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
             self.label = []
             self.skeleton = []
             self.flux = []
-            self.weight = [] if self.weight_paths is not None else None
+            self.weight = [] if self.weight_paths is not None else [None]*len(self.input_paths)
 
             for i in range(len(self.input_paths)):
                 self.input.append(h5py.File(self.input_paths[i], 'r')['main'])
@@ -307,7 +306,7 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
                 self.flux.append(h5py.File(self.flux_paths[i], 'r')['main'])
 
                 if self.weight_paths:
-                    self.weight.append(h5py.File(weight_paths[i], 'r')['main'])
+                    self.weight.append(h5py.File(self.weight_paths[i], 'r')['main'])
 
             self.h5_files_opened = True
 
