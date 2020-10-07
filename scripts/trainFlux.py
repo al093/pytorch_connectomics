@@ -41,7 +41,7 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
             losses_dict.update({'Angular': angular_l.item(), 'Scale': scale_l.item()})
 
             if args.with_skeleton_head:
-                loss += skeleton_loss
+                loss += 4*skeleton_loss
                 losses_dict['Skeleton'] = skeleton_loss.item()
         else:
             loss = loss_fns[0](output_flux, flux_gpu, weight=flux_weight_gpu)
