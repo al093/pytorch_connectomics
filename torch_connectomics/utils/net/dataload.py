@@ -83,11 +83,14 @@ def get_input(args, model_io_size, mode='train', model=None):
         # setup augmentor
         elastic_augmentor = Elastic(alpha=6.0, p=0.75)
         augmentation_methods = [
-            Rotate(p=1.0),
-            Flip(p=1.0),
+            Rotate(p=0.5),
+            Flip(p=0.5),
             elastic_augmentor,
             Grayscale(p=0.75),
             Blur(min_sigma=1, max_sigma=2, min_slices=model_io_size[0]//6, max_slices=model_io_size[0]//4, p=0.4),
+            CutNoise(),
+            CutBlur(),
+            MotionBlur(),
             MissingParts(p=0.5)
             # MissingSection(p=0.5),
             # MisAlignment2(p=1.0, displacement=16)

@@ -13,6 +13,9 @@ from .missing_section import MissingSection
 from .missing_parts import MissingParts
 from .swapz import SwapZ
 from .blur import Blur
+from .cutblur import CutBlur
+from .cutnoise import CutNoise
+from .motionblur import MotionBlur
 
 __all__ = ['Compose',
            'DataAugment', 
@@ -26,4 +29,7 @@ __all__ = ['Compose',
            'MissingParts',
            'Flip',
            'SwapZ',
-           'Blur']
+           'Blur',
+           'MotionBlur',
+           'CutNoise',
+           'CutBlur']
