@@ -5,10 +5,10 @@ import os
 
 
 class LoadFromFile (argparse.Action):
-    def __call__ (self, parser, namespace, values, option_string = None):
+    def __call__(self, parser, namespace, values, option_string = None):
         with values as f:
             print(f)
-            parser.parse_args(f.read().split(), namespace)
+            parser.parse_known_args(f.read().split(), namespace)
 
 def get_args(mode='train', input_args=None):
 
@@ -18,8 +18,6 @@ def get_args(mode='train', input_args=None):
     else:
         parser = argparse.ArgumentParser(description='Specify model inference arguments.')
     
-    # define tasks
-    # {0: neuron segmentationn, 1: synapse detection, 2: mitochondira segmentation}
     parser.add_argument('--task', type=int, default=0,
                         help='specify the task')
 
@@ -149,10 +147,7 @@ def get_args(mode='train', input_args=None):
 
     parser.add_argument('--argsFile', type=open, action=LoadFromFile)
 
-    if input_args is not None:
-        args, unknown = parser.parse_known_args(input_args)
-    else:
-        args, unknown = parser.parse_known_args()
+    args, unknown = parser.parse_known_args(args=input_args or None)
 
     return args
 
