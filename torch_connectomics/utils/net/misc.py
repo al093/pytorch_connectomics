@@ -114,11 +114,11 @@ def setup_model(args, device, model_io_size, exact=True, size_match=True, non_li
         if exact:
             checkpoint = torch.load(args.pre_model, map_location=device)
             if checkpoint.get(model.module.__class__.__name__ + '_state_dict', None):
-                model.load_state_dict(checkpoint[model.module.__class__.__name__ + '_state_dict'])
+                model.load_state_dict(checkpoint[model.module.__class__.__name__ + '_state_dict'], strict=False)
             elif checkpoint.get('model_state_dict', None):
-                model.load_state_dict(checkpoint['model_state_dict'])
+                model.load_state_dict(checkpoint['model_state_dict'], strict=False)
             else:
-                model.load_state_dict(checkpoint)
+                model.load_state_dict(checkpoint, strict=False)
         else:
             pretrained_dict = torch.load(args.pre_model, map_location=device)
             model_dict = model.state_dict()
