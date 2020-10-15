@@ -57,13 +57,22 @@ class FluxNet(nn.Module):
                                                     [5, int(5*aspp_dilation_ratio), int(5*aspp_dilation_ratio)]])
 
         # decoding path
-        self.layer1_D = nn.Sequential(
+        self.layer1_D_flux = nn.Sequential(
             conv3d_bn_relu(in_planes=filters[1], out_planes=filters[0],
                            kernel_size=(1,1,1), stride=1, padding=(0,0,0)),
             residual_block_3d(filters[0], filters[0], projection=False),
-            conv3d_bn_non(in_planes=filters[0], out_planes=out_channel,
+            conv3d_bn_non(in_planes=filters[0], out_planes=3,
                           kernel_size=(3,3,3), stride=1, padding=(1,1,1))
         )
+
+        self.layer1_D_skeleton = nn.Sequential(
+            conv3d_bn_relu(in_planes=filters[1], out_planes=filters[0],
+                           kernel_size=(1,1,1), stride=1, padding=(0,0,0)),
+            residual_block_3d(filters[0], filters[0], projection=False),
+            conv3d_bn_non(in_planes=filters[0], out_planes=1,
+                          kernel_size=(3,3,3), stride=1, padding=(1,1,1))
+        )
+
         self.layer2_D = nn.Sequential(
             conv3d_bn_relu(in_planes=filters[2], out_planes=filters[1],
                            kernel_size=(1,1,1), stride=1, padding=(0,0,0)),
@@ -129,11 +138,11 @@ class FluxNet(nn.Module):
         x = x + z2
 
         x = self.up(x) if self.symmetric else self.up_aniso(x)
-        p_out = x
-        out = self.layer1_D(x)
-        out = self.non_linearity_1(out)
 
-        if get_penultimate_layer:
-            return out, p_out
-        else:
-            return out
+        flux = self.layer1_D_flux(x)
+        flux = self.non_linearity_1(flux)
+
+        skeleton = self.layer1_D_skeleton(x)
+        skeleton = nn.functional.sigmoid(skeleton)
+
+        return flux, skeleton

@@ -25,12 +25,9 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
         _, volume, label, flux, flux_weight, skeleton, skeleton_weight = data
 
         volume_gpu = volume.to(device)
-        output_flux = models[0](volume_gpu)
-
-        if args.with_skeleton_head:
-            output_skeleton = models[1](output_flux)
-            skeleton_gpu, skeleton_weight = skeleton.to(device), skeleton_weight.to(device)
-            skeleton_loss = loss_fns[1](output_skeleton, skeleton_gpu, skeleton_weight)
+        output_flux, output_skeleton = models[0](volume_gpu)
+        skeleton_gpu, skeleton_weight = skeleton.to(device), skeleton_weight.to(device)
+        skeleton_loss = loss_fns[1](output_skeleton, skeleton_gpu, skeleton_weight)
 
         flux_gpu, flux_weight_gpu = flux.to(device), flux_weight.to(device)
 
@@ -39,10 +36,9 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
             flux_loss, angular_l, scale_l = loss_fns[0](output_flux, flux_gpu, weight=flux_weight_gpu)
             loss = flux_loss
             losses_dict.update({'Angular': angular_l.item(), 'Scale': scale_l.item()})
+            loss += 2*skeleton_loss
+            losses_dict['Skeleton'] = 2*skeleton_loss.item()
 
-            if args.with_skeleton_head:
-                loss += 4*skeleton_loss
-                losses_dict['Skeleton'] = skeleton_loss.item()
         else:
             loss = loss_fns[0](output_flux, flux_gpu, weight=flux_weight_gpu)
 
@@ -118,7 +114,7 @@ def main():
     train_loader = get_input(args, model_io_size, 'train', model=None)
 
     print('Setup loss function.')
-    loss_fns = [AngularAndScaleLoss(alpha=0.16)]
+    loss_fns = [AngularAndScaleLoss(alpha=0.25)]
 
     if args.with_skeleton_head:
         print('Setup Skeleton head model.')
@@ -128,7 +124,8 @@ def main():
             head_args.load_model = False
         head_model = setup_model(head_args, device, model_io_size)
         models.append(head_model)
-        loss_fns.append(WeightedL1())
+
+    loss_fns.append(WeightedL1())
 
     print('Setup optimizer')
     model_parameters = list(model.parameters())
