@@ -22,14 +22,13 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
                 print('time taken for iteration: ', time.time() - start)
                 start = time.time()
 
-        _, volume, label, flux, flux_weight, skeleton, skeleton_weight = data
-
-        volume_gpu = volume.to(device)
-        output_flux, output_skeleton = models[0](volume_gpu)
-        skeleton_gpu, skeleton_weight = skeleton.to(device), skeleton_weight.to(device)
-        skeleton_loss = loss_fns[1](output_skeleton, skeleton_gpu, skeleton_weight)
-
+        _, volume, label, flux, flux_weight, skeleton = data
         flux_gpu, flux_weight_gpu = flux.to(device), flux_weight.to(device)
+        volume_gpu = volume.to(device)
+
+        output_flux, output_skeleton = models[0](volume_gpu)
+        skeleton_gpu = skeleton.to(device)
+        skeleton_loss = loss_fns[1](output_skeleton, skeleton_gpu, flux_weight_gpu)
 
         losses_dict = dict()
         if isinstance(loss_fns[0], AngularAndScaleLoss):
