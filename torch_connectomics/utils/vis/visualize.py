@@ -3,11 +3,13 @@ import torchvision.utils as vutils
 import h5py
 import numpy as np
 import pickle
+from skimage import exposure
 
 N = 15 # default maximum number of sections to show
 min_batch = 3
 def prepare_data(volume, label, output, input_label=None, color_data=None):
-
+    volume = exposure.rescale_intensity(volume.numpy(), in_range=(-1, 1), out_range=(0, 1))
+    volume = torch.from_numpy(volume)
     if len(volume.size()) == 4:   # 2D Inputs
         if volume.size()[0] > N:
             return [volume[:N], label[:N], output[:N]]
@@ -160,6 +162,7 @@ def save_data(data, fileName):
     else:
         with h5py.File(fileName, 'w') as hfile:
             hfile.create_dataset('main', data=data, compression='gzip')
+            print(f"Saved: {fileName}")
 
 def save_all(input, gt_label, gt_flux, gt_skeleton, out_flux, out_mask, data_name_prefix, path):
     save_data((input.cpu().detach().numpy()*255).astype(np.uint8),  path + '/input_' + data_name_prefix + '.h5')
