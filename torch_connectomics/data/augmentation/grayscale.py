@@ -41,48 +41,31 @@ class Grayscale(DataAugment):
         if mode is '3D': data = self.augment3D(data, random_state)
         return data
 
-    def augment2D(self, data, random_state=None):
-        """
-        Adapted from ELEKTRONN (http://elektronn.org/).
-        """
-        imgs = data['image']
-        transformedimgs = np.copy(imgs)
-        for z in range(transformedimgs.shape[-3]):
-            img = transformedimgs[z, :, :]
-            img *= 1 + (np.random.rand() - 0.5)*self.CONTRAST_FACTOR
-            img += (np.random.rand() - 0.5)*self.BRIGHTNESS_FACTOR
-            img = np.clip(img, 0, 1)
-            img **= 2.0**(np.random.rand()*2 - 1)
-            transformedimgs[z, :, :] = img
-
-        data['image'] = transformedimgs
-        return data    
+    def augment2D(self, data, random_state):
+        t_imgs = data['image'].copy()
+        for z in range(t_imgs.shape[-3]):
+            if random_state.rand() > 0.5:
+                t_imgs[z, :, :] = self._contrast_brightness_gamma_scaling(t_imgs[z, :, :], random_state)
+        data['image'] = t_imgs
+        return data
 
     def augment3D(self, data, random_state=None):
-        """
-        Adapted from ELEKTRONN (http://elektronn.org/).
-        """
-        imgs = data['image']
-        transformedimgs = np.copy(imgs)
-        transformedimgs *= 1 + (np.random.rand() - 0.5)*self.CONTRAST_FACTOR
-        transformedimgs += (np.random.rand() - 0.5)*self.BRIGHTNESS_FACTOR
-        transformedimgs = np.clip(transformedimgs, 0, 1)
-        transformedimgs **= 2.0**(np.random.rand()*2 - 1)
-        
-        data['image'] = transformedimgs
+        data['image'] = self._contrast_brightness_gamma_scaling(data['image'], random_state)
         return data
 
-    def invert(self, data, random_state=None):
-        """
-        Invert input images
-        """
-        imgs = data['image']
-        transformedimgs = np.copy(imgs)
-        transformedimgs = 1.0-transformedimgs
-        transformedimgs = np.clip(transformedimgs, 0, 1)
+    def _contrast_brightness_gamma_scaling(self, input, random_state):
+        t_input = np.copy(input)
+        t_input *= 1 + (random_state.rand() - 0.5) * self.CONTRAST_FACTOR
+        t_input += (random_state.rand() - 0.5) * self.BRIGHTNESS_FACTOR
 
-        data['image'] = transformedimgs
-        return data
+        # gamma adjustment
+        abs_t_input = np.abs(t_input)
+        abs_t_input **= 2.0 ** (random_state.rand() * 2 - 1)
+        t_input = abs_t_input * np.sign(t_input)
+
+        # clipping
+        t_input = np.clip(t_input, -1, 1)
+        return t_input
 
     ####################################################################
     ## Setters.
