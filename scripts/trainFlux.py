@@ -23,7 +23,8 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
                 start = time.time()
 
         _, volume, label, flux, flux_weight, skeleton = data
-        flux_gpu, flux_weight_gpu = flux.to(device), flux_weight.to(device)
+        # flux_gpu = flux.to(device)
+        flux_weight_gpu = flux_weight.to(device)
         volume_gpu = volume.to(device)
 
         output_flux, output_skeleton = models[0](volume_gpu)
@@ -32,9 +33,10 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
 
         losses_dict = dict()
         if isinstance(loss_fns[0], AngularAndScaleLoss):
-            flux_loss, angular_l, scale_l = loss_fns[0](output_flux, flux_gpu, weight=flux_weight_gpu)
-            loss = flux_loss
-            losses_dict.update({'Angular': angular_l.item(), 'Scale': scale_l.item()})
+            # TODO(alok) remove losses more flexibly using cmd args
+            # flux_loss, angular_l, scale_l = loss_fns[0](output_flux, flux_gpu, weight=flux_weight_gpu)
+            loss = 0 #flux_loss
+            # losses_dict.update({'Angular': angular_l.item(), 'Scale': scale_l.item()})
             loss += 2*skeleton_loss
             losses_dict['Skeleton'] = 2*skeleton_loss.item()
 
@@ -63,7 +65,7 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
                 if writer:
                     visualize(volume, skeleton, output_skeleton.cpu(),
                               iteration, writer, mode='Train',
-                              color_data=torch.cat((vec_to_RGB(output_flux.cpu()), vec_to_RGB(flux)), 1))
+                              color_data=torch.cat((vec_to_RGB(flux), vec_to_RGB(flux)), 1))
 
             #Save model, update lr
             if iteration % args.iteration_save == 0 or iteration >= args.iteration_total:

@@ -139,10 +139,10 @@ class FluxNet(nn.Module):
 
         x = self.up(x) if self.symmetric else self.up_aniso(x)
 
-        flux = self.layer1_D_flux(x)
-        flux = self.non_linearity_1(flux)
+        # flux = self.layer1_D_flux(x)
+        # flux = self.non_linearity_1(flux)
 
         skeleton = self.layer1_D_skeleton(x)
         skeleton = nn.functional.sigmoid(skeleton)
 
-        return flux, skeleton
+        return None, skeleton
