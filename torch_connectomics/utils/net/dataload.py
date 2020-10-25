@@ -304,13 +304,13 @@ def get_input(args, model_io_size, mode='train', model=None):
                                                  sample_input_size=sample_input_size,
                                                  sample_label_size=sample_input_size,
                                                  augmentor=augmentor, mode='train', seed_points=s_points,
-                                                 pad_size=pad_size.astype(np.uint32))
+                                                 pad_size=pad_size.astype(np.uint32), dataset_resolution=args.resolution)
             else:
                 dataset = FluxAndSkeletonDataset(volume=model_input, label=model_label, skeleton=skeleton, flux=flux,
                                                  weight=weight, sample_input_size=sample_input_size,
                                                  sample_label_size=sample_input_size,
                                                  augmentor=augmentor, mode='train', seed_points=s_points,
-                                                 pad_size=pad_size.astype(np.uint32))
+                                                 pad_size=pad_size.astype(np.uint32), dataset_resolution=args.resolution)
 
         elif args.task == 5:  # skeleton match prediction
             dataset = MatchSkeletonDataset(image=model_input, skeleton=skeleton, flux=flux,

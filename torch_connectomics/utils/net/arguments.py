@@ -3,6 +3,7 @@ import sys
 import datetime
 import os
 
+import numpy as np
 
 class LoadFromFile (argparse.Action):
     def __call__(self, parser, namespace, values, option_string = None):
@@ -151,6 +152,9 @@ def get_args(mode='train', input_args=None):
 
     args, unknown = parser.parse_known_args(args=input_args or None)
 
+    if args.resolution:
+        args.resolution = split_resolution_string(args.resolution)
+
     return args
 
 def save_cmd_line(args, filepath=None):
@@ -165,3 +169,6 @@ def save_cmd_line(args, filepath=None):
 
 def my_bool(s):
     return s == 'True' or s == 'true' or s == '1'
+
+def split_resolution_string(resolution:str)->np.array:
+    return np.array([x for x in resolution.split(',')], dtype=np.float32)

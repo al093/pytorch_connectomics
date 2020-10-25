@@ -63,7 +63,7 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
                                                                          loss.item(), optimizer.param_groups[0]['lr']))
                 writer.add_scalars('Loss', {'Overall Loss': loss.item()}, iteration)
 
-            if iteration % 1 == 0:
+            if iteration % 500 == 0:
                 title = "Image/GT_Skeleton"
                 if writer:
                     if 'skeleton' in model_output_dict.keys():
