@@ -116,7 +116,7 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
             # TODO | NOTE use 4.0 for distance and other methods, use 2.0 for dilated skeletons
             distance_th = np.float32(2.0)
             valid_distance_mask = (out_skeleton_blurred <= distance_th) & out_label_mask
-            skeleton_weight_mask = (out_skeleton_blurred <= (distance_th + 2.0))
+            skeleton_weight_mask = (out_skeleton_blurred <= (distance_th + 4.0))
             # out_skeleton_blurred = distance_th - out_skeleton_blurred
             out_skeleton_blurred[~valid_distance_mask] = 0
             # TODO this is for distnce transform of skeletons, the distance_th should be 4.0
@@ -137,16 +137,15 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
 
         if self.mode == 'train':
             # Re-balancing weights for Flux and skeleton in a similar way
-            all_ones = np.ones_like(out_label_mask)
-            flux_weight = self.compute_flux_weights(all_ones, out_label_mask, alpha=1.0)
-            skeleton_weight = self.compute_flux_weights(all_ones, skeleton_weight_mask, alpha=1.0)
+            # all_ones = np.ones_like(out_label_mask)
+            flux_weight = skeleton_weight_mask.astype(np.float32)
+            # self.compute_flux_weights(all_ones, out_label_mask, alpha=1.0)
+            # self.compute_flux_weights(all_ones, skeleton_weight_mask, alpha=1.0)
 
             if self.weight[pos[0]]:
                 flux_weight[pre_weight>0] *= 4
-                skeleton_weight[pre_weight>0] *= 4
 
             flux_weight = torch.from_numpy(flux_weight).unsqueeze(0)
-            skeleton_weight = torch.from_numpy(skeleton_weight).unsqueeze(0)
 
         out_input = torch.from_numpy(out_input)
         out_input = out_input.unsqueeze(0)
@@ -159,7 +158,7 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
 
         if self.mode == 'train':
             out_label_mask = torch.from_numpy(out_label_mask.astype(np.float32)).unsqueeze(0)
-            return pos, out_input, out_label_mask, out_flux, flux_weight, out_skeleton_blurred, skeleton_weight
+            return pos, out_input, out_label_mask, out_flux, flux_weight, out_skeleton_blurred
         else:
             return pos, out_input
 

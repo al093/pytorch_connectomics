@@ -53,7 +53,7 @@ def prepare_data(volume, label, output, input_label=None, color_data=None):
 
     return ret_list
 
-def visualize(volume, label, output, iteration, writer, mode='Train', input_label=None, color_data=None):
+def visualize(volume, label, output, iteration, writer, title='Train', input_label=None, color_data=None):
 
     prepared_data = prepare_data(volume, label, output, input_label, color_data)
     if len(prepared_data) == 3:
@@ -115,7 +115,7 @@ def visualize(volume, label, output, iteration, writer, mode='Train', input_labe
 
     canvas_show = vutils.make_grid(canvas, nrow=nrow, normalize=False, scale_each=False)
 
-    writer.add_image(mode + ' Mask', canvas_show, iteration)
+    writer.add_image(title, canvas_show, iteration)
 
 def visualize_aff(volume, label, output, iteration, writer, mode='Train'):
     volume, label, output = prepare_data(volume, label, output)
