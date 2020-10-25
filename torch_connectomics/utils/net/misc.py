@@ -87,11 +87,9 @@ def setup_model(args, device, model_io_size, exact=True, size_match=True, non_li
         model = MODEL_MAP[args.architecture](in_channel=args.in_channel, input_sz=model_io_size)
     else:
         if args.architecture == 'fluxNet':
-            model = MODEL_MAP[args.architecture](in_channel=args.in_channel, out_channel=args.out_channel,
-                                                 input_sz=model_io_size, batch_sz=args.batch_size,
-                                                 non_linearity=non_linearity,
-                                                 aspp_dilation_ratio=args.aspp_dilation_ratio,
-                                                 symmetric=args.symmetric)
+            model = MODEL_MAP[args.architecture](in_channel=args.in_channel, out_channel=args.out_channel, non_linearity=non_linearity,
+                                                 aspp_dilation_ratio=args.aspp_dilation_ratio, symmetric=args.symmetric,
+                                                 use_skeleton_head=args.use_skeleton_head, use_flux_head=args.use_flux_head)
         elif args.architecture == 'fluxToSkeletonHead':
             model = MODEL_MAP[args.architecture](xy_z_factor=args.aspp_dilation_ratio)
         else:

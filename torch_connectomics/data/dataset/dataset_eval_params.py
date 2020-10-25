@@ -41,14 +41,14 @@ def get_segEM(args):
     elif args.set == 'test':
         remove_borders = [(0, 25), (50,50), (50,50)]
 
-    # with open('/n/home11/averma/pytorch_connectomics/cmdArgs/segEMPaths.json', 'r') as phandle:
-    with open('/n/home11/averma/pytorch_connectomics/cmdArgs/segEMPaths_scales.json', 'r') as phandle:
-        paths = json.load(phandle)[args.set]
-
     if args.dataset_scale != 1.0:
-        data_path = paths['dn'][str(args.dataset_scale)]
+        with open('/n/home11/averma/pytorch_connectomics/cmdArgs/segEMPaths_scales.json', 'r') as phandle:
+            paths = json.load(phandle)[args.set]
+            data_path = paths['dn'][str(args.dataset_scale)]
     else:
-        data_path = paths['dn']
+        with open('/n/home11/averma/pytorch_connectomics/cmdArgs/segEMPaths.json', 'r') as phandle:
+            paths = json.load(phandle)[args.set]
+            data_path = paths['dn']
 
     gt_skel_path = paths['skn']
     gt_context_path = paths['ln']

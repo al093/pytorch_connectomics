@@ -23,25 +23,27 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
                 start = time.time()
 
         _, volume, label, flux, flux_weight, skeleton = data
-        # flux_gpu = flux.to(device)
         flux_weight_gpu = flux_weight.to(device)
         volume_gpu = volume.to(device)
 
-        output_flux, output_skeleton = models[0](volume_gpu)
-        skeleton_gpu = skeleton.to(device)
-        skeleton_loss = loss_fns[1](output_skeleton, skeleton_gpu, flux_weight_gpu)
+        model_output_dict = models[0](volume_gpu)
 
         losses_dict = dict()
-        if isinstance(loss_fns[0], AngularAndScaleLoss):
-            # TODO(alok) remove losses more flexibly using cmd args
-            # flux_loss, angular_l, scale_l = loss_fns[0](output_flux, flux_gpu, weight=flux_weight_gpu)
-            loss = 0 #flux_loss
-            # losses_dict.update({'Angular': angular_l.item(), 'Scale': scale_l.item()})
-            loss += 2*skeleton_loss
-            losses_dict['Skeleton'] = 2*skeleton_loss.item()
-
-        else:
-            loss = loss_fns[0](output_flux, flux_gpu, weight=flux_weight_gpu)
+        loss = 0.0
+        for output_type, model_output in model_output_dict.items():
+            if output_type == 'flux':
+                if isinstance(loss_fns[0], AngularAndScaleLoss):
+                    flux_loss, angular_l, scale_l = loss_fns[0](model_output, flux.to(device), weight=flux_weight_gpu)
+                    loss += flux_loss
+                    losses_dict.update({'Angular': angular_l.item(), 'Scale': scale_l.item()})
+                else:
+                    loss += loss_fns[0](model_output, flux.to(device), weight=flux_weight_gpu)
+            elif output_type == 'skeleton':
+                skeleton_loss = loss_fns[1](model_output, skeleton.to(device), weight=flux_weight_gpu)
+                loss += 2*skeleton_loss
+                losses_dict['Skeleton'] = 2*skeleton_loss.item()
+            else:
+                raise ValueError('Unknown model type')
 
         if args.local_rank is None or args.local_rank == 0 and writer and losses_dict:
             writer.add_scalars('Part-wise Losses', losses_dict, iteration)
@@ -61,11 +63,24 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
                                                                          loss.item(), optimizer.param_groups[0]['lr']))
                 writer.add_scalars('Loss', {'Overall Loss': loss.item()}, iteration)
 
-            if iteration % 500 == 0:
+            if iteration % 1 == 0:
+                title = "Image/GT_Skeleton"
                 if writer:
-                    visualize(volume, skeleton, output_skeleton.cpu(),
-                              iteration, writer, mode='Train',
-                              color_data=torch.cat((vec_to_RGB(flux), vec_to_RGB(flux)), 1))
+                    if 'skeleton' in model_output_dict.keys():
+                        vis_bw = model_output_dict['skeleton'].cpu()
+                        title += '/Skeleton'
+                    else:
+                        vis_bw = flux_weight
+                        title += '/Weight'
+
+                    if 'flux' in model_output_dict.keys():
+                        vis_color = torch.cat((vec_to_RGB(model_output_dict['flux'].cpu()), vec_to_RGB(flux)), 1)
+                        title += '/Predicted_Flux/GT_Flux'
+                    else:
+                        vis_color = vec_to_RGB(flux)
+                        title += '/GT_Flux'
+
+                    visualize(volume, skeleton, vis_bw, iteration, writer, title=title, color_data=vis_color)
 
             #Save model, update lr
             if iteration % args.iteration_save == 0 or iteration >= args.iteration_total:
@@ -74,10 +89,6 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
                             'scheduler_state_dict': scheduler.state_dict(),
                             'loss':loss,
                             'iteration':iteration}
-
-                if args.with_skeleton_head:
-                    save_dict[models[1].module.__class__.__name__ + '_state_dict'] = models[1].state_dict()
-
                 torch.save(save_dict, args.output+(args.exp_name + '_%d.pth' % iteration))
 
         # Terminate
@@ -117,21 +128,10 @@ def main():
     print('Setup loss function.')
     loss_fns = [AngularAndScaleLoss(alpha=0.25)]
 
-    if args.with_skeleton_head:
-        print('Setup Skeleton head model.')
-        head_args = copy.deepcopy(args)
-        head_args.architecture = 'fluxToSkeletonHead'
-        if not args.warm_start:
-            head_args.load_model = False
-        head_model = setup_model(head_args, device, model_io_size)
-        models.append(head_model)
-
     loss_fns.append(WeightedL1())
 
     print('Setup optimizer')
     model_parameters = list(model.parameters())
-    if args.with_skeleton_head:
-        model_parameters += list(head_model.parameters())
     optimizer = torch.optim.Adam(model_parameters, lr=args.lr, betas=(0.9, 0.999),
                                  eps=1e-08, weight_decay=1e-6, amsgrad=True)
 

@@ -12,8 +12,8 @@ from torch_connectomics.model.blocks import *
 
 class FluxNet(nn.Module):
 
-    def __init__(self, input_sz, batch_sz, in_channel=1, out_channel=3, filters=[8, 16, 24, 32, 64],
-                 non_linearity=(torch.sigmoid), aspp_dilation_ratio=1, symmetric=True):
+    def __init__(self, in_channel=1, out_channel=3, filters=[8, 16, 24, 32, 64],
+                 non_linearity=(torch.sigmoid), aspp_dilation_ratio=1, symmetric=True, use_flux_head=True, use_skeleton_head=False):
         super().__init__()
 
         # encoding path
@@ -106,6 +106,9 @@ class FluxNet(nn.Module):
         else:
             raise Exception('Undefined Network configuration, More than one nonlinearities but output channels are 1')
 
+        self.use_flux_head = use_flux_head
+        self.use_skeleton_head = use_skeleton_head
+
         #initialization
         ortho_init(self)
 
@@ -139,10 +142,19 @@ class FluxNet(nn.Module):
 
         x = self.up(x) if self.symmetric else self.up_aniso(x)
 
-        # flux = self.layer1_D_flux(x)
-        # flux = self.non_linearity_1(flux)
+        output = dict()
 
-        skeleton = self.layer1_D_skeleton(x)
-        skeleton = nn.functional.sigmoid(skeleton)
+        if self.use_flux_head:
+            flux = self.layer1_D_flux(x)
+            flux = self.non_linearity_1(flux)
+            output['flux'] = flux
 
-        return None, skeleton
+        if self.use_skeleton_head:
+            skeleton = self.layer1_D_skeleton(x)
+            skeleton = nn.functional.sigmoid(skeleton)
+            output['skeleton'] = skeleton
+
+        if not output:
+            raise ValueError("Neither flux or skeleton head was specified.")
+
+        return output

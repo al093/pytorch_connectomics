@@ -1,8 +1,4 @@
-import os, sys, argparse, glob
-import pickle, nibabel, re, json
-import numpy as np
-from scipy import ndimage
-import skimage
+import skimage, re
 
 from torch_connectomics.data.dataset.dataset_eval_params import *
 from torch_connectomics.utils.skeleton import *
@@ -24,10 +20,14 @@ def get_cmdline_args(args):
     parser.add_argument('--set',                    type=str,               help='train | val | test')
     parser.add_argument('--exp-name',               type=str,               help='Experiment name')
     parser.add_argument('--model-dir',              type=str,               help='directory with one or more models (.pth) files')
+    parser.add_argument('--checkpoint-regex',       type=str,               default=None,   help='To limit model checkpoint files to be evaluated')
     parser.add_argument('--div-threshold',          type=float,             default=None,   help='Threshold divergence at this value to get skeletons')
     parser.add_argument('--dataset-scale',          type=float,             default=1.0,    help='Get different input scale.')
     parser.add_argument('--min-skeleton-vol-threshold',          type=int,  default=400,    help='Remove all skeletons smaller than this size')
-    parser.add_argument('-c', '--num-cpu',          type=int,               default=12,      help='Number of parallel threads to use.')
+    parser.add_argument('-c', '--num-cpu',          type=int,               default=12,     help='Number of parallel threads to use.')
+    parser.add_argument('--use-skeleton-head',      type=my_bool,           default=False,  help='Use Skeleton head.')
+    parser.add_argument('--use-flux-head',          type=my_bool,           default=False,  help='Use Flux head after the flux model.')
+
     return parser.parse_known_args(args)[0]
 
 def print_best_params(results_dict, metric):
@@ -77,8 +77,11 @@ if __name__ == "__main__":
 
     # run method
     if args.method in ['ours']:
-        # Read the model files and run them one by one
-        model_files = glob.glob(args.model_dir + "*.pth")
+        # Read model files and run them one by one
+        model_files = glob.glob(args.model_dir + "/*.pth")
+        if args.checkpoint_regex:
+            model_files = [model_file for model_file in model_files if re.search(args.checkpoint_regex, model_file)]
+
         error_dict = dict()
         output_results_file = output_base_path + exp_name + '/results.json'
         for model_file in model_files:
@@ -101,25 +104,24 @@ if __name__ == "__main__":
                 else:
                     run_model = False
                     for i, vol_data in enumerate(data_path):
-                        flux_file_name = output_path_itr + '/' + os.path.basename(vol_data).split('.h5')[0] + '_flux.h5'
-                        if not os.path.isfile(flux_file_name):
-                            print(f'{flux_file_name} was not present. So will run the model.')
-                            run_model = True
-                            break
+                        for prediction_type in ['skeleton', 'flux']:
+                            file_name = output_path_itr + '/' + os.path.basename(vol_data).split('.h5')[0] + f'_{prediction_type}_prediction.h5'
+                            if not os.path.isfile(file_name):
+                                run_model = True
+                                break
 
                 if run_model:
-                    prediction = testFlux.run(model_run_args, save_output=False)
-                    for i, vol_data in enumerate(data_path):
-                        flux_file_name = output_path_itr + '/' + os.path.basename(vol_data).split('.h5')[0] + '_flux.h5'
-                        save_data(prediction[i], flux_file_name)
+                    predictions_dict = testFlux.run(model_run_args, save_output=False)
+                    for prediction_type, prediction in predictions_dict.items():
+                        import pdb; pdb.set_trace()
+                        for i, vol_data in enumerate(data_path):
+                            file_name = output_path_itr + '/' + os.path.basename(vol_data).split('.h5')[0] + f'_{prediction_type}_prediction.h5'
+                            save_data(prediction[i], file_name)
                 else:
-                    print("Not running model because out files are present in output folder.")
+                    print("Not running model because prediction files are present in output folder.")
             else:
                 # TODO(alok) not implemented correctly for skeletons
-                raise NotImplementedError()
-                prediction = testSkeleton.run(model_run_args, save_output=False)
-                for i, pred_i in enumerate(prediction):
-                    save_data(pred_i, output_path_itr + '/' + str(data_idxs[i]) + '_skeleton_prob.h5')
+                raise NotImplementedError("Not implemented any other method.")
 
             # Compute skeletons from flux
             if args.method == "ours":
@@ -138,23 +140,28 @@ if __name__ == "__main__":
                     initial_skeletons = []
 
                     for i, vol_data in enumerate(data_path):
-                        flux_file_name = output_path_itr + '/' + os.path.basename(vol_data).split('.h5')[0] + '_flux.h5'
                         initial_skeletons_filename = output_path_itr + '/' + os.path.basename(vol_data).split('.h5')[0] + '_initial_skeletons_' + '{:.2f}'.format(var_param) + '.h5'
-                        div_filename = output_path_itr + '/' + os.path.basename(vol_data).split('.h5')[0] + '_divergence.h5'
 
                         if (not os.path.isfile(initial_skeletons_filename)) or args.force_run_skeleton:
-                            print('Computing skeletons from flux')
-                            pred_flux_i = read_data(flux_file_name)
-                            skeleton, skel_divergence = compute_skeleton_from_gradient(pred_flux_i, skel_params, remove_borders)
+                            print('Computing skeletons.')
+                            if args.use_skeleton_head:
+                                pred_skeleton_i = read_data(output_path_itr + '/' + os.path.basename(vol_data).split('.h5')[0] + f'_skeleton_prediction.h5')
+                                skeleton = compute_skeleton_from_probability(pred_skeleton_i, skel_params, remove_borders)
+                            elif args.use_flux_head:
+                                pred_flux_i = read_data(output_path_itr + '/' + os.path.basename(vol_data).split('.h5')[0] + f'_flux_prediction.h5')
+                                skel_divergence = divergence_3d(pred_flux_i)
+                                skeleton = compute_skeleton_from_probability(skel_divergence, skel_params, remove_borders)
+                                if var_param == var_params[0]:
+                                    div_filename = output_path_itr + '/' + os.path.basename(vol_data).split('.h5')[0] + '_divergence.h5'
+                                    save_data(skel_divergence, div_filename)
+
                             skeleton = remove_small_skeletons(skeleton, args.min_skeleton_vol_threshold)
+
                             if skeleton.shape != gt_contexts[i].shape:
                                 skeleton = skimage.transform.resize(skeleton, gt_contexts[i].shape, order=0, mode='edge',
                                                                     clip=True, preserve_range=True, anti_aliasing=False).astype(np.uint16)
-                                # skeleton = ndimage.zoom(skeleton, gt_contexts[i].shape, order=0, prefilter=False)
-                            save_data(skeleton, initial_skeletons_filename)
-                            if var_param == var_params[0]:
-                                save_data(skel_divergence, div_filename)
 
+                            save_data(skeleton, initial_skeletons_filename)
                             initial_skeletons.append(skeleton)
                         else:
                             initial_skeletons.append(read_data(initial_skeletons_filename))
