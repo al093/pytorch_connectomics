@@ -111,11 +111,8 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
 
             # out_skeleton = ndimage.morphology.distance_transform_edt((out_skeleton == 0)).astype(np.float32)
             skeleton_distance_tx = edt.edt(out_skeleton == 0, anisotropy=self.dataset_resolution[::-1], black_border=False, order='C', parallel=1)
-            distance_th = 1.0 * self.dataset_resolution[0]
+            distance_th = 1.5 * self.dataset_resolution[0]
             out_skeleton = ((skeleton_distance_tx <= distance_th) & out_label_mask).astype(np.float32, copy=False)
-
-            # TODO | NOTE this is for distance transform of skeletons, the distance_th should be 4.0
-            # out_skeleton /= distance_th
 
             out_input = out_input.astype(np.float32)
             out_flux = out_flux.astype(np.float32)
@@ -131,7 +128,7 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
             # all_ones = np.ones_like(out_label_mask)
             # flux_weight = skeleton_weight_mask.astype(np.float32)
             # flux_weight = self.compute_flux_weights(all_ones, skeleton_weight_mask, alpha=1.0)
-            weight_distance_th = 2.5 * self.dataset_resolution[0]
+            weight_distance_th = 1.75 * self.dataset_resolution[0]
             out_weight = (skeleton_distance_tx <= weight_distance_th).astype(np.float32, copy=False)
             out_weight += 0.1
             out_weight /= 1.1
@@ -148,6 +145,10 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
             out_flux = torch.from_numpy(out_flux.astype(np.float32, copy=False))
 
         if out_skeleton is not None:
+
+            if out_skeleton.sum() == 0:
+                raise RuntimeError('GT Skeleton is empty.')
+
             out_skeleton = torch.from_numpy((out_skeleton).astype(np.float32, copy=False)).unsqueeze(0)
 
         if self.mode == 'train':
