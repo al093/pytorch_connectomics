@@ -145,10 +145,6 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
             out_flux = torch.from_numpy(out_flux.astype(np.float32, copy=False))
 
         if out_skeleton is not None:
-
-            if out_skeleton.sum() == 0:
-                raise RuntimeError('GT Skeleton is empty.')
-
             out_skeleton = torch.from_numpy((out_skeleton).astype(np.float32, copy=False)).unsqueeze(0)
 
         if self.mode == 'train':
