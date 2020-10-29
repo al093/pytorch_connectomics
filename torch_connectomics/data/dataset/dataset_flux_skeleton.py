@@ -109,20 +109,13 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
 
             out_label_mask = out_label > 0
 
-            # out_skeleton_blurred = ndimage.morphology.distance_transform_edt((out_skeleton == 0)).astype(np.float32)
-            out_skeleton_blurred = edt.edt(out_skeleton == 0, anisotropy=self.dataset_resolution[::-1], black_border=False, order='C', parallel=1)
-
-            # TODO | NOTE use 4.0 for distance and other methods, use 2.0 for dilated skeletons
-            distance_th = 2.0 * self.dataset_resolution[0]
-            distance_th_mask = (out_skeleton_blurred <= distance_th) & out_label_mask
-            skeleton_weight_mask = (out_skeleton_blurred <= (distance_th))
+            # out_skeleton = ndimage.morphology.distance_transform_edt((out_skeleton == 0)).astype(np.float32)
+            skeleton_distance_tx = edt.edt(out_skeleton == 0, anisotropy=self.dataset_resolution[::-1], black_border=False, order='C', parallel=1)
+            distance_th = 1.0 * self.dataset_resolution[0]
+            out_skeleton = ((skeleton_distance_tx <= distance_th) & out_label_mask).astype(np.float32, copy=False)
 
             # TODO | NOTE this is for distance transform of skeletons, the distance_th should be 4.0
-            # out_skeleton_blurred /= distance_th
-
-            # TODO | NOTE this is for dilated skeletons
-            out_skeleton_blurred[~distance_th_mask] = 0
-            out_skeleton_blurred[distance_th_mask] = 1
+            # out_skeleton /= distance_th
 
             out_input = out_input.astype(np.float32)
             out_flux = out_flux.astype(np.float32)
@@ -135,14 +128,18 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
 
         if self.mode == 'train':
             # Re-balancing weights for Flux and skeleton in a similar way
-            all_ones = np.ones_like(out_label_mask)
+            # all_ones = np.ones_like(out_label_mask)
             # flux_weight = skeleton_weight_mask.astype(np.float32)
-            flux_weight = self.compute_flux_weights(all_ones, skeleton_weight_mask, alpha=1.0)
+            # flux_weight = self.compute_flux_weights(all_ones, skeleton_weight_mask, alpha=1.0)
+            weight_distance_th = 2.5 * self.dataset_resolution[0]
+            out_weight = (skeleton_distance_tx <= weight_distance_th).astype(np.float32, copy=False)
+            out_weight += 0.1
+            out_weight /= 1.1
 
             if self.weight[pos[0]]:
-                flux_weight[pre_weight>0] *= 4
+                out_weight[pre_weight>0] *= 4
 
-            flux_weight = torch.from_numpy(flux_weight).unsqueeze(0)
+            out_weight = torch.from_numpy(out_weight).unsqueeze(0)
 
         out_input = torch.from_numpy(out_input)
         out_input = out_input.unsqueeze(0)
@@ -150,12 +147,12 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
         if out_flux is not None:
             out_flux = torch.from_numpy(out_flux.astype(np.float32, copy=False))
 
-        if out_skeleton_blurred is not None:
-            out_skeleton_blurred = torch.from_numpy((out_skeleton_blurred).astype(np.float32, copy=False)).unsqueeze(0)
+        if out_skeleton is not None:
+            out_skeleton = torch.from_numpy((out_skeleton).astype(np.float32, copy=False)).unsqueeze(0)
 
         if self.mode == 'train':
             out_label_mask = torch.from_numpy(out_label_mask.astype(np.float32)).unsqueeze(0)
-            return pos, out_input, out_label_mask, out_flux, flux_weight, out_skeleton_blurred
+            return pos, out_input, out_label_mask, out_flux, out_weight, out_skeleton
         else:
             return pos, out_input
 
