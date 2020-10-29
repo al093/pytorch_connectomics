@@ -26,23 +26,19 @@ def test(args, test_loader, models, device, model_io_size, volume_shape, pad_siz
     with torch.no_grad():
         for i, (pos, volume) in tqdm(enumerate(test_loader)):
             volume = volume.to(device)
-            if args.use_skeleton_head and args.use_flux_head:
-                output_flux, output_skeleton = models[0](volume)
-                output_dict = dict(flux=output_flux, skeleton=output_skeleton)
-            elif args.use_skeleton_head and not args.use_flux_head:
-                output_skeleton = models[0](volume)
-                output_dict = dict(skeleton=output_skeleton)
-            elif not args.use_skeleton_head and args.use_flux_head:
-                output_flux = models[0](volume)
-                output_dict = dict(flux=output_flux)
-            else:
-                raise ValueError("Skeleton and/or Flux head not specified?")
-
+            output_dict = models[0](volume)
             for output_type, output in output_dict.items():
                 for idx in range(output.shape[0]):
                     st = pos[idx]
                     results[output_type][st[0]][..., st[1]:st[1] + sz[0], st[2]:st[2] + sz[1], st[3]:st[3] + sz[2]] \
                         += output[idx].cpu().detach().numpy() * np.expand_dims(ww, axis=0)
+
+            for _, output in output_dict.items():
+                for idx in range(output.shape[0]):
+                    st = pos[idx]
+                    weight[st[0]][st[1]:st[1] + sz[0], st[2]:st[2] + sz[1], st[3]:st[3] + sz[2]] += ww
+                break
+
     end = time.time()
     print("Model prediction time:", (end-start))
 
