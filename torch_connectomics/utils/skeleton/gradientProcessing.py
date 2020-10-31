@@ -34,20 +34,16 @@ def remove_ids(ar, ids_to_rem, max_id):
     ids[ids_to_rem] = 0
     return ids[ar]
 
-def compute_skeleton_from_gradient(gradient, params, remove_borders=False):
-    threshold = params['adaptive_threshold']
-    filter_sz = params['filter_size']
+def binarize_skeleton(skeleton_probability, params, remove_borders):
     absolute_div_th = params['absolute_threshold']
     block_size = params['block_size']
+    threshold = params['adaptive_threshold']
     shift = [3, 3, 3]
-
-    skel_divergence = divergence_3d(gradient)
-    skel_binary = np.zeros_like(skel_divergence, dtype=np.bool)
-
+    skel_binary = np.zeros_like(skeleton_probability, dtype=np.bool)
     pos = []
     for i in range(3):
-        loc = np.arange(0, skel_divergence.shape[i], step=(block_size[i] // shift[i]), dtype=np.uint16)
-        loc[-1] = skel_divergence.shape[i] - block_size[i]
+        loc = np.arange(0, skeleton_probability.shape[i], step=(block_size[i] // shift[i]), dtype=np.uint16)
+        loc[-1] = skeleton_probability.shape[i] - block_size[i]
         pos.append(loc)
 
     for z_idx, z_loc in enumerate(pos[0]):
@@ -58,33 +54,47 @@ def compute_skeleton_from_gradient(gradient, params, remove_borders=False):
                 bounds = (z_slice, y_slice,
                           slice(x_loc, x_loc + block_size[2], None))
 
-                vol = skel_divergence[bounds]
+                vol = skeleton_probability[bounds]
                 n_vol = normalize_scalar_field(vol)
-                skel_divergence_roi = skel_divergence[bounds]
-                skel_binary[bounds] |= ((skel_divergence_roi > absolute_div_th) & (n_vol > float(threshold) / 100.0))
-
-    skel = skel_binary
-    if filter_sz > 0:
-        skel = scipy.ndimage.morphology.binary_dilation(skel, structure=np.ones((1, filter_sz, filter_sz)),
-                                                        iterations=1)
-    skel = thin_skeletons(skel)
+                skel_binary[bounds] |= ((vol > absolute_div_th) & (n_vol > float(threshold) / 100.0))
 
     if remove_borders:
-        if remove_borders[0][0]: skel[0:remove_borders[0][0], :, :] = 0
-        if remove_borders[0][1]: skel[-remove_borders[0][1]:, :, :] = 0
-        if remove_borders[1][0]: skel[:, 0:remove_borders[1][0], :] = 0
-        if remove_borders[1][1]: skel[:, -remove_borders[1][0]:, :] = 0
-        if remove_borders[2][0]: skel[:, :, 0:remove_borders[2][0]] = 0
-        if remove_borders[2][1]: skel[:, :, -remove_borders[2][1]:] = 0
+        if remove_borders[0][0]: skel_binary[0:remove_borders[0][0], :, :] = 0
+        if remove_borders[0][1]: skel_binary[-remove_borders[0][1]:, :, :] = 0
+        if remove_borders[1][0]: skel_binary[:, 0:remove_borders[1][0], :] = 0
+        if remove_borders[1][1]: skel_binary[:, -remove_borders[1][0]:, :] = 0
+        if remove_borders[2][0]: skel_binary[:, :, 0:remove_borders[2][0]] = 0
+        if remove_borders[2][1]: skel_binary[:, :, -remove_borders[2][1]:] = 0
+
+    return skel_binary
+
+
+def compute_skeleton_from_probability(skeleton_probability, params, remove_borders=False, thin=True, debug=False):
+    skel = binarize_skeleton(skeleton_probability, params, remove_borders)
+
+    if debug:
+        debug_data = {}
+        debug_data['binary_raw_pred'] = skel.copy()
+
+    filter_sz = params['filter_size']
+    if filter_sz > 0:
+        skel = scipy.ndimage.morphology.binary_dilation(skel, structure=np.ones((1, filter_sz, filter_sz)), iterations=1)
+
+    if debug: debug_data['binary_dilated_pred'] = skel.copy()
+
+    if thin: skel = thin_skeletons(skel)
 
     label_cc, num_cc = skimage.measure.label(skel, return_num=True)
 
     if num_cc > np.iinfo(np.uint32).max:
-        raise Exception('Cannot convert volume to uint32, number of segments exceed range of uint32 ')
+        raise Exception('Cannot convert volume to uint32, number of segments exceed range of uint32')
     else:
         label_cc = label_cc.astype(np.uint32)
 
-    return label_cc, skel_divergence
+    if debug:
+        return label_cc, debug_data
+    else:
+        return label_cc
 
 
 def compute_skeleton_like_deepflux(direction, lmd, k1, k2, binned_directions=None):

@@ -231,23 +231,19 @@ def calculate_error_metric_2(pred_skel, gt_skel, gt_context, resolution, temp_fo
         return precision, recall, f_score, mean_connectivity, prc_hmean
 
 def calculate_error_metric_binary_overlap(pred_skel, gt_skel, resolution, temp_folder, num_cpu, matching_radius, debug=False):
-    pred_skel_ids = np.unique(pred_skel)
-    pred_skel_ids = pred_skel_ids[pred_skel_ids > 0]
-    if pred_skel_ids.size == 0:
+    if (pred_skel==0).sum() == 0:
         return -1, -1, -1
+
     gt_nodes = np.transpose(np.nonzero(gt_skel))
     p_nodes = np.transpose(np.nonzero(pred_skel))
 
-    # p_nodes_dict = get_thin_skeletons_nodes(pred_skel, pred_skel_ids, resolution, np.array([1, 1, 1]), temp_folder, num_cpu, method='ibex') # method='skimage_skeletonize'
-    # for _, pn in p_nodes_dict.items():
-    #     p_nodes.append(pn)
-    # p_nodes = np.concatenate(p_nodes)
-
     gt_nodes_s = resolution * gt_nodes
     p_nodes_s = resolution * p_nodes
+
     nbrs = NearestNeighbors(n_neighbors=1, algorithm='kd_tree', metric='euclidean', n_jobs=-1).fit(gt_nodes_s)
     p_distance, p_indices = nbrs.kneighbors(p_nodes_s)
     p_matched_mask = (p_distance <= matching_radius)[:, 0]
+
     nbrs = NearestNeighbors(n_neighbors=1, algorithm='kd_tree', metric='euclidean', n_jobs=-1).fit(p_nodes_s)
     g_distance, g_indices = nbrs.kneighbors(gt_nodes_s)
     g_matched_mask = (g_distance <= matching_radius)[:, 0]
@@ -261,14 +257,18 @@ def calculate_error_metric_binary_overlap(pred_skel, gt_skel, resolution, temp_f
     f_score = 2 * precision * recall / (precision + recall)
 
     if debug is True:
-        p_skel = np.zeros_like(pred_skel, dtype=np.uint16)
-        g_skel = np.zeros_like(pred_skel, dtype=np.uint16)
-        e_skel = np.zeros_like(pred_skel, dtype=np.uint16)
-        tp_mask = np.any(matched_points_mask, axis=0)
-        e_skel[p_nodes[tp_mask, 0], p_nodes[tp_mask, 1], p_nodes[tp_mask, 2]] = 1
-        e_skel[p_nodes[~tp_mask, 0], p_nodes[~tp_mask, 1], p_nodes[~tp_mask, 2]] = 2
-        fn_mask = np.all(~matched_points_mask, axis=1)
-        e_skel[gt_nodes[fn_mask, 0], gt_nodes[fn_mask, 1], gt_nodes[fn_mask, 2]] = 3
+        p_skel = np.zeros_like(pred_skel, dtype=np.uint8)
+        g_skel = np.zeros_like(pred_skel, dtype=np.uint8)
+        e_skel = np.zeros_like(pred_skel, dtype=np.uint8)
+        # in e_skel: 1 is TP, 2 is FP, 3 is FN
+        e_skel[p_nodes[p_matched_mask, 0], p_nodes[p_matched_mask, 1], p_nodes[p_matched_mask, 2]] = 1
+        e_skel[p_nodes[~p_matched_mask, 0], p_nodes[~p_matched_mask, 1], p_nodes[~p_matched_mask, 2]] = 2
+
+        # fn_mask = list(set(range(gt_nodes.shape[0])) - set(list(p_indices.flatten())))
+        # e_skel[gt_nodes[fn_mask, 0], gt_nodes[fn_mask, 1], gt_nodes[fn_mask, 2]] = 3
+
+        e_skel[gt_nodes[~g_matched_mask, 0], gt_nodes[~g_matched_mask, 1], gt_nodes[~g_matched_mask, 2]] = 3
+
         p_skel[p_nodes[:, 0], p_nodes[:, 1], p_nodes[:, 2]] = 1
         g_skel[gt_nodes[:, 0], gt_nodes[:, 1], gt_nodes[:, 2]] = 1
         return precision, recall, f_score, p_skel, g_skel, e_skel
@@ -446,8 +446,8 @@ def calculate_errors_batch(pred_skeletons, gt_skeletons, gt_skeleton_ctxs, resol
     print('P:    ' + ' '.join(['{:3.4f}'.format(x) for x in p_avg]))
     print('R:    ' + ' '.join(['{:3.4f}'.format(x) for x in r_avg]))
     print('PR:   ' + ' '.join(['{:3.4f}'.format(x) for x in f_avg]))
-    print('C:    ' + ' '.join(['{:3.4f}'.format(x) for x in c_avg]))
-    print('PRC:  ' + ' '.join(['{:3.4f}'.format(x) for x in hm_avg]))
+    # print('C:    ' + ' '.join(['{:3.4f}'.format(x) for x in c_avg]))
+    # print('PRC:  ' + ' '.join(['{:3.4f}'.format(x) for x in hm_avg]))
     print('ERL:  ' + ' '.join(['{:3.4f}'.format(x) for x in erl_avg]))
 
     avg_errors = []
