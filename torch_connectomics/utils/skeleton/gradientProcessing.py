@@ -1,13 +1,11 @@
-import os, sys, time
 import numpy as np
 import scipy, skimage
-import h5py
-from tqdm import tqdm
 from scipy import ndimage
 from skimage.morphology import skeletonize_3d
-
-import multiprocessing as mp
 import networkx as nx
+
+from .computeParallel import compute_ibex_skeleton_graphs
+
 
 def divergence_3d(field):
     dz = np.gradient(field[0], axis=0)
@@ -185,3 +183,36 @@ def compute_skeleton_from_scalar_field(skel_probability, method, threshold, k1, 
         label_cc = label_cc.astype(np.uint32)
 
     return label_cc
+
+
+def split_skeletons_using_graph(skeleton: np.ndarray, temp_folder, resolution):
+    split_skeleton = np.zeros_like(skeleton)
+    ibex_skeletons = compute_ibex_skeleton_graphs(skeleton, temp_folder, input_resolution=resolution, downsample_fac=(1, 1, 1))
+    skeleton_id = 1
+    for ibex_skeleton in ibex_skeletons:
+        if len(ibex_skeleton.edges) == 0:
+            continue
+        if len(ibex_skeleton.endpoints) == 2:
+            nodes = np.stack(ibex_skeleton.get_nodes())
+            split_skeleton[nodes[:, 0], nodes[:, 1], nodes[:, 2]] = skeleton_id
+            skeleton_id += 1
+            continue
+
+        nodes = np.stack(ibex_skeleton.get_nodes())
+        split_skeleton[nodes[:, 0], nodes[:, 1], nodes[:, 2]] = skeleton_id
+        skeleton_id += 1
+
+        junctions_idx = ibex_skeleton.get_junctions()
+        junctions = [tuple(nodes[j, :]) for j in junctions_idx]
+        edges = ibex_skeleton.get_edges()
+        g_temp = nx.Graph()
+        g_temp.add_edges_from([(tuple(edge[0]), tuple(edge[1]))
+                               for edge in edges
+                               if (tuple(edge[0]) not in junctions) and (tuple(edge[1]) not in junctions)])
+
+        for sub_graph_nodes in nx.connected_components(g_temp):
+            split_nodes = np.array(list(sub_graph_nodes))
+            split_skeleton[split_nodes[:, 0], split_nodes[:, 1], split_nodes[:, 2]] = skeleton_id
+            skeleton_id += 1
+
+    return split_skeleton

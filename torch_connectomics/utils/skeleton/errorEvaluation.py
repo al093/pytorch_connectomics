@@ -415,8 +415,8 @@ def calculate_errors_batch(pred_skeletons, gt_skeletons, gt_skeleton_ctxs, resol
             else:
                 # p, r, f, c, hm = calculate_error_metric_2(pred_skeleton, gt_skeleton, gt_context,
                 #                                           resolution, temp_folder, num_cpu, matching_radius)
-                p, r, f = calculate_error_metric_binary_overlap(pred_skeleton, gt_skeleton, resolution, temp_folder,
-                                                                num_cpu, matching_radius)
+                p, r, f = calculate_error_metric_binary_overlap(pred_skeleton, gt_skeleton, resolution,
+                                                                temp_folder, num_cpu, matching_radius)
                 c, hm = -1, -1
                 erl = calculate_erl(pred_skeleton, ibex_skeletons, erl_overlap_allowance)
             errors[i].append({'p':p, 'r':r, 'f':f, 'c':c, 'hm':hm, 'erl':erl})

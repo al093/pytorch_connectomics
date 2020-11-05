@@ -2,6 +2,7 @@ import skimage, re
 
 from torch_connectomics.data.dataset.dataset_eval_params import *
 from torch_connectomics.utils.skeleton import *
+from torch_connectomics.utils.skeleton.gradientProcessing import split_skeletons_using_graph
 from torch_connectomics.utils.vis import save_data, read_data
 
 import testFlux, testSkeletonGrowing, testSkeleton
@@ -27,6 +28,7 @@ def get_cmdline_args(args):
     parser.add_argument('-c', '--num-cpu',          type=int,               default=12,     help='Number of parallel threads to use.')
     parser.add_argument('--use-skeleton-head',      type=my_bool,           default=False,  help='Use Skeleton head.')
     parser.add_argument('--use-flux-head',          type=my_bool,           default=False,  help='Use Flux head after the flux model.')
+    parser.add_argument('--split-skeletons',        type=my_bool,           default=False,  help='Split skeletons based on topology.')
 
     return parser.parse_known_args(args)[0]
 
@@ -104,16 +106,21 @@ if __name__ == "__main__":
                 else:
                     run_model = False
                     for i, vol_data in enumerate(data_path):
-                        for prediction_type in ['skeleton', 'flux']:
-                            file_name = output_path_itr + '/' + os.path.basename(vol_data).split('.h5')[0] + f'_{prediction_type}_prediction.h5'
-                            if not os.path.isfile(file_name):
-                                run_model = True
-                                break
+                        if args.use_skeleton_head:
+                            prediction_type = 'skeleton'
+                        elif args.use_flux_head:
+                            prediction_type = 'flux'
+                        else:
+                            raise ValueError('Specify if Flux or skeleton head is to be used?')
+                        file_name = output_path_itr + '/' + os.path.basename(vol_data).split('.h5')[0] + f'_{prediction_type}_prediction.h5'
+                        if not os.path.isfile(file_name):
+                            run_model = True
+                            print(f"Will run inference as file {file_name} is not found.")
+                            break
 
                 if run_model:
                     predictions_dict = testFlux.run(model_run_args, save_output=False)
                     for prediction_type, prediction in predictions_dict.items():
-                        import pdb; pdb.set_trace()
                         for i, vol_data in enumerate(data_path):
                             file_name = output_path_itr + '/' + os.path.basename(vol_data).split('.h5')[0] + f'_{prediction_type}_prediction.h5'
                             save_data(prediction[i], file_name)
@@ -154,6 +161,10 @@ if __name__ == "__main__":
                                 if var_param == var_params[0]:
                                     div_filename = output_path_itr + '/' + os.path.basename(vol_data).split('.h5')[0] + '_divergence.h5'
                                     save_data(skel_divergence, div_filename)
+
+                            if args.split_skeletons:
+                                print('Splitting skeletons.')
+                                skeleton = split_skeletons_using_graph(skeleton, temp_folder + '/ibex_graphs/', resolution)
 
                             skeleton = remove_small_skeletons(skeleton, args.min_skeleton_vol_threshold)
 
