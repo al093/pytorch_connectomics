@@ -82,7 +82,7 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
 
                     visualize(volume, skeleton, vis_bw, iteration, writer, title=title, color_data=vis_color)
 
-            #Save model, update lr
+            #Save model
             if iteration % args.iteration_save == 0 or iteration >= args.iteration_total:
                 save_dict = {models[0].module.__class__.__name__ + '_state_dict': models[0].state_dict(),
                             'optimizer_state_dict': optimizer.state_dict(),

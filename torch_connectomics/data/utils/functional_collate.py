@@ -29,7 +29,7 @@ def collate_fn(batch):
 def collate_fn_growing(batch):
     """
     returns the list-concatenated data.
-    Donot stack data, because the complete volumes are returned and so are large
+    Donot stack data, because the complete volumes are returned which might be huge.
     """
     return zip(*batch)
 

@@ -14,11 +14,8 @@ class LoadFromFile (argparse.Action):
 def get_args(mode='train', input_args=None):
 
     assert mode in ['train', 'test']
-    if mode == 'train':
-        parser = argparse.ArgumentParser(description='Specify model training arguments.')
-    else:
-        parser = argparse.ArgumentParser(description='Specify model inference arguments.')
-    
+    parser = argparse.ArgumentParser(description=f'Specify model {mode} arguments.')
+
     parser.add_argument('--task', type=int, default=0,
                         help='specify the task')
 

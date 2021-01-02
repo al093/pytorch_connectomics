@@ -78,7 +78,7 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
             pos = self.get_pos_seed()
             out_label = crop_volume(self.label[pos[0]], vol_size, pos[1:])
             out_input = crop_volume(self.input[pos[0]], vol_size, pos[1:])
-            # TODO(Alok) remove this check
+            # TODO(Alok) remove this cast
             out_input = out_input.astype(np.float32, copy=False)
             out_skeleton = crop_volume(self.skeleton[pos[0]], vol_size, pos[1:])
             out_flux = crop_volume_mul(self.flux[pos[0]], vol_size, pos[1:])
