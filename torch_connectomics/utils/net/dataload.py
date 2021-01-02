@@ -79,7 +79,7 @@ def get_input(args, model_io_size, mode='train', model=None):
             assert len(img_name)==len(seg_name)
             model_label = [None]*len(seg_name)
 
-    if args.task != 6 and (mode=='train' or mode=='validation') and args.data_aug is True:
+    if args.task != 6 and (mode=='train' or mode=='validation') and mode is 'train' and args.data_aug is True:
         # setup augmentor
         elastic_augmentor = Elastic(alpha=6.0, p=0.75)
         augmentation_methods = [
@@ -111,17 +111,15 @@ def get_input(args, model_io_size, mode='train', model=None):
 
     print('Data augmentation: ', augmentor is not None)
 
-    SHUFFLE = (mode=='train' or mode=='validation')
+    SHUFFLE = mode =='train'
     print('Batch size: ', args.batch_size)
 
     if mode == 'test' and args.task not in [5]:
         pad_size = np.array(model_io_size//2, dtype=np.int64)
-    elif args.task == 6:
-        pad_size = np.array(model_io_size//2, dtype=np.int64)
-        pad_size = np.array((0, 0, 0), dtype=np.int64)
+    elif args.task in [5, 6]:
+        pad_size = np.array(sample_input_size//2, dtype=np.int64)
     else:
         pad_size = np.array((0, 0, 0), dtype=np.int64)
-        # pad_size = augmentor.sample_size//2
     pad_size_tuple = ((pad_size[0], pad_size[0]), (pad_size[1], pad_size[1]), (pad_size[2], pad_size[2]))
 
     for i in range(len(img_name)):
@@ -148,12 +146,8 @@ def get_input(args, model_io_size, mode='train', model=None):
 
         if mode == 'test':
             if args.task == 5:
-                # It must be ensured that all centroid points have enough crop area around them
-                # These Points are the origin.
                 npf = np.load(seed_points_files[i], allow_pickle=True)
-                s_points[i] = [np.vstack([npf.item().get('match'), npf.item().get('no_match')])]
-                skeleton[i] = np.array((h5py.File(skeleton_files[i], 'r')['main']))
-                flux[i] = np.array((h5py.File(flux_files[i], 'r')['main']))
+                s_points[i] = npf.item()
             elif args.task == 6:
                 data = {}
                 with h5py.File(seed_points_files[i], 'r') as hf:
@@ -164,18 +158,18 @@ def get_input(args, model_io_size, mode='train', model=None):
                         data[int(g)] = d
                 s_points[i] = data
 
-                # load skeletons
-                if skeleton_files is not None:
-                    skeleton[i] = np.array((h5py.File(skeleton_files[i], 'r')['main']))
-                    skeleton[i] = np.pad(skeleton[i], pad_size_tuple)
-
-                if flux_files is not None:
-                    flux[i] = np.array((h5py.File(flux_files[i], 'r')['main']))
-                    flux[i] = np.pad(flux[i], ((0, 0),) + pad_size_tuple)
-
                 if divergence_files is not None:
                     divergence[i] = np.array((h5py.File(divergence_files[i], 'r')['main']))
                     divergence[i] = np.pad(divergence[i], pad_size_tuple)
+
+            # load skeletons
+            if skeleton_files is not None:
+                skeleton[i] = np.array((h5py.File(skeleton_files[i], 'r')['main']))
+                skeleton[i] = np.pad(skeleton[i], pad_size_tuple)
+
+            if flux_files is not None:
+                flux[i] = np.array((h5py.File(flux_files[i], 'r')['main']))
+                flux[i] = np.pad(flux[i], ((0, 0),) + pad_size_tuple)
 
         elif mode == 'train' or mode == 'validation':
             if args.task != 5 and args.task != 6:
@@ -183,6 +177,7 @@ def get_input(args, model_io_size, mode='train', model=None):
                     model_label[i] = h5py.File(seg_name[i], 'r')['main']
                 else:
                     model_label[i] = np.array((h5py.File(seg_name[i], 'r')['main']))
+                    model_label[i] = np.pad(model_label[i], pad_size_tuple, 'reflect')
 
             if args.task == 3 or args.task == 4:
                 s_points[i] = load_list_from_h5(seed_points_files[i])
@@ -197,12 +192,8 @@ def get_input(args, model_io_size, mode='train', model=None):
                         new_list.append(b)
                 s_points[i] = new_list
             elif args.task == 5:
-                #  it must be ensured externally that all centroid points have enough crop area around them,
-                #  no check is done here. Rotation Augmentation is not supported yet
-                #  These Points are the origin.
                 npf = np.load(seed_points_files[i], allow_pickle=True)
-                s_points[i] = [npf.item().get('match'), npf.item().get('no_match')]
-
+                s_points[i] = npf.item()
             elif args.task == 6:
                 # load the skeleton growing datasets
                 data = {}
@@ -273,15 +264,15 @@ def get_input(args, model_io_size, mode='train', model=None):
             initial_seg = np.pad(initial_seg, pad_size_tuple, 'reflect')
 
     if mode=='train' or mode=='validation':
-        if args.task == 0: # affininty prediction
+        if args.task == 0:  # affininty prediction
             dataset = AffinityDataset(volume=model_input, label=model_label, sample_input_size=sample_input_size,
-                                      sample_label_size=sample_input_size, augmentor=augmentor, mode = 'train')
+                                      sample_label_size=sample_input_size, augmentor=augmentor, mode='train')
         elif args.task == 1: # synapse detection
             dataset = SynapseDataset(volume=model_input, label=model_label, sample_input_size=sample_input_size,
-                                     sample_label_size=sample_input_size, augmentor=augmentor, mode = 'train')
+                                     sample_label_size=sample_input_size, augmentor=augmentor, mode='train')
         elif args.task == 2: # mitochondira segmentation
             dataset = MitoDataset(volume=model_input, label=model_label, sample_input_size=sample_input_size,
-                                  sample_label_size=sample_input_size, augmentor=augmentor, mode = 'train')
+                                  sample_label_size=sample_input_size, augmentor=augmentor, mode='train')
         elif args.task == 3: # mask prediction
             if args.in_channel == 2:
                 augmentor_1 = Compose([Grayscale(p=0.75),
@@ -289,7 +280,7 @@ def get_input(args, model_io_size, mode='train', model=None):
                                        input_size=model_io_size)
                 dataset = MaskDatasetDualInput(volume=model_input, label=model_label, sample_input_size=sample_input_size,
                                       sample_label_size=sample_input_size, augmentor_pre=augmentor_1, augmentor=augmentor,
-                                      mode='train', seed_points=s_points, pad_size=pad_size.astype(np.uint32), model=model)
+                                      mode='train', seed_points=s_points, pad_size=pad_size.astype(np.int32), model=model)
         elif args.task == 4:  # skeleton/flux prediction
             if is_ddp(args):
                 # if ddp is used call the dataset with paths of the input, label, skeleton, flux and weight
@@ -304,19 +295,19 @@ def get_input(args, model_io_size, mode='train', model=None):
                                                  sample_input_size=sample_input_size,
                                                  sample_label_size=sample_input_size,
                                                  augmentor=augmentor, mode='train', seed_points=s_points,
-                                                 pad_size=pad_size.astype(np.uint32), dataset_resolution=args.resolution)
+                                                 pad_size=pad_size.astype(np.int32), dataset_resolution=args.resolution)
             else:
                 dataset = FluxAndSkeletonDataset(volume=model_input, label=model_label, skeleton=skeleton, flux=flux,
                                                  weight=weight, sample_input_size=sample_input_size,
                                                  sample_label_size=sample_input_size,
                                                  augmentor=augmentor, mode='train', seed_points=s_points,
-                                                 pad_size=pad_size.astype(np.uint32), dataset_resolution=args.resolution)
+                                                 pad_size=pad_size.astype(np.int32), dataset_resolution=args.resolution)
 
         elif args.task == 5:  # skeleton match prediction
             dataset = MatchSkeletonDataset(image=model_input, skeleton=skeleton, flux=flux,
                                              sample_input_size=sample_input_size, sample_label_size=sample_input_size,
                                              augmentor=augmentor, mode='train', seed_points=s_points,
-                                             pad_size=pad_size.astype(np.uint32))
+                                             pad_size=pad_size.astype(np.int32))
 
         elif args.task == 6:  # skeleton match prediction
             dataset = SkeletonGrowingDataset(image=model_input, skeleton=skeleton, flux=flux, divergence=divergence,
@@ -352,12 +343,12 @@ def get_input(args, model_io_size, mode='train', model=None):
             dataset = MaskDataset(volume=model_input, label=None, sample_input_size=model_io_size, \
                                   sample_label_size=None, sample_stride=model_io_size // 2, \
                                   augmentor=None, mode='test', seed_points=s_points,
-                                  pad_size=pad_size.astype(np.uint32))
+                                  pad_size=pad_size.astype(np.int32))
         elif args.task == 5:
             dataset = MatchSkeletonDataset(image=model_input, skeleton=skeleton, flux=flux,
                                            sample_input_size=model_io_size, sample_label_size=model_io_size,
                                            augmentor=None, mode='test', seed_points=s_points,
-                                           pad_size=pad_size.astype(np.uint32))
+                                           pad_size=pad_size.astype(np.int32))
         elif args.task == 6:
             dataset = SkeletonGrowingDataset(image=model_input, skeleton=skeleton, flux=flux, divergence=divergence,
                                              growing_data=s_points, mode='test')
