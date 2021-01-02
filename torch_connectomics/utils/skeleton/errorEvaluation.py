@@ -102,7 +102,11 @@ def calculate_error_metric(pred_skel, gt_skel, gt_context, gt_skel_ids, anisotro
 
     return precision, recall, f_score, mean_connectivity
 
-def calculate_error_metric_2(pred_skel, gt_skel, gt_context, resolution, temp_folder, num_cpu, matching_radius=None, evaluate_thinned=False, debug=False):
+def calculate_error_metric_2(pred_skel, gt_skel,
+                             gt_context, resolution,
+                             temp_folder, num_cpu,
+                             matching_radius=None,
+                             evaluate_thinned=False, debug=False):
     if matching_radius is None:
         matching_radius = np.float32(np.max(resolution) * 2.0)
     pred_skel_ids = np.unique(pred_skel)

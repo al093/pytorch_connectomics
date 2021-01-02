@@ -199,9 +199,6 @@ def split_skeletons_using_graph(skeleton: np.ndarray, temp_folder, resolution):
             continue
 
         nodes = np.stack(ibex_skeleton.get_nodes())
-        split_skeleton[nodes[:, 0], nodes[:, 1], nodes[:, 2]] = skeleton_id
-        skeleton_id += 1
-
         junctions_idx = ibex_skeleton.get_junctions()
         junctions = [tuple(nodes[j, :]) for j in junctions_idx]
         edges = ibex_skeleton.get_edges()
