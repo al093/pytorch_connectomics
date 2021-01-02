@@ -9,41 +9,42 @@ from torch_connectomics.utils.net import *
 from torch_connectomics.utils.vis import *
 
 
-def train(args, train_loader, val_loader, model, device, criterion, optimizer, scheduler, logger, writer, regularization=None):
-    record = AverageMeter()
-    val_record = AverageMeter()
+def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, logger, writer, regularization=None):
+    models[0].eval()
+    models[1].train()
 
-    model.train()
-
-    if val_loader is not None:
-        val_loader_itr = iter(val_loader)
+    last_iteration_num, _ = restore_state(optimizer, scheduler, args, device)
 
     start = time.time()
-
-    iteration = -1
-    for epoch in range(1000):
-        for _, data in enumerate(train_loader):
-            iteration += 1
+    epochs = int(np.ceil(args.iteration_total / len(train_loader.dataset)))
+    for epoch in range(epochs):
+        print(f"Epoch: {epoch}")
+        for iteration, data in enumerate(train_loader, start=last_iteration_num+1):
             sys.stdout.flush()
 
-            if iteration < 100:
+            if iteration < 50:
                 print('time taken for itr: ', time.time() - start)
                 start = time.time()
 
-            _, volume, out_skeleton_1, out_skeleton_2, out_flux, match = data
+            sample, volume, out_skeleton_1, out_skeleton_2, out_flux, match = data
 
-            volume = volume.to(device)
-            out_skeleton_1, out_skeleton_2 = out_skeleton_1.to(device), out_skeleton_2.to(device)
-            out_flux, match = out_flux.to(device), match.to(device)
+            volume_gpu = volume.to(device)
+            out_skeleton_1_gpu, out_skeleton_2_gpu = out_skeleton_1.to(device), out_skeleton_2.to(device)
+            # out_flux = out_flux.to(device)
+            match = match.to(device)
 
-            output = model(torch.cat((volume, out_skeleton_1, out_skeleton_2, out_flux), dim=1))
-            loss = criterion(output, match)
-            record.update(loss, args.batch_size)
+            with torch.no_grad():
+                pred_flux = models[0](volume_gpu)['flux']
+
+            out_match = models[1](torch.cat((volume_gpu, out_skeleton_1_gpu, out_skeleton_2_gpu, pred_flux), dim=1))
+
+            loss = loss_fns[0](out_match, match)
 
             # compute gradient and do Adam step
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            scheduler.step()
 
             print('[Iteration %d] train_loss=%0.4f lr=%.6f' % (iteration,
                                                                loss.item(), optimizer.param_groups[0]['lr']))
@@ -52,23 +53,22 @@ def train(args, train_loader, val_loader, model, device, criterion, optimizer, s
                                                                          loss.item(), optimizer.param_groups[0]['lr']))
                 writer.add_scalars('Loss', {'Overall Loss': loss.item()}, iteration)
 
-            if iteration % 200 == 0:
-                with torch.no_grad():
-                    if writer:
-                        volume_cpu = volume.cpu()
-                        vis_result_gt = torch.ones_like(volume_cpu)
-                        vis_result_gt *= match.cpu().view(match.shape[0], 1, 1, 1, 1)
-                        vis_result_out = torch.ones_like(volume_cpu)
-                        vis_result_out *= output.cpu().view(match.shape[0], 1, 1, 1, 1)
+            if iteration % 500 == 0:
+                title = "Image/GT_Skeleton"
+                if writer:
+                    visualize(volume, out_skeleton_1, out_skeleton_2, iteration, writer, title=title)
 
-                        visualize(volume_cpu, vis_result_gt, vis_result_out, iteration, writer, mode='Train',
-                                  color_data=torch.cat((out_skeleton_1.cpu(), out_skeleton_2.cpu(), out_skeleton_2.cpu(), vec_to_RGB(out_flux.cpu())), 1))
-                    scheduler.step(record.avg)
-                    record.reset()
-
-            #Save model
+            # Save model
             if iteration % args.iteration_save == 0 or iteration >= args.iteration_total:
-                torch.save(model.state_dict(), args.output+(args.exp_name + '_%d.pth' % iteration))
+                save_dict = {models[0].module.__class__.__name__ + '_state_dict': models[0].state_dict(),
+                             models[1].module.__class__.__name__ + '_state_dict': models[1].state_dict(),
+                             'optimizer_state_dict': optimizer.state_dict(),
+                             'scheduler_state_dict': scheduler.state_dict(),
+                             'loss': loss,
+                             'iteration': iteration}
+                torch.save(save_dict, args.output + (args.exp_name + '_%d.pth' % iteration))
+
+            last_iteration_num = iteration
 
             # Terminate
             if iteration >= args.iteration_total:
@@ -76,11 +76,12 @@ def train(args, train_loader, val_loader, model, device, criterion, optimizer, s
 
 def main():
     args = get_args(mode='train')
+
     save_cmd_line(args)  # Saving the command line args with machine name and time for later reference
     args.output = args.output + args.exp_name + '/'
 
     print('Initial setup')
-    torch.backends.cudnn.enabled = False
+    torch.backends.cudnn.enabled = True
     model_io_size, device = init(args)
 
     if args.disable_logging is not True:
@@ -89,30 +90,58 @@ def main():
         logger, writer = None, None
         print('No log file would be created.')
 
-    model = setup_model(args, device, model_io_size, non_linearity=(torch.sigmoid,))
+    classification_model = setup_model(args, device, model_io_size, non_linearity=(torch.sigmoid,))
+
+    print('Setting up Second model')
+
+    class ModelArgs(object):
+        pass
+    args2 = ModelArgs()
+    args2.task = 4
+    args2.architecture = 'fluxNet'
+    args2.in_channel = 1
+    args2.out_channel = 3
+    args2.num_gpu = args.num_gpu
+    args2.pre_model = args.pre_model
+    args2.load_model = args.load_model
+    args2.use_skeleton_head = args.use_skeleton_head
+    args2.use_flux_head = args.use_flux_head
+    args2.aspp_dilation_ratio = args.aspp_dilation_ratio
+    args2.resolution = args.resolution
+    args2.symmetric = args.symmetric
+    args2.batch_size = args.batch_size
+    args2.local_rank = args.local_rank
+    flux_model = setup_model(args2, device, model_io_size, non_linearity=(torch.tanh,))
+    models = [flux_model, classification_model]
 
     print('Setup data')
     train_loader = get_input(args, model_io_size, 'train', model=None)
 
     print('Setup loss function')
-    criterion = nn.BCELoss()
+    loss_fns = [nn.BCEWithLogitsLoss()]
 
     print('Setup optimizer')
-    model_parameters = list(model.parameters())
-    optimizer = torch.optim.Adam(model_parameters, lr=args.lr, betas=(0.9, 0.999),
-                                 eps=1e-08, weight_decay=1e-6, amsgrad=True)
+    model_parameters = list()
+    [model_parameters.extend(model.parameters()) for model in models[1:]]
 
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1,
-                patience=1000, verbose=False, threshold=0.0001, threshold_mode='rel', cooldown=0,
-                min_lr=1e-7, eps=1e-08)
+    optimizer = torch.optim.Adam(model_parameters, lr=args.lr,
+                                 betas=(0.9, 0.999), eps=1e-08,
+                                 weight_decay=1e-6, amsgrad=True)
 
-    print('4. start training')
-    train(args, train_loader, None, model, device, criterion, optimizer, scheduler, logger, writer)
+    if args.lr_scheduler is 'stepLR':
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=round(args.iteration_total / 5), gamma=0.75)
+    else:
+        print("Learning rate scheduler is not defined to any known types.")
+        return
 
-    print('5. finish training')
+    print('Start training.')
+    train(args, train_loader, models, device, loss_fns, optimizer, scheduler, logger, writer)
+
+    print('Training finished.')
     if args.disable_logging is not True:
         logger.close()
         writer.close()
+
 
 if __name__ == "__main__":
     main()
