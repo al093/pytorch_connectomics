@@ -1,121 +1,123 @@
 import os,sys
-import numpy as np
-import torch
 import h5py, time, itertools, datetime
+import numpy as np
+from tqdm import tqdm
+from sklearn.metrics import roc_curve, precision_recall_curve
+import torch
+import tensorboardX as tfx
+
 from torch_connectomics.utils.net import *
-from torch_connectomics.utils.vis import visualize_aff, save_data
-import re
+from torch_connectomics.utils.vis import *
 
-def test(args, test_loader, model, device, result_path, result_file_pf, input_file_name):
-    # switch to eval mode
-    model.eval()
-    volume_id = 0
 
-    start = time.time()
+class Accuracy():
+    def __init__(self, from_logits=True, threshold=0.50):
+        self.from_logits = from_logits
+        self.threshold = threshold
+        self.pred = list()
+        self.gt = list()
+
+    def append(self, pred, gt, *args, **kwargs):
+        if self.from_logits:
+            pred = torch.nn.functional.sigmoid(pred)
+        if type(gt) is torch.Tensor:
+            gt = gt.detach().cpu().numpy()
+            pred = pred.detach().cpu().numpy()
+        gt = gt.ravel()
+        pred = pred.ravel()
+        self.gt.extend(gt)
+        self.pred.extend(pred)
+
+    def compute_and_plot(self, tb_writer: tfx.SummaryWriter = None):
+        fpr, tpr, th = roc_curve(np.array(self.gt), np.array(self.pred))
+        if tb_writer:
+            for y, x in zip(tpr, fpr):
+                tb_writer.add_scalars('Graphs', {'ROC': y*100}, x*100)
+            tb_writer.flush()
+
+        p, r, th = precision_recall_curve(np.array(self.gt), np.array(self.pred))
+
+        if tb_writer:
+            tb_writer.add_pr_curve('pr_curve', np.array(self.gt), np.array(self.pred), 0)
+            for y, x in zip(p, r):
+                tb_writer.add_scalars('Graphs', {'PR-Curve': y*100}, x*100)
+            tb_writer.flush()
+
+        return p, r, th
+
+def eval(args, val_loader, models, metrics, device, writer, save_output):
+    for m in models: m.eval()
     results = []
-    with torch.no_grad():
-        for i, (key, volume, out_skeleton_1, out_skeleton_2, out_flux) in enumerate(test_loader):
-            volume_id += args.batch_size
-            print('processing:', volume_id)
+    for iteration, data in enumerate(tqdm(val_loader), start=1):
+        sys.stdout.flush()
 
-            # for gpu computing
-            volume = volume.to(device)
-            out_skeleton_1, out_skeleton_2 = out_skeleton_1.to(device), out_skeleton_2.to(device)
-            out_flux = out_flux.to(device)
+        sample, volume, out_skeleton_1, out_skeleton_2, out_flux, match = data
 
-            output = model(torch.cat((volume, out_skeleton_1, out_skeleton_2, out_flux), dim=1))
+        volume_gpu = volume.to(device)
+        out_skeleton_1_gpu, out_skeleton_2_gpu = out_skeleton_1.to(device), out_skeleton_2.to(device)
+        # out_flux = out_flux.to(device)
+        match = match.to(device)
 
-            for idx in range(output.shape[0]):
-                results.append((key[idx][0][0], key[idx][0][1], key[idx][0][2], key[idx][0][3], key[idx][0][4], key[idx][1], output[idx].detach().cpu().item()))
-                #key is a tuple of 2 values
-                # 1) [seg_id1, seg_id2, ep1, ep2, crop_origin]
-                # 2) list index value of the input, for later error metric evaluation
+        with torch.no_grad():
+            pred_flux = models[0](volume_gpu)['flux']
+            out_match = models[1](torch.cat((volume_gpu, out_skeleton_1_gpu, out_skeleton_2_gpu, pred_flux), dim=1))
 
-    end = time.time()
-    print("prediction time:", (end-start))
+        metrics[0].append(out_match, match)
 
-    result_path = result_path + input_file_name + '_' + result_file_pf
-    np.save(file=result_path, arr=results)
-    print('matching results stored at: \n' + result_path)
+        # append to results list
+        results.append(zip(sample, out_match.detach().cpu().numpy()))
+        if save_output:
+            np.save(args.output + 'cls_results.npy', results)
+    return results, metrics[0].compute_and_plot(writer)
 
-def get_augmented(volume):
-    # perform 16 Augmentations as mentioned in Kisuks thesis
-    vol0    = volume
-    vol90   = torch.rot90(vol0, 1, [3, 4])
-    vol180  = torch.rot90(vol90,  1, [3, 4])
-    vol270  = torch.rot90(vol180, 1, [3, 4])
+def _run(args, save_output):
+    save_cmd_line(args)
+    args.output = args.output + args.exp_name + '/'
 
-    vol0f   = torch.flip(vol0,   [3])
-    vol90f  = torch.flip(vol90,  [3])
-    vol180f = torch.flip(vol180, [3])
-    vol270f = torch.flip(vol270, [3])
-
-    vol0z   = torch.flip(vol0,   [2])
-    vol90z  = torch.flip(vol90,  [2])
-    vol180z = torch.flip(vol180, [2])
-    vol270z = torch.flip(vol270, [2])
-
-    vol0fz   = torch.flip(vol0f,   [2])
-    vol90fz  = torch.flip(vol90f,  [2])
-    vol180fz = torch.flip(vol180f, [2])
-    vol270fz = torch.flip(vol270f, [2])
-
-    augmented_volumes = [vol0,  vol90,  vol180,  vol270,  vol0f,  vol90f,  vol180f,  vol270f,
-                         vol0z, vol90z, vol180z, vol270z, vol0fz, vol90fz, vol180fz, vol270fz]
-
-    return augmented_volumes
-
-def combine_augmented(outputs):
-    assert len(outputs) == 16
-    for i in range(8, 16):
-        outputs[i] = torch.flip(outputs[i], [2])
-    for i in range(4, 8):
-        outputs[i] = torch.flip(outputs[i], [3])
-    for i in range(12, 16):
-        outputs[i] = torch.flip(outputs[i], [3])
-    for i in range(1, 16, 4):
-        outputs[i] = torch.rot90(outputs[i], -1, [3, 4])
-    for i in range(2, 16, 4):
-        outputs[i] = torch.rot90(outputs[i], -1, [3, 4])
-        outputs[i] = torch.rot90(outputs[i], -1, [3, 4])
-    for i in range(3, 16, 4):
-        outputs[i] = torch.rot90(outputs[i], 1, [3, 4])
-
-    # output = torch.zeros_like(outputs[0], dtype=torch.float64)
-    # for i in range(len(outputs)):
-    #     output += outputs[i].double()
-    # output = output / 16.0
-    for i in range(len(outputs)):
-        outputs[i] = outputs[i].unsqueeze(0)
-    output = torch.min(torch.cat(outputs, 0), 0)[0]
-
-    return output, outputs
-
-def main():
-    args = get_args(mode='test')
-
-    print('0. initial setup')
-    torch.backends.cudnn.enabled = False
     model_io_size, device = init(args)
-    print('model I/O size:', model_io_size)
 
-    print('1. setup data')
-    test_loader, volume_shape, pad_size = get_input(args, model_io_size, 'test')
+    if args.disable_logging is not True:
+        _, writer = get_logger(args)
+    else:
+        logger, writer = None, None
+        print('No log file would be created.')
 
-    print('2. setup model')
-    model = setup_model(args, device, model_io_size=model_io_size, exact=True, non_linearity=(torch.sigmoid, ))
+    classification_model = setup_model(args, device, model_io_size, non_linearity=(torch.sigmoid,))
 
-    result_path = args.output + '/' + args.exp_name + '/'
-    result_file_pf = re.split('_|.pth', os.path.basename(args.pre_model))[-2]
-    if not os.path.isdir(result_path):
-        os.makedirs(result_path)
-    save_cmd_line(args, result_path + 'commandArgs.txt')  # Saving the command line args with machine name and time for later reference
-    input_file_names = [os.path.basename(input_image)[:-3] for input_image in args.img_name.split('@')]
+    class ModelArgs(object):
+        pass
+    args2 = ModelArgs()
+    args2.task = 4
+    args2.architecture = 'fluxNet'
+    args2.in_channel = 1
+    args2.out_channel = 3
+    args2.num_gpu = args.num_gpu
+    args2.pre_model = args.pre_model
+    args2.load_model = args.load_model
+    args2.use_skeleton_head = args.use_skeleton_head
+    args2.use_flux_head = args.use_flux_head
+    args2.aspp_dilation_ratio = args.aspp_dilation_ratio
+    args2.resolution = args.resolution
+    args2.symmetric = args.symmetric
+    args2.batch_size = args.batch_size
+    args2.local_rank = args.local_rank
+    flux_model = setup_model(args2, device, model_io_size, non_linearity=(torch.tanh,))
+    models = [flux_model, classification_model]
 
-    print('3. start testing')
-    test(args, test_loader, model, device, result_path, result_file_pf, input_file_names[0])
+    val_loader, _, _ = get_input(args, model_io_size, 'test', model=None)
 
-    print('4. finish testing')
+    metrics = [Accuracy()]
+
+    print('Start Evaluation.')
+    out = eval(args, val_loader, models, metrics, device, writer, save_output)
+
+    print('Evaluation finished.')
+    if args.disable_logging is not True:
+        writer.close()
+    return out
+
+def run(input_args_string, save_output):
+    return _run(get_args(mode='test', input_args=input_args_string), save_output)
 
 if __name__ == "__main__":
-    main()
+    _run(get_args(mode='test'), save_output=True)
