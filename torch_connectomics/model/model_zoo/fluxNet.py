@@ -1,18 +1,12 @@
 import torch
-import math
 import torch.nn as nn
-import torch.nn.functional as F
-import torchvision.models as models
-import scipy.spatial as sp
-import numpy as np
 
 from torch_connectomics.model.utils import *
 from torch_connectomics.model.blocks import *
 
-
 class FluxNet(nn.Module):
-
-    def __init__(self, in_channel=1, out_channel=3, filters=[8, 16, 24, 32, 64],
+    default_filters = (8, 16, 24, 32, 64)
+    def __init__(self, in_channel=1, out_channel=3, filters=default_filters,
                  non_linearity=(torch.sigmoid), aspp_dilation_ratio=1, symmetric=True, use_flux_head=True, use_skeleton_head=False):
         super().__init__()
 
@@ -143,12 +137,13 @@ class FluxNet(nn.Module):
         x = self.up(x) if self.symmetric else self.up_aniso(x)
 
         output = dict()
-
         if self.use_flux_head:
-            flux = self.layer1_D_flux(x)
-            flux = self.non_linearity_1(flux)
+            for i, layer in enumerate(self.layer1_D_flux):
+                x = layer(x)
+                if get_penultimate_layer and i is 0:
+                    output['penultimate_layer'] = x
+            flux = self.non_linearity_1(x)
             output['flux'] = flux
-
         if self.use_skeleton_head:
             skeleton = self.layer1_D_skeleton(x)
             skeleton = nn.functional.sigmoid(skeleton)
