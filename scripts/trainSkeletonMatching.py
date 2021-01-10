@@ -10,7 +10,7 @@ from torch_connectomics.utils.vis import *
 
 
 def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, logger, writer, regularization=None):
-    models[0].eval()
+    models[0].train() if args.train_end_to_end else models[0].eval()
     models[1].train()
 
     last_iteration_num, _ = restore_state(optimizer, scheduler, args, device)
