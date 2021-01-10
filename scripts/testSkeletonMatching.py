@@ -53,21 +53,21 @@ def eval(args, val_loader, models, metrics, device, writer, save_output):
         volume_gpu, match_gpu = volume.to(device), match.to(device)
         out_skeleton_1_gpu, out_skeleton_2_gpu = out_skeleton_1.to(device), out_skeleton_2.to(device)
 
-        if not (args.train_end_to_end or args.use_penultimate):
-            pred_flux = out_flux.to(device)
-        else:
-            with torch.no_grad():
+        with torch.no_grad():
+            if not (args.train_end_to_end or args.use_penultimate):
+                pred_flux = out_flux.to(device)
+            else:
                 model_output = models[0](volume_gpu, get_penultimate_layer=True)
                 pred_flux = model_output['flux']
 
-        next_model_input = [volume_gpu, out_skeleton_1_gpu, out_skeleton_2_gpu, pred_flux]
+            next_model_input = [volume_gpu, out_skeleton_1_gpu, out_skeleton_2_gpu, pred_flux]
 
-        if args.use_penultimate:
-            last_layer = model_output['penultimate_layer']
-            next_model_input.append(last_layer)
+            if args.use_penultimate:
+                last_layer = model_output['penultimate_layer']
+                next_model_input.append(last_layer)
 
-        out_match = models[1](torch.cat(next_model_input, dim=1))
-        out_match = torch.nn.functional.sigmoid(out_match)
+            out_match = models[1](torch.cat(next_model_input, dim=1))
+            out_match = torch.nn.functional.sigmoid(out_match)
 
         metrics[0].append(out_match, match_gpu)
 
