@@ -56,6 +56,7 @@ class ClassificationNet(nn.Module):
         self.fc_1 = nn.Linear(self.linear_layer_in_sz, 64)
         self.fc_2 = nn.Linear(64, 1)
 
+        self.dropout = nn.modules.Dropout(p=0.33)
         self.non_linearity = non_linearity
 
         #initialization
@@ -68,12 +69,16 @@ class ClassificationNet(nn.Module):
         x = self.down(z1)
         z2 = self.layer2_E(x)
         x = self.down_z(z2)
+        x = self.dropout(x)
         z3 = self.layer3_E(x)
         x = self.down_z(z3)
+        x = self.dropout(x)
         z4 = self.layer4_E(x)
         x = self.down_z(z4)
+        x = self.dropout(x)
         z5 = self.layer5_E(x)
         x = self.down_z(z5)
+        x = self.dropout(x)
         x = x.view(-1, self.linear_layer_in_sz)
         x = self.fc_1(x)
         x = self.fc_2(x)
