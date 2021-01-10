@@ -1,4 +1,4 @@
-import os,sys
+import os, sys
 import h5py, time, itertools, datetime
 import numpy as np
 
@@ -19,7 +19,7 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
     epochs = int(np.ceil(args.iteration_total / len(train_loader.dataset)))
     for epoch in range(epochs):
         print(f"Epoch: {epoch}")
-        for iteration, data in enumerate(train_loader, start=last_iteration_num+1):
+        for iteration, data in enumerate(train_loader, start=last_iteration_num + 1):
             sys.stdout.flush()
 
             if iteration < 50:
@@ -30,13 +30,25 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
 
             volume_gpu = volume.to(device)
             out_skeleton_1_gpu, out_skeleton_2_gpu = out_skeleton_1.to(device), out_skeleton_2.to(device)
-            # out_flux = out_flux.to(device)
             match = match.to(device)
 
-            with torch.no_grad():
-                pred_flux = models[0](volume_gpu)['flux']
+            if not args.train_end_to_end and not args.use_penultimate:
+                pred_flux = out_flux.to(device)
+            else:
+                with torch.no_grad():  # TODO remove no grad when really training end to end
+                    model_output = models[0](volume_gpu, get_penultimate_layer=True)
+                    pred_flux = model_output['flux']
 
-            out_match = models[1](torch.cat((volume_gpu, out_skeleton_1_gpu, out_skeleton_2_gpu, pred_flux), dim=1))
+            next_model_input = [volume_gpu, out_skeleton_1_gpu, out_skeleton_2_gpu, pred_flux]
+
+            if args.use_penultimate:
+                last_layer = model_output['penultimate_layer']
+                next_model_input.append(last_layer)
+
+            out_match = models[1](torch.cat(next_model_input, dim=1))
+
+            if not isinstance(loss_fns[0], nn.BCEWithLogitsLoss):
+                out_match = torch.nn.functional.sigmoid(out_match)
 
             loss = loss_fns[0](out_match, match)
 
@@ -46,12 +58,13 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
             optimizer.step()
             scheduler.step()
 
-            print('[Iteration %d] train_loss=%0.4f lr=%.6f' % (iteration,
-                                                               loss.item(), optimizer.param_groups[0]['lr']))
+            print('[Iteration %d] train_loss=%0.4f lr=%.6f' % (iteration, loss.item(),
+                                                               optimizer.param_groups[0]['lr']))
             if logger and writer:
                 logger.write("[Volume %d] train_loss=%0.4f lr=%.5f\n" % (iteration,
                                                                          loss.item(), optimizer.param_groups[0]['lr']))
                 writer.add_scalars('Loss', {'Overall Loss': loss.item()}, iteration)
+                writer.add_scalars('LR', {'lr': optimizer.param_groups[0]['lr']}, iteration)
 
             if iteration % 500 == 0:
                 title = "Image/GT_Skeleton"
@@ -74,6 +87,7 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
             if iteration >= args.iteration_total:
                 break
 
+
 def main():
     args = get_args(mode='train')
 
@@ -81,7 +95,6 @@ def main():
     args.output = args.output + args.exp_name + '/'
 
     print('Initial setup')
-    torch.backends.cudnn.enabled = True
     model_io_size, device = init(args)
 
     if args.disable_logging is not True:
@@ -96,6 +109,7 @@ def main():
 
     class ModelArgs(object):
         pass
+
     args2 = ModelArgs()
     args2.task = 4
     args2.architecture = 'fluxNet'
@@ -119,20 +133,33 @@ def main():
 
     print('Setup loss function')
     loss_fns = [nn.BCEWithLogitsLoss()]
+    # loss_fns = [kornia.losses.FocalLoss(alpha=0.5, gamma=2.0, reduction='mean')]
 
     print('Setup optimizer')
     model_parameters = list()
     [model_parameters.extend(model.parameters()) for model in models[1:]]
 
-    optimizer = torch.optim.Adam(model_parameters, lr=args.lr,
-                                 betas=(0.9, 0.999), eps=1e-08,
+    optimizer = torch.optim.Adam(model_parameters, lr=1, betas=(0.9, 0.999), eps=1e-08,
                                  weight_decay=1e-6, amsgrad=True)
 
-    if args.lr_scheduler is 'stepLR':
+    if args.lr_scheduler == 'step':
+        optimizer.defaults['lr'] = args.lr
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=round(args.iteration_total / 5), gamma=0.75)
+    elif args.lr_scheduler == 'linear':
+        initial_lr = args.lr
+        final_lr = args.lr_final
+        decay_till_step = args.decay_till_step
+        print(initial_lr, final_lr, decay_till_step)
+
+        def linear_decay_lambda(step):
+            lr = final_lr if step >= decay_till_step else \
+                initial_lr + (float(step) / decay_till_step) * (final_lr - initial_lr)
+            return lr
+
+        # linear_decay_lambda = lambda step:
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, linear_decay_lambda)
     else:
-        print("Learning rate scheduler is not defined to any known types.")
-        return
+        raise ValueError("Learning rate scheduler is not defined to any known types.")
 
     print('Start training.')
     train(args, train_loader, models, device, loss_fns, optimizer, scheduler, logger, writer)
