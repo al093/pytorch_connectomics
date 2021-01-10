@@ -16,9 +16,7 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
     last_iteration_num, _ = restore_state(optimizer, scheduler, args, device)
 
     start = time.time()
-    epochs = int(np.ceil(args.iteration_total / len(train_loader.dataset)))
-    for epoch in range(epochs):
-        print(f"Epoch: {epoch}")
+    while True:
         for iteration, data in enumerate(train_loader, start=last_iteration_num + 1):
             sys.stdout.flush()
 
@@ -81,9 +79,8 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
                              'iteration': iteration}
                 torch.save(save_dict, args.output + (args.exp_name + '_%d.pth' % iteration))
 
+            # Termination condition
             last_iteration_num = iteration
-
-            # Terminate
             if iteration >= args.iteration_total:
                 break
 
