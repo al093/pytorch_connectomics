@@ -24,7 +24,7 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
                 print('time taken for itr: ', time.time() - start)
                 start = time.time()
 
-            sample, volume, out_skeleton_1, out_skeleton_2, out_flux, match = data
+            sample, volume, out_skeleton_1, out_skeleton_2, out_flux, out_weight, match = data
 
             volume_gpu = volume.to(device)
             out_skeleton_1_gpu, out_skeleton_2_gpu = out_skeleton_1.to(device), out_skeleton_2.to(device)
@@ -33,9 +33,10 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
             if not args.train_end_to_end and not args.use_penultimate:
                 pred_flux = out_flux.to(device)
             else:
-                with torch.no_grad():  # TODO remove no grad when really training end to end
-                    model_output = models[0](volume_gpu, get_penultimate_layer=True)
-                    pred_flux = model_output['flux']
+                model_output = models[0](volume_gpu, get_penultimate_layer=True)
+                pred_flux = model_output['flux']
+                out_flux_gpu = out_flux.to(device)
+                out_weight_gpu = out_weight.to(device)
 
             next_model_input = [volume_gpu, out_skeleton_1_gpu, out_skeleton_2_gpu, pred_flux]
 
@@ -46,9 +47,19 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
             out_match = models[1](torch.cat(next_model_input, dim=1))
 
             if not isinstance(loss_fns[0], nn.BCEWithLogitsLoss):
-                out_match = torch.nn.functional.sigmoid(out_match)
+                out_match = torch.sigmoid(out_match)
 
-            loss = loss_fns[0](out_match, match)
+            cls_loss = loss_fns[0](out_match, match)
+            if args.train_end_to_end:
+                flux_loss, _, _ = loss_fns[1](pred_flux, out_flux_gpu, out_weight_gpu)
+                cls_loss_weight = 0.80
+                loss = cls_loss_weight*cls_loss + (1.0 - cls_loss_weight)*flux_loss
+                loss_dict = {'Total loss': loss.item(),
+                             'Flux loss': (1.0 - cls_loss_weight)*flux_loss.item(),
+                             'Cls loss': cls_loss_weight*cls_loss.item()}
+            else:
+                loss = cls_loss
+                loss_dict = {'Total loss': loss.item()}
 
             # compute gradient and do Adam step
             optimizer.zero_grad()
@@ -61,7 +72,7 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
             if logger and writer:
                 logger.write("[Volume %d] train_loss=%0.4f lr=%.5f\n" % (iteration,
                                                                          loss.item(), optimizer.param_groups[0]['lr']))
-                writer.add_scalars('Loss', {'Overall Loss': loss.item()}, iteration)
+                writer.add_scalars('Loss', loss_dict, iteration)
                 writer.add_scalars('LR', {'lr': optimizer.param_groups[0]['lr']}, iteration)
 
             if iteration % 500 == 0:
@@ -130,6 +141,7 @@ def main():
 
     print('Setup loss function')
     loss_fns = [nn.BCEWithLogitsLoss()]
+    loss_fns.append(AngularAndScaleLoss(alpha=0.25))
     # loss_fns = [kornia.losses.FocalLoss(alpha=0.5, gamma=2.0, reduction='mean')]
 
     print('Setup optimizer')

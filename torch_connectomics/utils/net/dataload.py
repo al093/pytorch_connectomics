@@ -62,10 +62,6 @@ def get_input(args, model_io_size, mode='train', model=None):
         if args.weight_name is not None:
             weight_files = args.weight_name.split('@')
 
-        flux_files_2 = None
-        if args.flux_name_gt is not None:
-            flux_files_2 = args.flux_name_gt.split('@')
-
     if args.task in [6]:
         divergence_files = None
         if args.div_name is not None:
@@ -228,13 +224,6 @@ def get_input(args, model_io_size, mode='train', model=None):
                     flux[i] = np.array((h5py.File(flux_files[i], 'r')['main']))
                     flux[i] = np.pad(flux[i], ((0,0),) + pad_size_tuple)
 
-            if args.train_end_to_end is True:
-                assert (flux_files_2 is not None)
-                flux_2[i] = np.array((h5py.File(flux_files_2[i], 'r')['main']))
-                flux_2[i] = np.pad(flux_2[i], ((0,0),) + pad_size_tuple)
-            else:
-                flux_2 = None
-
             #load weight files:
             if weight_files is not None:
                 if is_ddp(args):
@@ -267,20 +256,8 @@ def get_input(args, model_io_size, mode='train', model=None):
         if args.task == 0:  # affininty prediction
             dataset = AffinityDataset(volume=model_input, label=model_label, sample_input_size=sample_input_size,
                                       sample_label_size=sample_input_size, augmentor=augmentor, mode='train')
-        elif args.task == 1: # synapse detection
-            dataset = SynapseDataset(volume=model_input, label=model_label, sample_input_size=sample_input_size,
-                                     sample_label_size=sample_input_size, augmentor=augmentor, mode='train')
-        elif args.task == 2: # mitochondira segmentation
-            dataset = MitoDataset(volume=model_input, label=model_label, sample_input_size=sample_input_size,
-                                  sample_label_size=sample_input_size, augmentor=augmentor, mode='train')
-        elif args.task == 3: # mask prediction
-            if args.in_channel == 2:
-                augmentor_1 = Compose([Grayscale(p=0.75),
-                                       MissingParts(p=0.9)],
-                                       input_size=model_io_size)
-                dataset = MaskDatasetDualInput(volume=model_input, label=model_label, sample_input_size=sample_input_size,
-                                      sample_label_size=sample_input_size, augmentor_pre=augmentor_1, augmentor=augmentor,
-                                      mode='train', seed_points=s_points, pad_size=pad_size.astype(np.int32), model=model)
+        elif args.task == 1 or args.task == 2 or args.task == 3 or args.task == 6: # synapse detection
+            raise NotImplementedError("Not defined.")
         elif args.task == 4:  # skeleton/flux prediction
             if is_ddp(args):
                 # if ddp is used call the dataset with paths of the input, label, skeleton, flux and weight
@@ -307,99 +284,38 @@ def get_input(args, model_io_size, mode='train', model=None):
             dataset = MatchSkeletonDataset(image=model_input, skeleton=skeleton, flux=flux,
                                              sample_input_size=sample_input_size, sample_label_size=sample_input_size,
                                              augmentor=augmentor, mode='train', seed_points=s_points,
-                                             pad_size=pad_size.astype(np.int32))
-
-        elif args.task == 6:  # skeleton match prediction
-            dataset = SkeletonGrowingDataset(image=model_input, skeleton=skeleton, flux=flux, divergence=divergence,
-                                             growing_data=s_points, flux_gt=flux_2, mode='train')
-
-        if args.task == 6:
-            c_fn = collate_fn_growing
-            pin_memory = False
-        else:
-            c_fn = collate_fn_var
-            pin_memory = True
+                                             pad_size=pad_size.astype(np.int32), dataset_resolution=args.resolution)
 
         img_loader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, shuffle=SHUFFLE,
-                                                 collate_fn=c_fn, num_workers=args.num_cpu, pin_memory=pin_memory,
+                                                 collate_fn=collate_fn_var, num_workers=args.num_cpu, pin_memory=True,
                                                  worker_init_fn=get_worker_init_fn(args.local_rank))
 
         return img_loader
-
     else:
         if args.task == 0 or args.task == 4:
             dataset = AffinityDataset(volume=model_input, label=None, sample_input_size=model_io_size, \
                                       sample_label_size=None, sample_stride=model_io_size // 2, \
                                       augmentor=None, mode='test')
-        elif args.task == 1:
-            dataset = SynapseDataset(volume=model_input, label=None, sample_input_size=model_io_size, \
-                                     sample_label_size=None, sample_stride=model_io_size // 2, \
-                                     augmentor=None, mode='test')
-        elif args.task == 2:
-            dataset = MitoDataset(volume=model_input, label=None, sample_input_size=model_io_size, \
-                                  sample_label_size=None, sample_stride=model_io_size // 2, \
-                                  augmentor=None, mode='test')
-        elif args.task == 3:
-            dataset = MaskDataset(volume=model_input, label=None, sample_input_size=model_io_size, \
-                                  sample_label_size=None, sample_stride=model_io_size // 2, \
-                                  augmentor=None, mode='test', seed_points=s_points,
-                                  pad_size=pad_size.astype(np.int32))
+        elif args.task == 1 or args.task == 2 or args.task == 3 or args.task == 6:
+            raise NotImplementedError("Tasks removed.")
         elif args.task == 5:
             dataset = MatchSkeletonDataset(image=model_input, skeleton=skeleton, flux=flux,
                                            sample_input_size=model_io_size, sample_label_size=model_io_size,
                                            augmentor=None, mode='test', seed_points=s_points,
                                            pad_size=pad_size.astype(np.int32))
-        elif args.task == 6:
-            dataset = SkeletonGrowingDataset(image=model_input, skeleton=skeleton, flux=flux, divergence=divergence,
-                                             growing_data=s_points, mode='test')
 
-        if args.task == 6:
-            c_fn = collate_fn_growing
-            pin_memory = False
+        if is_ddp(args):
+            train_sampler = torch.utils.data.distributed.DistributedSampler(dataset, shuffle=SHUFFLE)
         else:
-            c_fn = collate_fn_var
-            pin_memory = True
+            train_sampler = None
 
-        if args.task != 3:
+        img_loader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size,
+                                                 shuffle=(SHUFFLE and (not train_sampler)), collate_fn=collate_fn_var,
+                                                 num_workers=args.num_cpu, pin_memory=True,
+                                                 sampler=train_sampler)
 
-            if is_ddp(args):
-                train_sampler = torch.utils.data.distributed.DistributedSampler(dataset, shuffle=SHUFFLE)
-            else:
-                train_sampler = None
+        return img_loader, volume_shape, pad_size
 
-            img_loader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size,
-                                                     shuffle=(SHUFFLE and (not train_sampler)), collate_fn=c_fn,
-                                                     num_workers=args.num_cpu, pin_memory=pin_memory,
-                                                     sampler=train_sampler)
-
-            return img_loader, volume_shape, pad_size
-        else:
-            assert len(img_name) == 1
-            img_loader = SerialSampler(dataset, args.batch_size, pad_size, s_points[0][0] + pad_size, args.in_channel)
-            if args.initial_seg is not None:
-                return img_loader, volume_shape, pad_size, initial_seg
-            else:
-                return img_loader, volume_shape, pad_size, None
-
-#### Helper Function ###
-def crop_cremi(image, label, path):
-    filename = os.path.basename(path)
-    basepath = os.path.dirname(path)
-    filename = filename.replace('im_', 'crop_')
-    filename = filename.replace('_200.h5', '.txt')
-    crop_filepath = basepath + '/../align/' + filename
-    try:
-        with open(crop_filepath, 'r') as file:
-            coords = file.read()
-            coords = coords.split(',')
-            coords = [int(i) for i in coords]
-            image = image[coords[4]:coords[5], coords[2]:coords[3], coords[0]:coords[1]]
-            label = label[coords[4]:coords[5], coords[2]:coords[3], coords[0]:coords[1]]
-            return image, label
-
-    except IOError:
-        print('Could not read file: ' + crop_filepath)
-        return None, None
 
 def shrink_range_uint32(seg):
     maxid = np.max(seg)
@@ -415,6 +331,7 @@ def shrink_range_uint32(seg):
     print(seg.shape)
     return labels[seg]
 
+
 def load_list_from_h5(h5_path):
     print()
     h_list = []
@@ -424,6 +341,7 @@ def load_list_from_h5(h5_path):
     h_list = [x for x in h_list if x.shape[0] > 0]
     return h_list
 
+
 def load_seeds_from_txt(txt_path):
     seeds = np.loadtxt(open(txt_path, 'rb'))
     if len(seeds.shape) == 1:
@@ -431,8 +349,10 @@ def load_seeds_from_txt(txt_path):
     seeds = seeds.astype(np.uint32)
     return [seeds]
 
+
 def is_ddp(args):
     return args.local_rank is not None
+
 
 def get_worker_init_fn(rank):
     rank = 0 if rank is None else rank

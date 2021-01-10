@@ -67,7 +67,7 @@ def eval(args, val_loader, models, metrics, device, writer, save_output):
                 next_model_input.append(last_layer)
 
             out_match = models[1](torch.cat(next_model_input, dim=1))
-            out_match = torch.nn.functional.sigmoid(out_match)
+            out_match = torch.sigmoid(out_match)
 
         metrics[0].append(out_match, match_gpu)
 
