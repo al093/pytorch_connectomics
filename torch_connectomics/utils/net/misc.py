@@ -139,20 +139,23 @@ def setup_model(args, device, model_io_size, exact=True, size_match=True, non_li
             model.load_state_dict(model_dict)
     return model
 
-def restore_state(optimizer, scheduler, args, device):
+def restore_state(optimizer, scheduler: torch.optim.lr_scheduler.LambdaLR, args, device):
     if bool(args.load_model) and args.warm_start:
         if args.local_rank in [None, 0]:
             print('Trying to load optimizer and scheduler state from checkpoint.')
+
         checkpoint = torch.load(args.pre_model, map_location=device)
+        iteration = checkpoint.get('iteration', 0)
+
         if checkpoint.get('scheduler_state_dict', None):
             scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
             if args.local_rank in [None, 0]:
                 print("Scheduler restored.")
+
         if checkpoint.get('optimizer_state_dict', None):
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             if args.local_rank in [None, 0]:
                 print("Optimizer restored.")
-        iteration = checkpoint.get('iteration', 0)
         loss = checkpoint.get('loss', 0)
         return iteration, loss
     else:
