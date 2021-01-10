@@ -23,7 +23,7 @@ class MatchSkeletonDataset(torch.utils.data.Dataset):
         self.augmentor = augmentor  # data augmentation
 
         # samples, channels, depths, rows, cols
-        self.input_size = [np.array(x.shape) for x in self.image]  # volume size, could be multi-volume input
+        self.input_size = [np.array(x.shape, dtype=np.int) for x in self.image]  # volume size, could be multi-volume input
         self.sample_input_size = np.array(sample_input_size)  # model input size
         self.sample_label_size = np.array(sample_label_size)  # model label size
 
@@ -115,7 +115,25 @@ class MatchSkeletonDataset(torch.utils.data.Dataset):
 
         # pick a position
         if offset is None:
-            pos[1:] = (sample[2] + sample[3]) // 2 + self.seed_points_offset
+            pos[1:] = (sample[2] + sample[3]) // 2 + self.seed_points_offset # pos is the origin
+            if self.augmentor:
+                # add some random offset but such that cropping can be still done
+                pos_arr = np.array(pos[1:])
+
+                max_positive_shift = self.input_size[pos[0]] - (pos_arr + self.sample_input_size)
+                assert np.all(max_positive_shift >= 0)
+                max_positive_shift = np.clip(max_positive_shift, [0, 0, 0], [3, 9, 9])
+
+                min_negative_shift = -pos_arr
+                assert np.all(min_negative_shift <= 0)
+                min_negative_shift = np.clip(min_negative_shift, [-3, -9, -9], [0, 0, 0])
+
+                random_shift = np.zeros((3, ), dtype=np.int)
+                for dim in range(3):
+                    random_shift[dim] = np.random.choice(np.arange(min_negative_shift[dim],
+                                                                   max_positive_shift[dim]+1))
+
+                pos[1:] += random_shift
         else:
             raise NotImplementedError("Offset feature is not implemented.")
             # pos[1:] = sample[4] + offset
