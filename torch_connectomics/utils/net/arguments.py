@@ -56,6 +56,8 @@ def get_args(mode='train', input_args=None):
                         help='Use Skeleton head at the end of decoder')
     parser.add_argument('--use-flux-head', type=my_bool, default=False,
                         help='Use flux head at the end of decoder.')
+    parser.add_argument('--use-penultimate', type=my_bool, default=False,
+                        help='Will use penultimate layer also for skeleton matching classifier.')
 
     # machine option
     parser.add_argument('-g', '--num-gpu', type=int,  default=1,
@@ -100,10 +102,15 @@ def get_args(mode='train', input_args=None):
                             help='Total number of iteration')
         parser.add_argument('--iteration-save', type=int, default=100,
                             help='Number of iteration to save')
-        parser.add_argument('--lr-scheduler', type=str, default='stepLR',
-                          help='Learning rate schedule. Possible values: stepLR')
+        parser.add_argument('--lr-scheduler', type=str, default='step',
+                          help='Learning rate schedule. Possible values: step, linear')
         parser.add_argument('--warm-start', type=my_bool, default=False,
                             help='If --load-model and --pm is set, and if warm starting the training is needed, set this to true.')
+        parser.add_argument('--lr-final', type=float, default=1e-5,
+                          help='Final Learning rate for linearDecay schedule')
+        parser.add_argument('--decay-till-step', type=int, default=50000,
+                          help='Constant (--lr-final) learning rate after this step for linearDecay schedule.')
+
 
     if mode == 'test':
         parser.add_argument('-ta', '--test-augmentation',  type=my_bool, default=False,
@@ -130,8 +137,8 @@ def get_args(mode='train', input_args=None):
     parser.add_argument('-divn', '--div-name', type=str, default=None,
                         help='Divergence volumes path for skeleton tracking.')
 
-    parser.add_argument('-te2e', '--train-end-to-end', type=my_bool, default=False,
-                        help='Train skeleton growing end to end, will need fn_2 to be defined.')
+    parser.add_argument('--train-end-to-end', type=my_bool, default=False,
+                        help='Run all models and train them simultaneously.')
 
     parser.add_argument('-res', '--resolution', type=str, default='30.0,6.0,6.0',
                         help='Resolution of input volumes (Z, Y, X)')
