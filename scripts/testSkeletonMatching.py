@@ -11,15 +11,12 @@ from torch_connectomics.utils.vis import *
 
 
 class Accuracy():
-    def __init__(self, from_logits=True, threshold=0.50):
-        self.from_logits = from_logits
+    def __init__(self, threshold=0.50):
         self.threshold = threshold
         self.pred = list()
         self.gt = list()
 
     def append(self, pred, gt, *args, **kwargs):
-        if self.from_logits:
-            pred = torch.nn.functional.sigmoid(pred)
         if type(gt) is torch.Tensor:
             gt = gt.detach().cpu().numpy()
             pred = pred.detach().cpu().numpy()
@@ -53,25 +50,36 @@ def eval(args, val_loader, models, metrics, device, writer, save_output):
 
         sample, volume, out_skeleton_1, out_skeleton_2, out_flux, match = data
 
-        volume_gpu = volume.to(device)
+        volume_gpu, match_gpu = volume.to(device), match.to(device)
         out_skeleton_1_gpu, out_skeleton_2_gpu = out_skeleton_1.to(device), out_skeleton_2.to(device)
-        # out_flux = out_flux.to(device)
-        match = match.to(device)
 
-        with torch.no_grad():
-            pred_flux = models[0](volume_gpu)['flux']
-            out_match = models[1](torch.cat((volume_gpu, out_skeleton_1_gpu, out_skeleton_2_gpu, pred_flux), dim=1))
+        if not (args.train_end_to_end or args.use_penultimate):
+            pred_flux = out_flux.to(device)
+        else:
+            with torch.no_grad():
+                model_output = models[0](volume_gpu, get_penultimate_layer=True)
+                pred_flux = model_output['flux']
 
-        metrics[0].append(out_match, match)
+        next_model_input = [volume_gpu, out_skeleton_1_gpu, out_skeleton_2_gpu, pred_flux]
+
+        if args.use_penultimate:
+            last_layer = model_output['penultimate_layer']
+            next_model_input.append(last_layer)
+
+        out_match = models[1](torch.cat(next_model_input, dim=1))
+        out_match = torch.nn.functional.sigmoid(out_match)
+
+        metrics[0].append(out_match, match_gpu)
 
         # append to results list
-        results.append(zip(sample, out_match.detach().cpu().numpy()))
+        results.extend(list(zip(sample,
+                                match.detach().numpy(),
+                                out_match.detach().cpu().numpy())))
         if save_output:
             np.save(args.output + 'cls_results.npy', results)
     return results, metrics[0].compute_and_plot(writer)
 
 def _run(args, save_output):
-    save_cmd_line(args)
     args.output = args.output + args.exp_name + '/'
 
     model_io_size, device = init(args)
