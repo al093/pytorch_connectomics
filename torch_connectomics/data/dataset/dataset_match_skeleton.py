@@ -1,5 +1,6 @@
 import numpy as np
 
+import scipy.ndimage
 import torch
 import edt
 from .misc import crop_volume, crop_volume_mul
@@ -98,6 +99,11 @@ class MatchSkeletonDataset(torch.utils.data.Dataset):
         else:
             return sample, out_image, out_skeleton_1, out_skeleton_2, out_flux, match
 
+    def _dilate(self, skeleton):
+        dilation_kernel = np.zeros((3,3,3), dtype=np.bool)
+        dilation_kernel[1, ...] = True
+        return scipy.ndimage.binary_dilation(skeleton, structure=dilation_kernel, iterations=2)
+
     def get_pos_dataset(self, index):
         return np.argmax(index < self.sample_num_c) - 1  # which dataset
 
@@ -123,7 +129,9 @@ class MatchSkeletonDataset(torch.utils.data.Dataset):
         # pick a position
 
         pos[1:] = (sample[2] + sample[3]) // 2 + self.seed_points_offset # pos is the origin
-        if self.augmentor:
+
+        # TODO|NOTE shift augmentation is disabled
+        if self.augmentor and False:
             # add some random offset but such that cropping can be still done
             pos_arr = np.array(pos[1:])
 
