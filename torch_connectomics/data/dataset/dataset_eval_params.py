@@ -44,6 +44,7 @@ def get_segEM(args):
     with open('/n/home11/averma/pytorch_connectomics/cmdArgs/segEMPaths_scales.json', 'r') as phandle:
         paths = json.load(phandle)[args.set]
         data_path = paths['dn'][str(args.dataset_scale)]
+        # TODO: return the original segem GT skeletons
         gt_skel_path = paths['skn'][str(args.dataset_scale)]
         gt_context_path = paths['ln'][str(args.dataset_scale)]
         gt_skel_graphs_path = paths['gn'][str(args.dataset_scale)]
@@ -80,7 +81,7 @@ def get_visor40(args):
         paths = json.load(phandle)[args.set]
 
     data_path = paths['dn']
-    gt_skel_path = paths['skn']
+    gt_skel_path = paths['skn_og']
     gt_context_path = paths['ln']
     gt_skel_graphs_path = paths['gn']
 
@@ -88,7 +89,7 @@ def get_visor40(args):
         var_params = [args.div_threshold]
     else:
         if args.method == 'ours':
-            var_params = np.arange(0.30, 0.90, 0.05) if args.tune else [0.65]
+            var_params = np.arange(0.10, 0.90, 0.05) if args.tune else [0.65]
         elif args.method == 'deepflux':
             var_params = [0.65] if args.tune is False else np.arange(0.05, 0.90, 0.05)
         elif args.method == 'distanceTx':
