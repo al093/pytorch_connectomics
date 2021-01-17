@@ -135,16 +135,23 @@ def main():
     optimizer = torch.optim.Adam(model_parameters, lr=args.lr, betas=(0.9, 0.999),
                                  eps=1e-08, weight_decay=1e-6, amsgrad=True)
 
-    # TODO(alok) maybe we need this back
-    # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1,
-    #             patience=1000, verbose=False, threshold=0.0001, threshold_mode='rel', cooldown=0,
-    #             min_lr=1e-7, eps=1e-08)
+    if args.lr_scheduler == 'step':
+        optimizer.defaults['lr'] = args.lr
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=round(args.iteration_total / 5), gamma=0.75)
+    elif args.lr_scheduler == 'linear':
+        initial_lr = args.lr
+        final_lr = args.lr_final
+        decay_till_step = args.decay_till_step
 
-    if args.lr_scheduler is 'stepLR':
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=round(args.iteration_total/5), gamma=0.75)
+        def linear_decay_lambda(step):
+            lr = final_lr if step >= decay_till_step else \
+                initial_lr + (float(step) / decay_till_step) * (final_lr - initial_lr)
+            return lr
+
+        # linear_decay_lambda = lambda step:
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, linear_decay_lambda)
     else:
-        print("Learning rate scheduler is not defined to any known types.")
-        return
+        raise ValueError("Learning rate scheduler is not defined to any known types.")
 
     print('Start training')
     train(args, train_loader, models, device, loss_fns, optimizer, scheduler, logger, writer)
