@@ -53,13 +53,13 @@ class Elastic(DataAugment):
 
         output = {}
         for key, image in data.items():
-            if key == 'flux' or key == 'skeleton' or key == 'context':
+            if key in ['skeleton', 'flux', 'context', 'skeleton_probability']:
                 output[key] = image
             elif key == 'image':
                 output[key] = warp(image, np.array([self.mapz, mapy, mapx]), order=self.image_interpolation)
             elif key == 'label' or key == 'mask' or key == 'weight':
                 output[key] = warp(image, np.array([self.mapz, mapy, mapx]), order=self.label_interpolation)
             else:
-                raise Exception('Input data key not identified, Key was: ' + key)
+                raise TypeError('Input data key not identified, Key was: ' + key)
 
         return output

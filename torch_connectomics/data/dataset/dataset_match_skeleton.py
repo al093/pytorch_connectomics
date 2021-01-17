@@ -7,7 +7,8 @@ from .misc import crop_volume, crop_volume_mul
 
 class MatchSkeletonDataset(torch.utils.data.Dataset):
     def __init__(self,
-                 image, skeleton, flux, weight=None,
+                 image, skeleton, flux, skeleton_probability,
+                 weight=None,
                  sample_input_size=(8, 64, 64),
                  sample_label_size=None,
                  dataset_resolution=None,
@@ -17,8 +18,9 @@ class MatchSkeletonDataset(torch.utils.data.Dataset):
                  pad_size=None):
         self.mode = mode
         self.image = image  # image
-        self.skeleton = skeleton  # output after first stage
+        self.skeleton = skeleton  # output after first stage, i.e. after connected components
         self.flux = flux  # output of last layer, or flux
+        self.skeleton_probability = skeleton_probability  # output of the network, or the divergence of flux network
         self.weight = weight
         self.augmentor = augmentor  # data augmentation
 
@@ -42,23 +44,25 @@ class MatchSkeletonDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         vol_size = self.sample_input_size
 
-        # Train Mode Specific Operations:
         if self.mode == 'train':
-            # get input volume
             pos, skel_id1, skel_id2, match, sample = self.get_pos_seed()
+        elif self.mode == 'test':
+            pos, skel_id1, skel_id2, match, sample = self.get_pos_test(index)
 
-            out_image = crop_volume(self.image[pos[0]], vol_size, pos[1:]).copy()
-            out_skeleton = crop_volume(self.skeleton[pos[0]], vol_size, pos[1:]).astype(np.float32, copy=True)
-            out_flux = crop_volume_mul(self.flux[pos[0]], vol_size, pos[1:]).copy()
+        out_image = crop_volume(self.image[pos[0]], vol_size, pos[1:]).astype(np.float32, copy=True)
+        out_skeleton = crop_volume(self.skeleton[pos[0]], vol_size, pos[1:]).astype(np.float32, copy=True)
+        out_flux = crop_volume_mul(self.flux[pos[0]], vol_size, pos[1:]).astype(np.float32, copy=True)
+        out_skeleton_probability = crop_volume(self.skeleton_probability[pos[0]], vol_size, pos[1:]).astype(np.float32, copy=True)
 
-            # Augmentations
-            if self.augmentor is not None:  # augmentation
-                data = {'image': out_image,
-                        'flux': out_flux.astype(np.float32),
-                        'skeleton': out_skeleton.astype(np.float32)}
-                augmented = self.augmentor(data, random_state=None)
-                out_image, out_flux = augmented['image'], augmented['flux']
-                out_skeleton = augmented['skeleton']
+        if self.mode == 'train' and self.augmentor is not None:  # augmentation
+            data = {'image': out_image,
+                    'flux': out_flux,
+                    'skeleton': out_skeleton,
+                    'skeleton_probability': out_skeleton_probability}
+            augmented = self.augmentor(data, random_state=None)
+            out_image, out_flux = augmented['image'], augmented['flux']
+            out_skeleton = augmented['skeleton']
+            out_skeleton_probability = augmented['skeleton_probability']
 
             skeleton_distance_tx = edt.edt(out_skeleton == 0, anisotropy=self.dataset_resolution[::-1], black_border=False, order='C', parallel=1)
             weight_distance_th = 1.75 * self.dataset_resolution[0]
@@ -66,14 +70,6 @@ class MatchSkeletonDataset(torch.utils.data.Dataset):
             out_weight += 0.1
             out_weight /= 1.1
             out_weight = torch.from_numpy(out_weight).unsqueeze(0)
-
-        # Test Mode Specific Operations:
-        elif self.mode == 'test':
-            pos, skel_id1, skel_id2, match, sample = self.get_pos_test(index)
-
-            out_image = crop_volume(self.image[pos[0]], vol_size, pos[1:]).copy()
-            out_skeleton = crop_volume(self.skeleton[pos[0]], vol_size, pos[1:]).astype(np.float32, copy=True)
-            out_flux = crop_volume_mul(self.flux[pos[0]], vol_size, pos[1:]).copy()
 
         # keep the two selected skeletons into 2 separate volumes, erase rest
         out_skeleton_1 = np.zeros_like(out_image)
@@ -86,18 +82,17 @@ class MatchSkeletonDataset(torch.utils.data.Dataset):
         out_skeleton_2 = torch.from_numpy(out_skeleton_2.astype(np.float32, copy=False))
         out_skeleton_2 = out_skeleton_2.unsqueeze(0)
 
-        out_image = torch.from_numpy(out_image.astype(np.float32, copy=True))
-        out_image = out_image.unsqueeze(0)
-
+        out_image = torch.from_numpy(out_image.astype(np.float32, copy=True)).unsqueeze(0)
         out_flux = torch.from_numpy(out_flux.astype(np.float32, copy=True))
+        out_skeleton_probability = torch.from_numpy(out_skeleton_probability.astype(np.float32, copy=True)).unsqueeze(0)
 
         match = np.array([match]).astype(np.float32)
         match = torch.from_numpy(match)
 
         if self.mode == 'train':
-            return sample, out_image, out_skeleton_1, out_skeleton_2, out_flux, out_weight, match
+            return sample, out_image, out_skeleton_1, out_skeleton_2, out_flux, out_skeleton_probability, out_weight, match
         else:
-            return sample, out_image, out_skeleton_1, out_skeleton_2, out_flux, match
+            return sample, out_image, out_skeleton_1, out_skeleton_2, out_flux, out_skeleton_probability, match
 
     def _dilate(self, skeleton):
         dilation_kernel = np.zeros((3,3,3), dtype=np.bool)
@@ -137,11 +132,11 @@ class MatchSkeletonDataset(torch.utils.data.Dataset):
 
             max_positive_shift = self.input_size[pos[0]] - (pos_arr + self.sample_input_size)
             assert np.all(max_positive_shift >= 0)
-            max_positive_shift = np.clip(max_positive_shift, [0, 0, 0], [3, 9, 9])
+            max_positive_shift = np.clip(max_positive_shift, [0, 0, 0], [2, 2, 2])
 
             min_negative_shift = -pos_arr
             assert np.all(min_negative_shift <= 0)
-            min_negative_shift = np.clip(min_negative_shift, [-3, -9, -9], [0, 0, 0])
+            min_negative_shift = np.clip(min_negative_shift, [-2, -2, -2], [0, 0, 0])
 
             random_shift = np.zeros((3, ), dtype=np.int)
             for dim in range(3):

@@ -76,15 +76,16 @@ class Rotate(DataAugment):
 
         output = {}
         for key, val in data.items():
-            if key == 'label' or key == 'skeleton' or key == 'weight' or key == 'context':
+            if key in ['label', 'skeleton', 'weight', 'context', 'skeleton_probability']:
                 output[key] = self.rotate(val, M, self.label_interpolation)
             elif key == 'flux':
                 r_img = self.rotate(val, M, self.image_interpolation)
                 r_mat = self.rotation_matrix((1, 0, 0), angle)
                 r_field = np.matmul(r_mat, r_img.reshape((3, -1)))
                 output[key] = r_field.reshape(val.shape)
-            else:
+            elif key == 'image':
                 output[key] = self.rotate(val, M, self.image_interpolation)
-
+            else:
+                raise TypeError('Input data key not identified, Key was: ' + key)
 
         return output

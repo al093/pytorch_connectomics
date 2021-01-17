@@ -21,10 +21,10 @@ TASK_MAP = {0: 'neuron segmentation',
             6: 'skeleton growing'}
 
 def get_input(args, model_io_size, mode='train', model=None):
-    """Prepare dataloader for training and inference.
-    """
+    """Prepare dataloader for training and inference. """
+
     print('Task: ', TASK_MAP[args.task])
-    assert mode in ['train', 'test', 'validation']
+    assert mode in ['train', 'test']
 
     volume_shape = []
 
@@ -35,9 +35,8 @@ def get_input(args, model_io_size, mode='train', model=None):
         s_points = [None] * len(img_name)
         skeleton = [None] * len(img_name)
         flux = [None] * len(img_name)
-        flux_2 = [None] * len(img_name)
         weight = [None] * len(img_name)
-        divergence = [None] * len(img_name)
+        skeleton_probability = [None] * len(img_name)
 
     if args.task != 5 and args.task != 6:
         if mode=='validation':
@@ -62,35 +61,24 @@ def get_input(args, model_io_size, mode='train', model=None):
         if args.weight_name is not None:
             weight_files = args.weight_name.split('@')
 
-    if args.task in [6]:
-        divergence_files = None
-        if args.div_name is not None:
-            divergence_files = args.div_name.split('@')
+    if args.task in [5]:
+        skeleton_probability_files = None
+        if args.skel_prob_name is not None:
+            skeleton_probability_files = args.skel_prob_name.split('@')
 
-    # 1. load data
     model_input = [None]*len(img_name)
 
-    if args.task != 5 and args.task != 6:
-        if mode=='train' or mode=='validation':
+    if args.task not in [5, 6]:
+        if mode=='train':
             assert len(img_name)==len(seg_name)
             model_label = [None]*len(seg_name)
 
-    if args.task != 6 and (mode=='train' or mode=='validation') and mode is 'train' and args.data_aug is True:
+    if mode is 'train' and args.data_aug is True:
         # setup augmentor
         elastic_augmentor = Elastic(alpha=6.0, p=0.75)
-        augmentation_methods = [
-            Rotate(p=0.5),
-            Flip(p=0.5),
-            elastic_augmentor,
-            Grayscale(p=0.75),
-            Blur(min_sigma=1, max_sigma=2, min_slices=model_io_size[0]//6, max_slices=model_io_size[0]//4, p=0.4),
-            CutNoise(),
-            CutBlur(),
-            MotionBlur(),
-            MissingParts(p=0.5)
-            # MissingSection(p=0.5),
-            # MisAlignment2(p=1.0, displacement=16)
-            ]
+        augmentation_methods = [Rotate(p=0.5), Flip(p=0.5), elastic_augmentor, Grayscale(p=0.75),
+                                Blur(min_sigma=1, max_sigma=2, min_slices=model_io_size[0]//6, max_slices=model_io_size[0]//4, p=0.4),
+                                CutNoise(), CutBlur(), MotionBlur(), MissingParts(p=0.5)]
 
         # if the input is symmetric, and more importantly if the resolution is isometric
         # we can perform swapping of z with (y or x) axis
@@ -107,8 +95,7 @@ def get_input(args, model_io_size, mode='train', model=None):
 
     print('Data augmentation: ', augmentor is not None)
 
-    SHUFFLE = mode =='train'
-    print('Batch size: ', args.batch_size)
+    do_shuffle = mode =='train'
 
     if mode == 'test' and args.task not in [5]:
         pad_size = np.array(model_io_size//2, dtype=np.int64)
@@ -142,33 +129,20 @@ def get_input(args, model_io_size, mode='train', model=None):
 
         if mode == 'test':
             if args.task == 5:
-                npf = np.load(seed_points_files[i], allow_pickle=True)
-                s_points[i] = npf.item()
-            elif args.task == 6:
-                data = {}
-                with h5py.File(seed_points_files[i], 'r') as hf:
-                    for g in hf.keys():
-                        d = {}
-                        d['path'] = np.asarray(hf.get(g)['vertices']) + pad_size.astype(np.float32)
-                        d['sids'] = np.asarray(hf.get(g)['sids'])
-                        data[int(g)] = d
-                s_points[i] = data
+                s_points[i] = np.load(seed_points_files[i], allow_pickle=True).item()
+                if skeleton_probability_files is not None:
+                    skeleton_probability[i] = np.array((h5py.File(skeleton_probability_files[i], 'r')['main']))
+                    skeleton_probability[i] = skeleton_probability[i].astype(np.float32, copy=False)
+                    skeleton_probability[i] = np.pad(skeleton_probability[i], pad_size_tuple)
 
-                if divergence_files is not None:
-                    divergence[i] = np.array((h5py.File(divergence_files[i], 'r')['main']))
-                    divergence[i] = np.pad(divergence[i], pad_size_tuple)
-
-            # load skeletons
             if skeleton_files is not None:
                 skeleton[i] = np.array((h5py.File(skeleton_files[i], 'r')['main']))
                 skeleton[i] = np.pad(skeleton[i], pad_size_tuple)
-
             if flux_files is not None:
-                flux[i] = np.array((h5py.File(flux_files[i], 'r')['main']))
+                flux[i] = np.array((h5py.File(flux_files[i], 'r')['main']), dtype=np.float32)
                 flux[i] = np.pad(flux[i], ((0, 0),) + pad_size_tuple)
-
-        elif mode == 'train' or mode == 'validation':
-            if args.task != 5 and args.task != 6:
+        elif mode == 'train':
+            if args.task != 5:
                 if is_ddp(args):
                     model_label[i] = h5py.File(seg_name[i], 'r')['main']
                 else:
@@ -188,26 +162,11 @@ def get_input(args, model_io_size, mode='train', model=None):
                         new_list.append(b)
                 s_points[i] = new_list
             elif args.task == 5:
-                npf = np.load(seed_points_files[i], allow_pickle=True)
-                s_points[i] = npf.item()
-            elif args.task == 6:
-                # load the skeleton growing datasets
-                data = {}
-                with h5py.File(seed_points_files[i], 'r') as hf:
-                    for g in hf.keys():
-                        d = {}
-                        d['path'] = np.asarray(hf.get(g)['vertices']) + pad_size.astype(np.float32)
-                        if d['path'].shape[0] <= 2:
-                            continue
-                        d['sids'] = np.asarray(hf.get(g)['sids'])
-                        if 'first_split_node' in hf.get(g).keys():
-                            d['first_split_node'] = np.asarray(hf.get(g)['first_split_node'])[0]
-                        data[int(g)] = d
-                s_points[i] = data
-
-                if divergence_files is not None:
-                    divergence[i] = np.array((h5py.File(divergence_files[i], 'r')['main']))
-                    divergence[i] = np.pad(divergence[i], pad_size_tuple)
+                s_points[i] = np.load(seed_points_files[i], allow_pickle=True).item()
+                if skeleton_probability_files is not None:
+                    skeleton_probability[i] = np.array((h5py.File(skeleton_probability_files[i], 'r')['main']))
+                    skeleton_probability[i] = skeleton_probability[i].astype(np.float32, copy=False)
+                    skeleton_probability[i] = np.pad(skeleton_probability[i], pad_size_tuple)
 
             # load skeletons
             if skeleton_files is not None:
@@ -221,7 +180,7 @@ def get_input(args, model_io_size, mode='train', model=None):
                 if is_ddp(args):
                     flux[i] = h5py.File(flux_files[i], 'r')['main']
                 else:
-                    flux[i] = np.array((h5py.File(flux_files[i], 'r')['main']))
+                    flux[i] = np.array((h5py.File(flux_files[i], 'r')['main']), dtype=np.float32)
                     flux[i] = np.pad(flux[i], ((0,0),) + pad_size_tuple)
 
             #load weight files:
@@ -233,26 +192,11 @@ def get_input(args, model_io_size, mode='train', model=None):
                     weight[i] = np.pad(weight[i], pad_size_tuple)
 
         if args.task not in [5, 6]:
-            if mode=='train' or mode=='validation':
+            if mode=='train':
                 model_label[i] = np.pad(model_label[i], pad_size_tuple, 'reflect')
                 assert model_input[i].shape == model_label[i].shape
 
-    if mode=='test' and args.task == 3:
-        b = np.array(h5py.File(seed_points_files[0], 'r')[str(args.segment_id)])
-        if len(b.shape) == 1: #  only one point was read, make it into 2D
-            b = b.reshape((1, 3))
-        s_points = [[b.astype(np.uint32)]]
-
-        print('Num of initial seed points: ', s_points[0][0].shape[0])
-        # read the initial segmentation volume and choose the neuron which needs to be run
-        # read the seed points from another h5 file
-        if args.initial_seg is not None:
-            initial_seg = np.array((h5py.File(args.initial_seg, 'r')['main']))
-            # initial_seg = np.array((h5py.File(args.initial_seg, 'r')['main'])[bs[0]:be[0], bs[1]:be[1], bs[2]:be[2]])
-            initial_seg = (initial_seg == args.segment_id)
-            initial_seg = np.pad(initial_seg, pad_size_tuple, 'reflect')
-
-    if mode=='train' or mode=='validation':
+    if mode=='train':
         if args.task == 0:  # affininty prediction
             dataset = AffinityDataset(volume=model_input, label=model_label, sample_input_size=sample_input_size,
                                       sample_label_size=sample_input_size, augmentor=augmentor, mode='train')
@@ -282,11 +226,12 @@ def get_input(args, model_io_size, mode='train', model=None):
 
         elif args.task == 5:  # skeleton match prediction
             dataset = MatchSkeletonDataset(image=model_input, skeleton=skeleton, flux=flux,
-                                             sample_input_size=sample_input_size, sample_label_size=sample_input_size,
-                                             augmentor=augmentor, mode='train', seed_points=s_points,
-                                             pad_size=pad_size.astype(np.int32), dataset_resolution=args.resolution)
+                                           skeleton_probability=skeleton_probability, sample_input_size=sample_input_size,
+                                           sample_label_size=sample_input_size, augmentor=augmentor, mode='train',
+                                           seed_points=s_points, pad_size=pad_size.astype(np.int32),
+                                           dataset_resolution=args.resolution)
 
-        img_loader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, shuffle=SHUFFLE,
+        img_loader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, shuffle=do_shuffle,
                                                  collate_fn=collate_fn_var, num_workers=args.num_cpu, pin_memory=True,
                                                  worker_init_fn=get_worker_init_fn(args.local_rank))
 
@@ -299,18 +244,18 @@ def get_input(args, model_io_size, mode='train', model=None):
         elif args.task == 1 or args.task == 2 or args.task == 3 or args.task == 6:
             raise NotImplementedError("Tasks removed.")
         elif args.task == 5:
-            dataset = MatchSkeletonDataset(image=model_input, skeleton=skeleton, flux=flux,
+            dataset = MatchSkeletonDataset(image=model_input, skeleton=skeleton, flux=flux, skeleton_probability=skeleton_probability,
                                            sample_input_size=model_io_size, sample_label_size=model_io_size,
                                            augmentor=None, mode='test', seed_points=s_points,
                                            pad_size=pad_size.astype(np.int32))
 
         if is_ddp(args):
-            train_sampler = torch.utils.data.distributed.DistributedSampler(dataset, shuffle=SHUFFLE)
+            train_sampler = torch.utils.data.distributed.DistributedSampler(dataset, shuffle=do_shuffle)
         else:
             train_sampler = None
 
         img_loader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size,
-                                                 shuffle=(SHUFFLE and (not train_sampler)), collate_fn=collate_fn_var,
+                                                 shuffle=(do_shuffle and (not train_sampler)), collate_fn=collate_fn_var,
                                                  num_workers=args.num_cpu, pin_memory=True,
                                                  sampler=train_sampler)
 

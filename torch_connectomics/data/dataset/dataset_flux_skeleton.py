@@ -5,7 +5,7 @@ import torch.utils.data
 import scipy
 from scipy.ndimage import label as scipy_label
 import scipy.ndimage.morphology as morphology
-from scipy import spatial, ndimage
+from scipy import spatial
 import skimage
 import warnings
 import h5py
@@ -162,14 +162,17 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
         did = np.random.choice(len(self.seed_points))  # sample from all datasets equally
         pos[0] = did
 
-        size_bin = np.random.choice(len(self.seed_points[did]))
-        # pick a index
-        idx = np.random.randint(self.seed_points[did][size_bin].shape[0])
-        # pick a position
-        if offset is None:
-            pos[1:] = self.seed_points[did][size_bin][idx] + self.seed_points_offset
-        else:
-            pos[1:] = self.seed_points[did][size_bin][idx] + offset
+        for i in range(3):
+            pos[1+i] = np.random.randint(self.half_input_sz[i]+1, self.input_size[did][i]-self.half_input_sz[i]-1, dtype=int)
+
+        # # pick a index
+        # size_bin = np.random.choice(len(self.seed_points[did]))
+        # # pick a position
+        # idx = np.random.randint(self.seed_points[did][size_bin].shape[0])
+        # pos[1:] = self.seed_points[did][size_bin][idx]
+
+        pos[1:] = pos[1:] + (offset if offset else self.seed_points_offset)
+
         return pos
 
     def get_pos_test(self, index):

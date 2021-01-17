@@ -25,21 +25,30 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
                 print('time taken for itr: ', time.time() - start)
                 start = time.time()
 
-            sample, volume, out_skeleton_1, out_skeleton_2, out_flux, out_weight, match = data
-
+            sample, volume, out_skeleton_1, out_skeleton_2, out_flux, out_skeleton_p, out_weight, match = data
             volume_gpu = volume.to(device)
             out_skeleton_1_gpu, out_skeleton_2_gpu = out_skeleton_1.to(device), out_skeleton_2.to(device)
             match = match.to(device)
 
             if not args.train_end_to_end and not args.use_penultimate:
-                pred_flux = out_flux.to(device)
+                if args.use_skeleton_head:
+                    pred = out_skeleton_p.to(device)
+                elif args.use_flux_head:
+                    pred = out_flux.to(device)
             else:
                 model_output = models[0](volume_gpu, get_penultimate_layer=True)
-                pred_flux = model_output['flux']
+                if args.use_skeleton_head and not args.use_flux_head:
+                    output_key = 'skeleton'
+                elif args.use_flux_head  and not args.use_skeleton_head:
+                    output_key = 'flux'
+                else:
+                    raise NotImplementedError("Matching implemented only with one head for now.")
+
+                pred = model_output[output_key]
                 out_flux_gpu = out_flux.to(device)
                 out_weight_gpu = out_weight.to(device)
 
-            next_model_input = [volume_gpu, out_skeleton_1_gpu, out_skeleton_2_gpu, pred_flux]
+            next_model_input = [volume_gpu, out_skeleton_1_gpu, out_skeleton_2_gpu, pred]
 
             if args.use_penultimate:
                 last_layer = model_output['penultimate_layer']
@@ -51,8 +60,8 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
                 out_match = torch.sigmoid(out_match)
 
             cls_loss = loss_fns[0](out_match, match)
-            if args.train_end_to_end:
-                flux_loss, _, _ = loss_fns[1](pred_flux, out_flux_gpu, out_weight_gpu)
+            if args.train_end_to_end and args.use_flux_head:
+                flux_loss, _, _ = loss_fns[1](pred, out_flux_gpu, out_weight_gpu)
                 cls_loss_weight = 0.80
                 loss = cls_loss_weight*cls_loss + (1.0 - cls_loss_weight)*flux_loss
                 loss_dict = {'Total loss': loss.item(),
@@ -159,7 +168,6 @@ def main():
         initial_lr = args.lr
         final_lr = args.lr_final
         decay_till_step = args.decay_till_step
-        print(initial_lr, final_lr, decay_till_step)
 
         def linear_decay_lambda(step):
             lr = final_lr if step >= decay_till_step else \

@@ -114,29 +114,12 @@ def setup_model(args, device, model_io_size, exact=True, size_match=True, non_li
         print(f'Loading pretrained model: {args.pre_model}')
         if exact:
             checkpoint = torch.load(args.pre_model, map_location=device)
-            if checkpoint.get(model.module.__class__.__name__ + '_state_dict', None):
+            if checkpoint.get(model.module.__class__.__name__ + '_state_dict'):
                 model.load_state_dict(checkpoint[model.module.__class__.__name__ + '_state_dict'], strict=True)
             else:
                 print(f"Did not find {model.module.__class__.__name__ + '_state_dict'} model dict in the checkpoint file.")
-            # TODO(@alok) removed backwards compatibility for model loading, its not needed i think anymore.
-            # else checkpoint.get('model_state_dict', None):
-            #     model.load_state_dict(checkpoint['model_state_dict'], strict=False)
-            # else:
-            #     model.load_state_dict(checkpoint, strict=False)
         else:
-            pretrained_dict = torch.load(args.pre_model, map_location=device)
-            model_dict = model.state_dict()
-            # 1. filter out unnecessary keys
-            pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
-            # 2. overwrite entries in the existing state dict 
-            if size_match:
-                model_dict.update(pretrained_dict)
-            else:
-                for param_tensor in pretrained_dict:
-                    if model_dict[param_tensor].size() == pretrained_dict[param_tensor].size():
-                        model_dict[param_tensor] = pretrained_dict[param_tensor]
-                        # 3. load the new state dict
-            model.load_state_dict(model_dict)
+            raise NotImplementedError("Only exact loading possible")
     return model
 
 def restore_state(optimizer, scheduler: torch.optim.lr_scheduler.LambdaLR, args, device):

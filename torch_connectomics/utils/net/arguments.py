@@ -134,8 +134,8 @@ def get_args(mode='train', input_args=None):
     parser.add_argument('-fngt', '--flux-name-gt', type=str, default=None,
                         help='Ground-truth Flux path for end-to-end training of skeleton growing.')
 
-    parser.add_argument('-divn', '--div-name', type=str, default=None,
-                        help='Divergence volumes path for skeleton tracking.')
+    parser.add_argument('--skel-prob-name', type=str, default=None,
+                        help='Divergence volumes path for skeleton matching.')
 
     parser.add_argument('--train-end-to-end', type=my_bool, default=False,
                         help='Run all models and train them simultaneously.')
