@@ -25,7 +25,7 @@ class Accuracy():
         self.gt.extend(gt)
         self.pred.extend(pred)
 
-    def compute_and_plot(self, tb_writer: tfx.SummaryWriter = None):
+    def compute_and_plot(self, tb_writer: tfx.SummaryWriter = None, itr = 0):
         fpr, tpr, th = roc_curve(np.array(self.gt), np.array(self.pred))
         if tb_writer:
             for y, x in zip(tpr, fpr):
@@ -35,14 +35,14 @@ class Accuracy():
         p, r, th = precision_recall_curve(np.array(self.gt), np.array(self.pred))
 
         if tb_writer:
-            tb_writer.add_pr_curve('pr_curve', np.array(self.gt), np.array(self.pred), 0)
+            tb_writer.add_pr_curve('pr_curve', np.array(self.gt), np.array(self.pred), itr)
             for y, x in zip(p, r):
                 tb_writer.add_scalars('Graphs', {'PR-Curve': y*100}, x*100)
             tb_writer.flush()
 
         return p, r, th
 
-def eval(args, val_loader, models, metrics, device, writer, save_output):
+def eval(args, val_loader, models, metrics, device, writer, save_output, itr=0):
     for m in models: m.eval()
     results = []
     for iteration, data in enumerate(tqdm(val_loader), start=1):
@@ -77,7 +77,7 @@ def eval(args, val_loader, models, metrics, device, writer, save_output):
                                 out_match.detach().cpu().numpy())))
         if save_output:
             np.save(args.output + 'cls_results.npy', results)
-    return results, metrics[0].compute_and_plot(writer)
+    return results, metrics[0].compute_and_plot(writer, itr)
 
 def _run(args, save_output):
     args.output = args.output + args.exp_name + '/'
@@ -116,8 +116,11 @@ def _run(args, save_output):
 
     metrics = [Accuracy()]
 
+    checkpoint = torch.load(args.pre_model, map_location=device)
+    iteration = checkpoint.get('iteration', 0)
+
     print('Start Evaluation.')
-    out = eval(args, val_loader, models, metrics, device, writer, save_output)
+    out = eval(args, val_loader, models, metrics, device, writer, save_output, itr=iteration)
 
     print('Evaluation finished.')
     if args.disable_logging is not True:
