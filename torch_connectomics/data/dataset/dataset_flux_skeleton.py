@@ -1,9 +1,7 @@
-from __future__ import print_function, division
 import numpy as np
 import torch
 import torch.utils.data
 import scipy
-from scipy.ndimage import label as scipy_label
 import scipy.ndimage.morphology as morphology
 from scipy import spatial
 import skimage
@@ -11,8 +9,7 @@ import warnings
 import h5py
 import edt
 
-from .misc import crop_volume, crop_volume_mul, rebalance_binary_class, rebalance_skeleton_weight
-from torch_connectomics.utils.vis import save_data
+from .misc import crop_volume, crop_volume_mul
 
 class FluxAndSkeletonDataset(torch.utils.data.Dataset):
     def __init__(self,
@@ -23,7 +20,8 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
                  augmentor=None,
                  mode='train',
                  seed_points=None,
-                 pad_size=None):
+                 pad_size=None,
+                 sample_whole_vol=False):
         if mode == 'test':
             for x in seed_points:
                 assert len(x) == 1
@@ -63,6 +61,7 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
 
         self.dilation_sel = scipy.ndimage.generate_binary_structure(3, 1)
         self.minimum_seg_size = np.prod(self.sample_input_size) // 500
+        self.sample_whole_vol = sample_whole_vol
 
     def __len__(self):  # number of seed points
         return self.sample_num_a
@@ -72,40 +71,28 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
 
         vol_size = self.sample_input_size
 
-        # Train Mode Specific Operations:
         if self.mode == 'train':
-            # get input volume
             pos = self.get_pos_seed()
-            out_label = crop_volume(self.label[pos[0]], vol_size, pos[1:])
-            out_input = crop_volume(self.input[pos[0]], vol_size, pos[1:])
-            # TODO(Alok) remove this cast
-            out_input = out_input.astype(np.float32, copy=False)
-            out_skeleton = crop_volume(self.skeleton[pos[0]], vol_size, pos[1:])
-            out_flux = crop_volume_mul(self.flux[pos[0]], vol_size, pos[1:])
-
-            out_label = out_label.copy()
-            out_skeleton = out_skeleton.copy()
-            out_input = out_input.copy()
-            out_flux = out_flux.copy()
+            out_label = crop_volume(self.label[pos[0]], vol_size, pos[1:]).astype(np.float32, copy=True)
+            out_input = crop_volume(self.input[pos[0]], vol_size, pos[1:]).astype(np.float32, copy=True)
+            out_skeleton = crop_volume(self.skeleton[pos[0]], vol_size, pos[1:]).astype(np.float32, copy=True)
+            out_flux = crop_volume_mul(self.flux[pos[0]], vol_size, pos[1:]).astype(np.float32, copy=True)
 
             if self.weight[pos[0]]:
-                pre_weight = crop_volume(self.weight[pos[0]], vol_size, pos[1:])
-                pre_weight = pre_weight.astype(np.float32, copy=True)
+                pre_weight = crop_volume(self.weight[pos[0]], vol_size, pos[1:]).astype(np.float32, copy=True)
 
             # Augmentations
-            if self.augmentor is not None:  # augmentation
+            if self.augmentor is not None:
+                data = {'image': out_input, 'flux': out_flux,
+                        'skeleton': out_skeleton, 'context': out_label}
                 if self.weight[pos[0]]:
-                    data = {'image':out_input, 'flux':out_flux.astype(np.float32),
-                            'skeleton':out_skeleton.astype(np.float32), 'context':out_label.astype(np.float32), 'weight':pre_weight}
-                else:
-                    data = {'image': out_input, 'flux': out_flux.astype(np.float32),
-                            'skeleton': out_skeleton.astype(np.float32), 'context': out_label.astype(np.float32)}
+                    data['weight'] = pre_weight
 
                 augmented = self.augmentor(data, random_state=None)
-                out_input, out_flux = augmented['image'], augmented['flux']
-                out_skeleton, out_label = augmented['skeleton'], augmented['context']
+                out_input, out_flux = augmented['image'].copy(), augmented['flux'].copy()
+                out_skeleton, out_label = augmented['skeleton'].copy(), augmented['context'].copy()
                 if self.weight[pos[0]]:
-                    pre_weight = augmented['weight']
+                    pre_weight = augmented['weight'].copy()
 
             out_label_mask = out_label > 0
 
@@ -114,16 +101,6 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
             distance_th = 1.5 * self.dataset_resolution[0]
             out_skeleton = ((skeleton_distance_tx <= distance_th) & out_label_mask).astype(np.float32, copy=False)
 
-            out_input = out_input.astype(np.float32)
-            out_flux = out_flux.astype(np.float32)
-
-        # Test Mode Specific Operations:
-        elif self.mode == 'test':
-            # test mode
-            pos = self.get_pos_test(index)
-            out_input = crop_volume(self.input[pos[0]], vol_size, pos[1:])
-
-        if self.mode == 'train':
             # Re-balancing weights for Flux and skeleton in a similar way
             # all_ones = np.ones_like(out_label_mask)
             # flux_weight = skeleton_weight_mask.astype(np.float32)
@@ -136,22 +113,19 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
             if self.weight[pos[0]]:
                 out_weight[pre_weight>0] *= 4
 
-            out_weight = torch.from_numpy(out_weight).unsqueeze(0)
-
-        out_input = torch.from_numpy(out_input)
-        out_input = out_input.unsqueeze(0)
-
-        if out_flux is not None:
-            out_flux = torch.from_numpy(out_flux.astype(np.float32, copy=False))
-
-        if out_skeleton is not None:
-            out_skeleton = torch.from_numpy((out_skeleton).astype(np.float32, copy=False)).unsqueeze(0)
-
-        if self.mode == 'train':
+            out_input = torch.from_numpy(out_input).unsqueeze(0)
             out_label_mask = torch.from_numpy(out_label_mask.astype(np.float32)).unsqueeze(0)
+            out_flux = torch.from_numpy(out_flux)
+            out_weight = torch.from_numpy(out_weight).unsqueeze(0)
+            out_skeleton = torch.from_numpy(out_skeleton).unsqueeze(0)
             return pos, out_input, out_label_mask, out_flux, out_weight, out_skeleton
-        else:
+        elif self.mode == 'test':
+            pos = self.get_pos_test(index)
+            out_input = crop_volume(self.input[pos[0]], vol_size, pos[1:])
+            out_input = torch.from_numpy(out_input.astype(np.float32, copy=True)).unsqueeze(0)
             return pos, out_input
+        else:
+            raise RuntimeError('Mode undefined.')
 
     def get_pos_dataset(self, index):
         return np.argmax(index < self.sample_num_c) - 1  # which dataset
@@ -162,17 +136,17 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
         did = np.random.choice(len(self.seed_points))  # sample from all datasets equally
         pos[0] = did
 
-        for i in range(3):
-            pos[1+i] = np.random.randint(self.half_input_sz[i]+1, self.input_size[did][i]-self.half_input_sz[i]-1, dtype=int)
-
-        # # pick a index
-        # size_bin = np.random.choice(len(self.seed_points[did]))
-        # # pick a position
-        # idx = np.random.randint(self.seed_points[did][size_bin].shape[0])
-        # pos[1:] = self.seed_points[did][size_bin][idx]
+        if self.sample_whole_vol:
+            for i in range(3):
+                pos[1+i] = np.random.randint(self.half_input_sz[i]+1, self.input_size[did][i]-self.half_input_sz[i]-1, dtype=int)
+        else:
+            # pick a index
+            size_bin = np.random.choice(len(self.seed_points[did]))
+            # pick a position
+            idx = np.random.randint(self.seed_points[did][size_bin].shape[0])
+            pos[1:] = self.seed_points[did][size_bin][idx]
 
         pos[1:] = pos[1:] + (offset if offset else self.seed_points_offset)
-
         return pos
 
     def get_pos_test(self, index):
@@ -188,12 +162,6 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
         out_input = out_input.unsqueeze(0)
         return out_input
 
-    def keep_seg(self, label, seg_id_to_keep):
-        return label == seg_id_to_keep
-
-    def compute_2d_seg(self, seg_3d):
-        seg_2d = (seg_3d > 0).astype(np.uint8)
-        return seg_2d
 
     def compute_flux(self, segment, skeleton):
         skeleton_points = np.transpose(np.nonzero(skeleton))

@@ -77,13 +77,6 @@ def get_args(mode='train', input_args=None):
         parser.add_argument('-ln','--seg-name',  default='seg-groundtruth2-malis.h5',
                             help='Ground-truth label path')
 
-        #Added input args for validation set
-        parser.add_argument('-vln', '--val-seg-name', default='seg-groundtruth2-malis.h5',
-                            help='Validation Ground-truth label path')
-
-        parser.add_argument('-vdn', '--val-img-name', default='im_uint8.h5',
-                            help='Validation Image data path')
-
         parser.add_argument('-ft','--finetune', type=bool, default=False,
                             help='Fine-tune on previous model [Default: False]')
 
@@ -92,6 +85,10 @@ def get_args(mode='train', input_args=None):
 
         parser.add_argument('--data-aug', type=my_bool, default=False,
                             help='Augment data')
+
+        parser.add_argument('--sample-whole-volume', type=my_bool, default=False,
+                            help='If True, it ignore the seed points files and samples '
+                                 'training blocks from the whole volume instead.')
 
         # optimization option
         parser.add_argument('-lt', '--loss', type=int, default=1,

@@ -22,6 +22,10 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
                 print('time taken for iteration: ', time.time() - start)
                 start = time.time()
 
+        #TODO parameterize dropblock call
+        # if iteration % int(0.75*0.10*args.iteration_total) == 0:
+        #     models[0].dropblock.step()
+
         _, volume, label, flux, flux_weight, skeleton = data
         flux_weight_gpu = flux_weight.to(device)
         volume_gpu = volume.to(device)
@@ -89,7 +93,7 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
                             'scheduler_state_dict': scheduler.state_dict(),
                             'loss':loss,
                             'iteration':iteration}
-                torch.save(save_dict, args.output+(args.exp_name + '_%d.pth' % iteration))
+                torch.save(save_dict, args.output+'_%d.pth' % iteration)
 
         # Terminate
         if iteration >= args.iteration_total:
@@ -110,7 +114,6 @@ def main():
         setup_ddp(args.local_rank)
         print(f'Local rank: {args.local_rank}')
 
-    torch.backends.cudnn.enabled = True
     model_io_size, device = init(args)
 
     logger, writer = None, None
@@ -119,7 +122,7 @@ def main():
             logger, writer = get_logger(args)
 
     print('Setup model.')
-    model = setup_model(args, device, model_io_size, non_linearity=(torch.tanh,))
+    model: FluxNet = setup_model(args, device, model_io_size)
     models = [model]
 
     print('Setup data.')
@@ -132,12 +135,14 @@ def main():
 
     print('Setup optimizer')
     model_parameters = list(model.parameters())
-    optimizer = torch.optim.Adam(model_parameters, lr=args.lr, betas=(0.9, 0.999),
+    optimizer = torch.optim.Adam(model_parameters, lr=1, betas=(0.9, 0.999),
                                  eps=1e-08, weight_decay=1e-6, amsgrad=True)
 
     if args.lr_scheduler == 'step':
         optimizer.defaults['lr'] = args.lr
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=round(args.iteration_total / 5), gamma=0.75)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
+                                                    step_size=round(args.iteration_total / 5),
+                                                    gamma=0.75)
     elif args.lr_scheduler == 'linear':
         initial_lr = args.lr
         final_lr = args.lr_final
@@ -147,8 +152,6 @@ def main():
             lr = final_lr if step >= decay_till_step else \
                 initial_lr + (float(step) / decay_till_step) * (final_lr - initial_lr)
             return lr
-
-        # linear_decay_lambda = lambda step:
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, linear_decay_lambda)
     else:
         raise ValueError("Learning rate scheduler is not defined to any known types.")

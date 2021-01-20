@@ -1,7 +1,7 @@
 import os,sys
 import numpy as np
 import h5py
-import scipy
+from functools import partial
 
 import torch
 import torch.utils.data
@@ -203,6 +203,12 @@ def get_input(args, model_io_size, mode='train', model=None):
         elif args.task == 1 or args.task == 2 or args.task == 3 or args.task == 6: # synapse detection
             raise NotImplementedError("Not defined.")
         elif args.task == 4:  # skeleton/flux prediction
+
+            dataset = partial(FluxAndSkeletonDataset, sample_input_size=sample_input_size,
+                                             sample_label_size=sample_input_size,
+                                             augmentor=augmentor, mode='train', seed_points=s_points,
+                                             pad_size=pad_size.astype(np.int32), dataset_resolution=args.resolution,
+                                             sample_whole_vol=args.sample_whole_volume)
             if is_ddp(args):
                 # if ddp is used call the dataset with paths of the input, label, skeleton, flux and weight
                 # The dataset will read small chunks of data as needed iso of loading the entire volume in memory.
@@ -211,18 +217,10 @@ def get_input(args, model_io_size, mode='train', model=None):
                 skeleton_paths = skeleton_files
                 flux_paths = flux_files
                 weight_paths = weight_files
-                dataset = FluxAndSkeletonDataset(volume=model_input_paths, label=model_label_paths,
-                                                 skeleton=skeleton_paths, flux=flux_paths, weight=weight_paths,
-                                                 sample_input_size=sample_input_size,
-                                                 sample_label_size=sample_input_size,
-                                                 augmentor=augmentor, mode='train', seed_points=s_points,
-                                                 pad_size=pad_size.astype(np.int32), dataset_resolution=args.resolution)
+                dataset = dataset(volume=model_input_paths, label=model_label_paths,
+                                  skeleton=skeleton_paths, flux=flux_paths, weight=weight_paths)
             else:
-                dataset = FluxAndSkeletonDataset(volume=model_input, label=model_label, skeleton=skeleton, flux=flux,
-                                                 weight=weight, sample_input_size=sample_input_size,
-                                                 sample_label_size=sample_input_size,
-                                                 augmentor=augmentor, mode='train', seed_points=s_points,
-                                                 pad_size=pad_size.astype(np.int32), dataset_resolution=args.resolution)
+                dataset = dataset(volume=model_input, label=model_label, skeleton=skeleton, flux=flux, weight=weight)
 
         elif args.task == 5:  # skeleton match prediction
             dataset = MatchSkeletonDataset(image=model_input, skeleton=skeleton, flux=flux,
