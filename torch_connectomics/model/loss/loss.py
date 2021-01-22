@@ -4,8 +4,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import numpy as np
-# 0. main loss functions
 
 class DiceLoss(nn.Module):
     """DICE loss.
@@ -27,7 +25,6 @@ class DiceLoss(nn.Module):
             loss += 1 - ((2. * intersection + self.smooth) / 
                     ( (iflat**2).sum() + (tflat**2).sum() + self.smooth))
 
-        # size_average=True for the dice loss
         return loss / float(input.size()[0])
 
     def dice_loss_batch(self, input, target):
@@ -41,7 +38,6 @@ class DiceLoss(nn.Module):
         return loss
 
     def forward(self, input, target):
-        #_assert_no_grad(target)
         if not (target.size() == input.size()):
             raise ValueError("Target size ({}) must be the same as input size ({})".format(target.size(), input.size()))
 
@@ -70,8 +66,8 @@ class WeightedMSE(nn.Module):
             return torch.sum((input - target) ** 2) / norm_term
 
     def forward(self, input, target, weight=None, norm_term=None):
-        #_assert_no_grad(target)
         return self.weighted_mse_loss(input, target, weight, norm_term)
+
 
 class WeightedL1(nn.Module):
     def __init__(self):
@@ -89,6 +85,7 @@ class WeightedL1(nn.Module):
     def forward(self, input, target, weight=None):
         #_assert_no_grad(target)
         return self.weighted_l1_loss(input, target, weight)
+
 
 class WeightedBCE(nn.Module):
     """Weighted binary cross-entropy.
@@ -114,22 +111,6 @@ class WeightedBCE(nn.Module):
 
         return F.binary_cross_entropy(input, target, weight.detach(), reduction='mean')
 
-# class WeightedCosineLoss(nn.Module):
-#     def __init__(self):
-#         super().__init__()
-#         self.cos = nn.CosineSimilarity(dim=1, eps=1e-6)
-#
-#     def forward(self, input, target, weight):
-#         # _assert_no_grad(target)
-#         s1 = torch.prod(torch.tensor(input.size()[2:]).float())
-#         s2 = input.size()[0]
-#         norm_term = (s1 * s2).cuda()
-#
-#         cosine_similarity = self.cos(input, target)
-#         cosine_loss = 1 - cosine_similarity
-#         cosine_loss = cosine_loss*weight/norm_term
-#
-#         return cosine_loss
 
 class AngularAndScaleLoss(nn.Module):
     def __init__(self, alpha, dim=1):
@@ -142,25 +123,6 @@ class AngularAndScaleLoss(nn.Module):
         # input b, c, z, y, x
         scale = torch.sqrt((input**2).sum(dim=1, keepdim=True))
         return scale
-
-    # def angular_loss(self, input, target, norm_i, norm_t, weight, batch_norm_fac):
-    #     inner_p = (input*target).sum(dim=1, keepdim=True)
-    #     den = norm_i*norm_t + 1e-10
-    #     inner_p = inner_p/den
-    #     if torch.isnan(inner_p).any() or torch.isinf(inner_p).any():
-    #         import pdb; pdb.set_trace()
-    #
-    #     inner_p[inner_p > 1.0] = 1.0
-    #     inner_p[inner_p < -1.0] = -1.0
-    #     loss = torch.acos(inner_p)
-    #
-    #     if torch.isnan(loss).any() or torch.isinf(loss).any():
-    #         import pdb; pdb.set_trace()
-    #
-    #     if weight is not None:
-    #         loss = weight * loss
-    #
-    #     return loss.sum()/batch_norm_fac
 
     def scale_loss(self, norm_i, norm_t, weight, norm_term):
         return self.w_mse(norm_i, norm_t, weight, norm_term)
@@ -179,12 +141,9 @@ class AngularAndScaleLoss(nn.Module):
             norm_term = torch.prod(torch.tensor(cosine_loss.size(), dtype=torch.float32))
             a_loss = cosine_loss.sum()/norm_term
 
-        # a_loss = self.angular_loss(input, target, scale_i, scale_t, weight, norm_term)
         s_loss = self.scale_loss(scale_i, scale_t, weight, norm_term)
 
         return self.alpha*a_loss + (1.0-self.alpha)*s_loss, self.alpha*a_loss, (1.0-self.alpha)*s_loss
-
-#. 1. Regularization
 
 class BinaryReg(nn.Module):
     """Regularization for encouraging the outputs to be binary.
