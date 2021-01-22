@@ -26,9 +26,9 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
         # if iteration % int(0.75*0.10*args.iteration_total) == 0:
         #     models[0].dropblock.step()
 
-        _, volume, label, flux, flux_weight, skeleton = data
-        flux_weight_gpu = flux_weight.to(device)
+        _, volume, label, flux, weight, skeleton = data
         volume_gpu = volume.to(device)
+        weight_gpu = weight.to(device)
 
         model_output_dict = models[0](volume_gpu)
 
@@ -37,13 +37,13 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
         for output_type, model_output in model_output_dict.items():
             if output_type == 'flux':
                 if isinstance(loss_fns[0], AngularAndScaleLoss):
-                    flux_loss, angular_l, scale_l = loss_fns[0](model_output, flux.to(device), weight=flux_weight_gpu)
+                    flux_loss, angular_l, scale_l = loss_fns[0](model_output, flux.to(device), weight=weight_gpu)
                     loss += flux_loss
                     losses_dict.update({'Angular': angular_l.item(), 'Scale': scale_l.item()})
                 else:
-                    loss += loss_fns[0](model_output, flux.to(device), weight=flux_weight_gpu)
+                    loss += loss_fns[0](model_output, flux.to(device), weight=weight_gpu)
             elif output_type == 'skeleton':
-                skeleton_loss = loss_fns[1](model_output, skeleton.to(device), weight=flux_weight_gpu)
+                skeleton_loss = loss_fns[1](model_output, skeleton.to(device), weight=weight_gpu)
                 loss += 2*skeleton_loss
                 losses_dict['Skeleton'] = 2*skeleton_loss.item()
             else:
@@ -74,7 +74,7 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
                         vis_bw = model_output_dict['skeleton'].cpu()
                         title += '/Skeleton'
                     else:
-                        vis_bw = flux_weight
+                        vis_bw = weight
                         title += '/Weight'
 
                     if 'flux' in model_output_dict.keys():
@@ -93,7 +93,7 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
                             'scheduler_state_dict': scheduler.state_dict(),
                             'loss':loss,
                             'iteration':iteration}
-                torch.save(save_dict, args.output+'_%d.pth' % iteration)
+                torch.save(save_dict, args.output+'%d.pth' % iteration)
 
         # Terminate
         if iteration >= args.iteration_total:
@@ -106,7 +106,7 @@ def setup_ddp(local_rank):
 def main():
     args = get_args(mode='train')
 
-    save_cmd_line(args)  # Saving the command line args with machine name and time for later reference
+    save_cmd_line(args)  # Saving the command line args with machine name and time for reference
     args.output = args.output + args.exp_name + '/'
 
     print('Initial setup')

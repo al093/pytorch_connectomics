@@ -1,13 +1,13 @@
 import torch
 import torch.nn as nn
+from dropblock import DropBlock3D, LinearScheduler
 
 from torch_connectomics.model.utils import *
 from torch_connectomics.model.blocks import *
 
 class FluxNet(nn.Module):
     default_filters = (8, 16, 24, 32, 64)
-    def __init__(self, in_channel=1, out_channel=3, filters=default_filters,
-                 non_linearity=(torch.sigmoid), aspp_dilation_ratio=1, symmetric=True, use_flux_head=True, use_skeleton_head=False):
+    def __init__(self, in_channel=1, filters=default_filters, aspp_dilation_ratio=1, symmetric=True, use_flux_head=True, use_skeleton_head=False):
         super().__init__()
 
         # encoding path
@@ -91,14 +91,7 @@ class FluxNet(nn.Module):
         self.up = nn.Upsample(scale_factor=(2, 2, 2), mode='nearest')
         self.up_aniso = nn.Upsample(scale_factor=(1, 2, 2), mode='nearest')
 
-        if len(non_linearity) == 2 and out_channel > 1:
-            self.non_linearity_1 = non_linearity[0]
-            self.non_linearity_2 = non_linearity[1]
-        elif len(non_linearity) == 1:
-            self.non_linearity_1 = non_linearity[0]
-            self.non_linearity_2 = None
-        else:
-            raise Exception('Undefined Network configuration, More than one nonlinearities but output channels are 1')
+        self.dropblock: LinearScheduler = None
 
         self.use_flux_head = use_flux_head
         self.use_skeleton_head = use_skeleton_head
@@ -106,13 +99,23 @@ class FluxNet(nn.Module):
         #initialization
         ortho_init(self)
 
+    def init_dropblock(self, start_value, stop_value, nr_steps, block_size):
+        self.dropblock = LinearScheduler(
+            DropBlock3D(drop_prob=stop_value, block_size=block_size),
+            start_value=start_value,
+            stop_value=stop_value,
+            nr_steps=nr_steps
+        )
+
     def forward(self, x, get_penultimate_layer=False):
 
         # encoding path
         z1 = self.layer1_E(x)
+        z1 = self.dropblock(z1) if self.dropblock else z1
         x = self.down(z1) if self.symmetric else self.down_aniso(z1)
 
         z2 = self.layer2_E(x)
+        z2 = self.dropblock(z2) if self.dropblock else z2
         x = self.down(z2)
 
         z3 = self.layer3_E(x)
@@ -138,15 +141,17 @@ class FluxNet(nn.Module):
 
         output = dict()
         if self.use_flux_head:
-            for i, layer in enumerate(self.layer1_D_flux):
-                x = layer(x)
-                if get_penultimate_layer and i is 0:
-                    output['penultimate_layer'] = x
-            flux = self.non_linearity_1(x)
+            flux = self.layer1_D_flux(x)
+            # TODO share the penultimate layer code for skeleton head and flux head
+            # for i, layer in enumerate(self.layer1_D_flux):
+            #     x = layer(x)
+            #     if get_penultimate_layer and i is 0:
+            #         output['penultimate_layer'] = x
+            flux = torch.tanh(flux)
             output['flux'] = flux
         if self.use_skeleton_head:
             skeleton = self.layer1_D_skeleton(x)
-            skeleton = nn.functional.sigmoid(skeleton)
+            skeleton = torch.sigmoid(skeleton)
             output['skeleton'] = skeleton
 
         if not output:

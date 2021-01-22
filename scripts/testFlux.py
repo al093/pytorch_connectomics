@@ -63,7 +63,7 @@ def _run(args, save_output = True):
     test_loader, volume_shape, pad_size = get_input(args, model_io_size, 'test')
 
     print('2. setup model')
-    models = [setup_model(args, device, model_io_size=model_io_size, exact=True, non_linearity=(torch.tanh,))]
+    models = [setup_model(args, device, model_io_size=model_io_size, exact=True)]
 
     result_path = args.output + '/' + args.exp_name + '/'
     result_file_pf = re.split('_|.pth', os.path.basename(args.pre_model))[-2]

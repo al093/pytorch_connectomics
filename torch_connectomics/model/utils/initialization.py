@@ -27,6 +27,10 @@ def selu_init(model):
 
 def ortho_init(model):
     # orthogonal initialization
+    n_weights = 0
     for m in model.modules():
         if isinstance(m, (nn.Conv3d, nn.Conv2d, nn.Linear)):
+            n_weights += 1
             nn.init.orthogonal_(m.weight)
+
+    print(f"Initialized {n_weights} weights using orthogonal strategy.")
