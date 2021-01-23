@@ -1,4 +1,5 @@
-import skimage, re
+import skimage
+import timeit
 
 from torch_connectomics.data.dataset.dataset_eval_params import *
 from torch_connectomics.utils.skeleton import *
@@ -56,21 +57,19 @@ if __name__ == "__main__":
 
     if args.dataset == 'snemi':
         get_dataset_fn = get_snemi
-    elif args.dataset == 'syntheticVessel':
-        get_dataset_fn = get_synthetic
-    elif args.dataset == 'mri':
-        get_dataset_fn = get_mri
     elif args.dataset == 'segEM':
         get_dataset_fn = get_segEM
     elif args.dataset == 'VISOR40':
         get_dataset_fn = get_visor40
+    elif args.dataset == 'coronary':
+        get_dataset_fn = get_coronary
     else:
         print("Dataset unknown.")
         raise NotImplementedError()
 
     # get dataset paths
     (paths, erl_overlap_allowance, ibex_downsample_fac, matching_radius,
-    resolution, output_base_path, var_params, data_path, gt_skel_path, \
+    resolution, output_base_path, var_params, data_path, gt_skel_path,
     gt_context_path, gt_skel_graphs_path, remove_borders) = get_dataset_fn(args)
 
     # if div threshold is defined override that
@@ -87,7 +86,7 @@ if __name__ == "__main__":
         error_dict = dict()
         output_results_file = output_base_path + exp_name + '/results.json'
         for model_file in model_files:
-            itr = int(re.split(r'_|\.', model_file)[-2])
+            itr = int(re.split(r'_|\.|/', model_file)[-2])
             model_run_args = sys.argv + ['-lm', 'True', '-pm', model_file, '-o', output_base_path, '-dn', '@'.join(data_path)]
             output_path_itr = output_base_path + exp_name + '/' + str(itr)
             temp_folder = output_path_itr + '/temp'
@@ -155,9 +154,18 @@ if __name__ == "__main__":
                                 pred_skeleton_i = read_data(output_path_itr + '/' + os.path.basename(vol_data).split('.h5')[0] + f'_skeleton_prediction.h5')
                                 skeleton = compute_skeleton_from_probability(pred_skeleton_i, skel_params, remove_borders)
                             elif args.use_flux_head:
+                                start = timeit.default_timer()
                                 pred_flux_i = read_data(output_path_itr + '/' + os.path.basename(vol_data).split('.h5')[0] + f'_flux_prediction.h5')
+                                print(f"Time taken for reading: {(timeit.default_timer() - start):.4f}")
+
+                                start = timeit.default_timer()
                                 skel_divergence = divergence_3d(pred_flux_i)
+                                print(f"Time taken for divergence_3d: {(timeit.default_timer() - start):.4f}")
+
+                                start = timeit.default_timer()
                                 skeleton = compute_skeleton_from_probability(skel_divergence, skel_params, remove_borders)
+                                print(f"Time taken for compute_skeleton_from_probability: {(timeit.default_timer() - start):.4f}")
+
                                 if var_param == var_params[0]:
                                     div_filename = output_path_itr + '/' + os.path.basename(vol_data).split('.h5')[0] + '_divergence.h5'
                                     save_data(skel_divergence, div_filename)
@@ -178,7 +186,7 @@ if __name__ == "__main__":
                             initial_skeletons.append(read_data(initial_skeletons_filename))
 
                     errors = calculate_errors_batch([[skel] for skel in initial_skeletons], gt_skeletons, gt_contexts, resolution,
-                                                    temp_folder, 0, matching_radius, ibex_downsample_fac,
+                                                    temp_folder, 8, matching_radius, ibex_downsample_fac,
                                                     erl_overlap_allowance)
 
                     all_errors[var_param] = errors[0]

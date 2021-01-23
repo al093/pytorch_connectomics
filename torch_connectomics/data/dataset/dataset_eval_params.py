@@ -45,9 +45,15 @@ def get_segEM(args):
         paths = json.load(phandle)[args.set]
         data_path = paths['dn'][str(args.dataset_scale)]
         # TODO: return the original segem GT skeletons
-        gt_skel_path = paths['skn'][str(args.dataset_scale)]
-        gt_context_path = paths['ln'][str(args.dataset_scale)]
-        gt_skel_graphs_path = paths['gn'][str(args.dataset_scale)]
+        if isinstance(paths['skn'], dict):
+            gt_skel_path = paths['skn'][str(args.dataset_scale)]
+            gt_context_path = paths['ln'][str(args.dataset_scale)]
+            gt_skel_graphs_path = paths['gn'][str(args.dataset_scale)]
+        else:
+            assert args.dataset_scale == 1.0, 'TODO: the paths are not available for other scales.'
+            gt_skel_path = paths['skn']
+            gt_context_path = paths['ln']
+            gt_skel_graphs_path = paths['gn']
 
     if args.div_threshold:
         var_params = [args.div_threshold]
@@ -74,7 +80,7 @@ def get_visor40(args):
     erl_overlap_allowance = np.int32((3, 3, 3)) # in pixels
     ibex_downsample_fac = np.uint16((2, 2, 2))
     resolution = np.uint16((1, 1, 1)) #in micro Meters
-    matching_radius = 3 * resolution # in micro Meters
+    matching_radius = 6 * resolution # in micro Meters
     output_base_path = '/n/pfister_lab2/Lab/alok/results/VISOR40/'
 
     with open('/n/home11/averma/pytorch_connectomics/cmdArgs/VISOR40Paths.json', 'r') as phandle:
@@ -106,6 +112,40 @@ def get_visor40(args):
            gt_context_path, gt_skel_graphs_path, None
 
 
+def get_coronary(args):
+    erl_overlap_allowance = np.int32((3, 3, 3)) # in pixels
+    ibex_downsample_fac = np.uint16((1, 1, 1))
+    resolution = np.uint16((40, 33, 33)) # in physical units
+    matching_radius = 3 * resolution
+    output_base_path = '/n/pfister_lab2/Lab/alok/results/coronary/'
+    with open('/n/home11/averma/pytorch_connectomics/cmdArgs/coronaryPaths.json', 'r') as phandle:
+        paths = json.load(phandle)[args.set][str(args.dataset_scale)]
+
+    data_path = paths['dn']
+    gt_skel_path = paths['skn'] # todo get original skeleton
+    gt_context_path = paths['ln']
+    # gt_skel_graphs_path = paths['gn'] # todo create graphs for coronary
+    import pdb; pdb.set_trace()
+    if args.div_threshold:
+        var_params = [args.div_threshold]
+    else:
+        if args.method == 'ours':
+            var_params = np.arange(0.10, 0.90, 0.05) if args.tune else [0.65]
+        elif args.method == 'deepflux':
+            var_params = [0.65] if args.tune is False else np.arange(0.05, 0.90, 0.05)
+        elif args.method == 'distanceTx':
+            var_params = [0.45] if args.tune is False else np.arange(0.10, 0.90, 0.05)
+        elif args.method == 'dilated':
+            var_params = [0.85] if args.tune is False else np.arange(0.10, 0.90, 0.05)
+        elif args.method == 'dvn':
+            var_params = [0.30] if args.tune is False else np.arange(0.10, 0.90, 0.05)
+        else:
+            raise Exception(f'Method {args.method} is not defined')
+
+    return paths, erl_overlap_allowance, ibex_downsample_fac, matching_radius, \
+           resolution, output_base_path, var_params, data_path, gt_skel_path, \
+           gt_context_path, None, None
+
 def get_mri(set, method, tune):
     raise NotImplementedError('Not implemented corectly')
 
@@ -117,7 +157,7 @@ def get_mri(set, method, tune):
         syn_paths = pickle.load(phandle)
 
     data_path, gt_skel_path, gt_context_path, gt_skel_graphs_path = [], [], [], []
-    keys = list(syn_paths.keys());
+    keys = list(syn_paths.keys())
     keys.sort()
     if args.set == 'val':
         data_idxs = keys[26:31]
