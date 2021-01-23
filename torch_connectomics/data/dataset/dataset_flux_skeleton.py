@@ -63,6 +63,8 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
         self.minimum_seg_size = np.prod(self.sample_input_size) // 500
         self.sample_whole_vol = sample_whole_vol
 
+        self.pad_size_tuple = ((pad_size[0], pad_size[0]), (pad_size[1], pad_size[1]), (pad_size[2], pad_size[2]))
+
     def __len__(self):  # number of seed points
         return self.sample_num_a
 
@@ -99,9 +101,9 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
             # out_skeleton = ndimage.morphology.distance_transform_edt((out_skeleton == 0)).astype(np.float32)
             edt_mask = morphology.binary_dilation(out_skeleton > 0, structure=np.ones((3, 3, 3)))
             skeleton_distance_tx = edt.edt(~edt_mask, anisotropy=self.dataset_resolution[::-1], black_border=False, order='C', parallel=1)
-            distance_th = 1.75 * self.dataset_resolution[0]
+            distance_th = 1.50 * self.dataset_resolution[0]
             out_skeleton = skeleton_distance_tx.copy()
-            out_skeleton[~out_label_mask & (skeleton_distance_tx > distance_th)] = 0
+            out_skeleton[(~out_label_mask) | (skeleton_distance_tx > distance_th)] = 0
             out_skeleton /= distance_th
             out_skeleton[out_skeleton>0] = 1 - out_skeleton[out_skeleton>0]
             out_skeleton[edt_mask] = 1
@@ -111,9 +113,8 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
             # flux_weight = skeleton_weight_mask.astype(np.float32)
             # flux_weight = self.compute_flux_weights(all_ones, skeleton_weight_mask, alpha=1.0)
             weight_distance_th = 2 * self.dataset_resolution[0]
-            out_weight = (skeleton_distance_tx <= weight_distance_th).astype(np.float32, copy=False)
-            out_weight += 0.05
-            out_weight /= 1.05
+            out_weight = 0.10 * np.ones_like(skeleton_distance_tx)
+            out_weight[skeleton_distance_tx <= weight_distance_th] = 0.90
 
             if self.weight[pos[0]]:
                 out_weight[pre_weight>0] *= 4
