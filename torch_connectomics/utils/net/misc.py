@@ -93,8 +93,9 @@ def setup_model(args, device, model_io_size, exact=True, non_linearity=None):
             model = MODEL_MAP[args.architecture](in_channel=args.in_channel,
                                                  aspp_dilation_ratio=args.aspp_dilation_ratio, symmetric=args.symmetric,
                                                  use_skeleton_head=args.use_skeleton_head, use_flux_head=args.use_flux_head)
-            # TODO parameterize drop block config
-            # model.init_dropblock(0.01, 0.15, 10, 24)
+
+            if args.use_dropblock:
+                model.init_dropblock(0.01, 0.15, 10, 24)
 
         elif args.architecture == 'fluxToSkeletonHead':
             model = MODEL_MAP[args.architecture](xy_z_factor=args.aspp_dilation_ratio)

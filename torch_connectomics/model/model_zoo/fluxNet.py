@@ -107,7 +107,10 @@ class FluxNet(nn.Module):
             nr_steps=nr_steps
         )
 
-    def forward(self, x, get_penultimate_layer=False):
+    def forward(self, x, call_dropblock_step=False, get_penultimate_layer=False):
+
+        if self.dropblock and call_dropblock_step:
+            self.dropblock.step()
 
         # encoding path
         z1 = self.layer1_E(x)

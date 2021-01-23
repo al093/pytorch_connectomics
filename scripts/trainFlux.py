@@ -22,15 +22,12 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
                 print('time taken for iteration: ', time.time() - start)
                 start = time.time()
 
-        #TODO parameterize dropblock call
-        # if iteration % int(0.75*0.10*args.iteration_total) == 0:
-        #     models[0].dropblock.step()
-
         _, volume, label, flux, weight, skeleton = data
         volume_gpu = volume.to(device)
         weight_gpu = weight.to(device)
 
-        model_output_dict = models[0](volume_gpu)
+        call_dropblock_step = iteration % int(0.75 * 0.10 * args.iteration_total) == 0
+        model_output_dict = models[0](volume_gpu, call_dropblock_step=call_dropblock_step)
 
         losses_dict = dict()
         loss = 0.0
