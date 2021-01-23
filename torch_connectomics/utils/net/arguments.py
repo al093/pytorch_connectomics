@@ -37,12 +37,6 @@ def get_args(mode='train', input_args=None):
                         help='Use pre-trained model')                
     parser.add_argument('-pm', '--pre-model', type=str, default='',
                         help='Pre-trained model path')
-    parser.add_argument('-ism', '--init-second-model', type=my_bool, default=False,
-                        help='Train/Test second model together')
-    parser.add_argument('-lm_2', '--load-model-second', type=my_bool, default=False,
-                        help='Use pre-trained second model')
-    parser.add_argument('-pm_2', '--pre-model-second', type=str, default='',
-                        help='Pre-trained second model path')
     parser.add_argument('--out-channel', type=int, default=3,
                         help='Number of output channel(s).')
     parser.add_argument('--in-channel', type=int, default=1,
@@ -60,31 +54,31 @@ def get_args(mode='train', input_args=None):
                         help='Will use penultimate layer also for skeleton matching classifier.')
 
     # machine option
-    parser.add_argument('-g', '--num-gpu', type=int,  default=1,
-                        help='Number of gpu')
-    parser.add_argument('-c', '--num-cpu', type=int,  default=1,
-                        help='Number of cpu')
-    parser.add_argument('-b', '--batch-size', type=int,  default=1,
-                        help='Batch size')
+    parser.add_argument('-g', '--num-gpu', type=int,  default=1, help='Number of gpu')
+    parser.add_argument('-c', '--num-cpu', type=int,  default=1, help='Number of cpu')
+    parser.add_argument('-b', '--batch-size', type=int,  default=1, help='Batch size')
 
-    #extra options(task specific)
+
     parser.add_argument('-sp', '--seed-points', type=str, default=None,
                         help='File path for seed points which need to be trained or tested on')
 
     parser.add_argument("--local_rank", type=int, default=None)
 
     if mode == 'train':
-        parser.add_argument('-ln','--seg-name',  default='seg-groundtruth2-malis.h5',
+        parser.add_argument('-ln','--label-name',  default='seg-groundtruth2-malis.h5',
                             help='Ground-truth label path')
 
         parser.add_argument('-ft','--finetune', type=bool, default=False,
                             help='Fine-tune on previous model [Default: False]')
 
-        parser.add_argument('-tgdtx','--train-grad-dtx', type=my_bool, default=True,
-                            help='If False, will train from gradient to skeleton predictions')
-
         parser.add_argument('--data-aug', type=my_bool, default=False,
                             help='Augment data')
+
+        parser.add_argument('--pad-input', type=my_bool, default=False,
+                            help='Pad all input volumes with half of the augmentor sample size.')
+
+        parser.add_argument('--use-dropblock', type=my_bool, default=False,
+                            help='Use Dropblock for augmentation.')
 
         parser.add_argument('--sample-whole-volume', type=my_bool, default=False,
                             help='If True, it ignore the seed points files and samples '
@@ -139,12 +133,6 @@ def get_args(mode='train', input_args=None):
 
     parser.add_argument('-res', '--resolution', type=str, default='30.0,6.0,6.0',
                         help='Resolution of input volumes (Z, Y, X)')
-
-    parser.add_argument('-tsteps', '--tracking-steps', type=int, default=32,
-                        help='Total allowed steps for tracking network ')
-
-    parser.add_argument('-upc', '--use-precomputed', type=my_bool, default=True,
-                        help='Use precomputed flux, gradient and global features for training tracking')
 
     parser.add_argument('-wn', '--weight-name', type=str, default=None,
                         help='Weight array to be used for loss calculations.')
