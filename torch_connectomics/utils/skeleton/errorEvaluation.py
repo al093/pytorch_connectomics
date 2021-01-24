@@ -51,7 +51,7 @@ def calculate_error_metric(pred_skel, gt_skel, gt_context, gt_skel_ids, anisotro
     # use this inflated prediction to find all the FN points
     skel_dtx = edt.edt(relabelled_p_skel == 0, anisotropy=anisotropy,
                        black_border=False, order='C',
-                       parallel=0)
+                       parallel=8)
 
     skel_context = skel_dtx < bloat_radius
     skel_points = np.nonzero(relabelled_p_skel)
@@ -234,23 +234,42 @@ def calculate_error_metric_2(pred_skel, gt_skel,
     else:
         return precision, recall, f_score, mean_connectivity, prc_hmean
 
+def get_dilation_grid(max_shift, resolution):
+    dilation = (max_shift / resolution).astype(np.int32)
+    assert np.all(dilation > 0), "Grid size is zero. Check if max_shift < resolution."
+    gg = np.mgrid[-dilation[0]:dilation[0], -dilation[1]:dilation[1], -dilation[2]:dilation[2]]
+    grid = np.transpose((gg[0].ravel(), gg[1].ravel(), gg[2].ravel())).astype(np.int32)
+    return grid
+
+def dilate_voxels(in_voxels, dilation_grid, max_sz):
+    dilated_voxels = dilation_grid + in_voxels[:, np.newaxis, :] # N, M, 3
+    valid_mask = np.all(dilated_voxels >= 0, axis=2) & np.all(dilated_voxels < max_sz, axis=2)
+    return dilated_voxels, valid_mask
+
+def match_nodes(zyx: np.array, occupancy_vol: np.array, dilation_grid: np.array):
+    zyx_gt, bounds_mask = dilate_voxels(zyx, dilation_grid, occupancy_vol.shape)  # (N, M, 3) (N,M)
+    zyx_gt_l = zyx_gt.reshape(-1, 3) # (N*M, 3)
+    bounds_mask_f = bounds_mask.ravel() # (N*M, )
+    gt_nzero_mask = np.zeros_like(bounds_mask, dtype=np.bool) # (N, M)
+    gt_nzero_mask_f = gt_nzero_mask.ravel()
+    gt_nzero_mask_f[bounds_mask_f] = occupancy_vol[zyx_gt_l[bounds_mask_f, 0],
+                                            zyx_gt_l[bounds_mask_f, 1],
+                                            zyx_gt_l[bounds_mask_f, 2]] > 0  # <N*M, 3
+
+    return gt_nzero_mask.any(axis=1)
+
 def calculate_error_metric_binary_overlap(pred_skel, gt_skel, resolution, temp_folder, num_cpu, matching_radius, debug=False):
-    if (pred_skel==0).sum() == 0:
+    if not np.any(pred_skel):
+        raise Warning("Predicted skeleton was empty. Returning -1 metric value.")
         return -1, -1, -1
 
     gt_nodes = np.transpose(np.nonzero(gt_skel))
     p_nodes = np.transpose(np.nonzero(pred_skel))
 
-    gt_nodes_s = resolution * gt_nodes
-    p_nodes_s = resolution * p_nodes
+    search_grid = get_dilation_grid(np.array(matching_radius), np.array(resolution))
 
-    nbrs = NearestNeighbors(n_neighbors=1, algorithm='kd_tree', metric='euclidean', n_jobs=-1).fit(gt_nodes_s)
-    p_distance, p_indices = nbrs.kneighbors(p_nodes_s)
-    p_matched_mask = (p_distance <= matching_radius)[:, 0]
-
-    nbrs = NearestNeighbors(n_neighbors=1, algorithm='kd_tree', metric='euclidean', n_jobs=-1).fit(p_nodes_s)
-    g_distance, g_indices = nbrs.kneighbors(gt_nodes_s)
-    g_matched_mask = (g_distance <= matching_radius)[:, 0]
+    p_matched_mask = match_nodes(p_nodes, gt_skel, search_grid)
+    g_matched_mask = match_nodes(gt_nodes, pred_skel, search_grid)
 
     tp = p_matched_mask.sum()
     fp = p_nodes.shape[0] - p_matched_mask.sum()
@@ -403,26 +422,29 @@ def calculate_binary_errors_batch(pred_skeletons, gt_skeleton_paths, resolution,
 
     return avg_errors
 
-def calculate_errors_batch(pred_skeletons, gt_skeletons, gt_skeleton_ctxs, resolution, temp_folder, num_cpu,
-                           matching_radius, ibex_downsample_fac, erl_overlap_allowance):
+def calculate_errors_batch(pred_skeletons, gt_skeletons, gt_skeleton_ctxs, resolution, temp_folder,
+                           num_cpu, matching_radius, ibex_downsample_fac, erl_overlap_allowance, do_calculate_erl=True):
     errors = [None] * len(pred_skeletons)
     for i, pred_skeleton_all_steps in enumerate(pred_skeletons):
-        gt_skeleton = read_data(gt_skeletons[i]) if gt_skeletons[i] is str else gt_skeletons[i]
-        gt_context = read_data(gt_skeleton_ctxs[i]) if gt_skeleton_ctxs[i] is str else gt_skeleton_ctxs[i]
+        gt_skeleton = read_data(gt_skeletons[i]) if isinstance(gt_skeletons[i], str) else gt_skeletons[i]
+        gt_context = read_data(gt_skeleton_ctxs[i]) if isinstance(gt_skeleton_ctxs[i], str) else gt_skeleton_ctxs[i]
 
-        ibex_skeletons = compute_ibex_skeleton_graphs(gt_context, temp_folder + '/ibex_graphs/', resolution, ibex_downsample_fac)
+        if do_calculate_erl:
+            ibex_skeletons = compute_ibex_skeleton_graphs(gt_context, temp_folder + '/ibex_graphs/', resolution, ibex_downsample_fac)
+
         errors[i] = []
         for pred_skeleton in pred_skeleton_all_steps:
             if pred_skeleton is None or pred_skeleton.max() == 0:
                 p, r, f, c, hm, erl = -1, -1, -1, -1, -1, -1
                 print('Predicion was empty/None')
             else:
-                # p, r, f, c, hm = calculate_error_metric_2(pred_skeleton, gt_skeleton, gt_context,
-                #                                           resolution, temp_folder, num_cpu, matching_radius)
                 p, r, f = calculate_error_metric_binary_overlap(pred_skeleton, gt_skeleton, resolution,
                                                                 temp_folder, num_cpu, matching_radius)
                 c, hm = -1, -1
-                erl = calculate_erl(pred_skeleton, ibex_skeletons, erl_overlap_allowance)
+                if do_calculate_erl:
+                    erl = calculate_erl(pred_skeleton, ibex_skeletons, erl_overlap_allowance)
+                else:
+                    erl = -1
             errors[i].append({'p':p, 'r':r, 'f':f, 'c':c, 'hm':hm, 'erl':erl})
 
     steps = len(pred_skeletons[0])
