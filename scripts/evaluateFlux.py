@@ -18,7 +18,7 @@ def get_cmdline_args(args):
     parser.add_argument('--tune',                   type=my_bool,       default=False, help='Tune for parameters')
     parser.add_argument('--force-run-inference',    type=my_bool,       default=False, help='Force run inference even if files exist')
     parser.add_argument('--force-run-skeleton',     type=my_bool,       default=False, help='Force run flux to skeleton even if files exist')
-    parser.add_argument('--dataset',                type=str,               help='snemi | syntheticVessel | segEM')
+    parser.add_argument('--dataset',                type=str,               help='snemi | VISOR40 | segEM | coronary')
     parser.add_argument('--set',                    type=str,               help='train | val | test')
     parser.add_argument('--exp-name',               type=str,               help='Experiment name')
     parser.add_argument('--model-dir',              type=str,               help='directory with one or more models (.pth) files')
@@ -30,6 +30,7 @@ def get_cmdline_args(args):
     parser.add_argument('--use-skeleton-head',      type=my_bool,           default=False,  help='Use Skeleton head.')
     parser.add_argument('--use-flux-head',          type=my_bool,           default=False,  help='Use Flux head after the flux model.')
     parser.add_argument('--split-skeletons',        type=my_bool,           default=False,  help='Split skeletons based on topology.')
+    parser.add_argument('--calculate-erl',          type=my_bool,           default=True,   help='Does not calculate ERL metric if False.')
 
     return parser.parse_known_args(args)[0]
 
@@ -86,6 +87,7 @@ if __name__ == "__main__":
         error_dict = dict()
         output_results_file = output_base_path + exp_name + '/results.json'
         for model_file in model_files:
+            model_predictions_buffer = dict()
             itr = int(re.split(r'_|\.|/', model_file)[-2])
             model_run_args = sys.argv + ['-lm', 'True', '-pm', model_file, '-o', output_base_path, '-dn', '@'.join(data_path)]
             output_path_itr = output_base_path + exp_name + '/' + str(itr)
@@ -110,7 +112,7 @@ if __name__ == "__main__":
                         elif args.use_flux_head:
                             prediction_type = 'flux'
                         else:
-                            raise ValueError('Specify if Flux or skeleton head is to be used?')
+                            raise ValueError('Specify if flux or skeleton head is to be used?')
                         file_name = output_path_itr + '/' + os.path.basename(vol_data).split('.h5')[0] + f'_{prediction_type}_prediction.h5'
                         if not os.path.isfile(file_name):
                             run_model = True
@@ -123,6 +125,7 @@ if __name__ == "__main__":
                         for i, vol_data in enumerate(data_path):
                             file_name = output_path_itr + '/' + os.path.basename(vol_data).split('.h5')[0] + f'_{prediction_type}_prediction.h5'
                             save_data(prediction[i], file_name)
+                            model_predictions_buffer[file_name] = prediction[i]
                 else:
                     print("Not running model because prediction files are present in output folder.")
             else:
@@ -151,20 +154,21 @@ if __name__ == "__main__":
                         if (not os.path.isfile(initial_skeletons_filename)) or args.force_run_skeleton:
                             print('Computing skeletons.')
                             if args.use_skeleton_head:
-                                pred_skeleton_i = read_data(output_path_itr + '/' + os.path.basename(vol_data).split('.h5')[0] + f'_skeleton_prediction.h5')
+                                skeleton_file = output_path_itr + '/' + os.path.basename(vol_data).split('.h5')[0] + f'_skeleton_prediction.h5'
+                                pred_skeleton_i = model_predictions_buffer.get(skeleton_file) if \
+                                    skeleton_file in model_predictions_buffer else read_data(skeleton_file)
                                 skeleton = compute_skeleton_from_probability(pred_skeleton_i, skel_params, remove_borders)
                             elif args.use_flux_head:
-                                start = timeit.default_timer()
-                                pred_flux_i = read_data(output_path_itr + '/' + os.path.basename(vol_data).split('.h5')[0] + f'_flux_prediction.h5')
-                                print(f"Time taken for reading: {(timeit.default_timer() - start):.4f}")
-
+                                flux_file = output_path_itr + '/' + os.path.basename(vol_data).split('.h5')[0] + f'_flux_prediction.h5'
+                                pred_flux_i = model_predictions_buffer.get(flux_file) if \
+                                    flux_file in model_predictions_buffer.keys() else read_data(flux_file)
                                 start = timeit.default_timer()
                                 skel_divergence = divergence_3d(pred_flux_i)
-                                print(f"Time taken for divergence_3d: {(timeit.default_timer() - start):.4f}")
+                                print(f"divergence_3d call took : {(timeit.default_timer() - start):.4f}")
 
                                 start = timeit.default_timer()
                                 skeleton = compute_skeleton_from_probability(skel_divergence, skel_params, remove_borders)
-                                print(f"Time taken for compute_skeleton_from_probability: {(timeit.default_timer() - start):.4f}")
+                                print(f"compute_skeleton_from_probability call took : {(timeit.default_timer() - start):.4f}")
 
                                 if var_param == var_params[0]:
                                     div_filename = output_path_itr + '/' + os.path.basename(vol_data).split('.h5')[0] + '_divergence.h5'
@@ -187,7 +191,7 @@ if __name__ == "__main__":
 
                     errors = calculate_errors_batch([[skel] for skel in initial_skeletons], gt_skeletons, gt_contexts, resolution,
                                                     temp_folder, 8, matching_radius, ibex_downsample_fac,
-                                                    erl_overlap_allowance)
+                                                    erl_overlap_allowance, args.calculate_erl)
 
                     all_errors[var_param] = errors[0]
 

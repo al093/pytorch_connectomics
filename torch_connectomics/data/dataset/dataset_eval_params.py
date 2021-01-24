@@ -125,7 +125,7 @@ def get_coronary(args):
     gt_skel_path = paths['skn'] # todo get original skeleton
     gt_context_path = paths['ln']
     # gt_skel_graphs_path = paths['gn'] # todo create graphs for coronary
-    import pdb; pdb.set_trace()
+
     if args.div_threshold:
         var_params = [args.div_threshold]
     else:

@@ -94,7 +94,7 @@ def setup_model(args, device, model_io_size, exact=True, non_linearity=None):
                                                  aspp_dilation_ratio=args.aspp_dilation_ratio, symmetric=args.symmetric,
                                                  use_skeleton_head=args.use_skeleton_head, use_flux_head=args.use_flux_head)
 
-            if args.use_dropblock:
+            if hasattr(args, 'use_dropblock') and args.use_dropblock:
                 model.init_dropblock(0.01, 0.15, 10, 24)
 
         elif args.architecture == 'fluxToSkeletonHead':

@@ -18,22 +18,23 @@ def get_input(args, model_io_size, mode='train', model=None):
     print('Task: ', TASK_MAP[args.task])
     assert mode in ['train', 'test']
 
-    img_files = args.img_name.split('@')
-    label_files = args.label_name.split('@') if args.label_name else None
-    seed_points_files = args.seed_points.split('@') if args.seed_points else None
-    skeleton_files = args.skeleton_name.split('@') if args.skeleton_name else None
-    flux_files = args.flux_name.split('@') if args.flux_name else None
-    weight_files = args.weight_name.split('@') if args.weight_name else None
-    skeleton_probability_files = args.skel_prob_name.split('@') if args.skel_prob_name else None
+    img_files =                     args.img_name.split('@')
+    label_files =                   args.label_name.split('@')          if args.label_name else None
+    seed_points_files =             args.seed_points.split('@')         if args.seed_points else None
+    skeleton_files =                args.skeleton_name.split('@')       if args.skeleton_name else None
+    flux_files =                    args.flux_name.split('@')           if args.flux_name else None
+    weight_files =                  args.weight_name.split('@')         if args.weight_name else None
+    skeleton_probability_files =    args.skel_prob_name.split('@')      if args.skel_prob_name else None
 
-    img = [None]*len(img_files)
-    label = [None] * len(label_files)
-    seed_points = [None] * len(img_files)
-    skeleton = [None] * len(img_files)
-    flux = [None] * len(img_files)
-    weight = [None] * len(img_files)
-    skeleton_probability = [None] * len(img_files)
-    img_shape = [None] * len(img_files)
+    img =                   [None] * len(img_files)
+    img_shape =             [None] * len(img_files)
+    label =                 [None] * len(label_files)                   if label_files else None
+    seed_points =           [None] * len(seed_points_files)             if seed_points_files else None
+    skeleton =              [None] * len(skeleton_files)                if skeleton_files else None
+    flux =                  [None] * len(flux_files)                    if flux_files else None
+    weight =                [None] * len(weight_files)                  if weight_files else None
+    skeleton_probability =  [None] * len(skeleton_probability_files)    if skeleton_probability_files else None
+
 
     if mode is 'train' and args.data_aug:
         elastic_augmentor = Elastic(alpha=6.0, p=0.75)
@@ -136,7 +137,8 @@ def get_input(args, model_io_size, mode='train', model=None):
                 weight[i] = np.array((h5py.File(weight_files[i], 'r')['main']))
                 weight[i] = np.pad(weight[i], pad_size_tuple, 'reflect')
 
-        assert img[i].shape == label[i].shape
+
+        if mode=='train': assert img[i].shape == label[i].shape, 'Image size and label size are different'
 
     if mode=='train':
         if args.task == 4:  # skeleton/flux prediction
@@ -180,8 +182,8 @@ def get_input(args, model_io_size, mode='train', model=None):
         return img_loader
     else:
         if args.task == 4:
-            dataset = AffinityDataset(volume=img, label=None, sample_input_size=model_io_size, \
-                                      sample_label_size=None, sample_stride=model_io_size // 2, \
+            dataset = AffinityDataset(volume=img, label=None, sample_input_size=model_io_size,
+                                      sample_label_size=None, sample_stride=model_io_size // 2,
                                       augmentor=None, mode='test')
         elif args.task == 5:
             dataset = MatchSkeletonDataset(image=img, skeleton=skeleton, flux=flux, skeleton_probability=skeleton_probability,
