@@ -80,20 +80,23 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
             out_skeleton = crop_volume(self.skeleton[pos[0]], vol_size, pos[1:]).astype(np.float32, copy=True)
             out_flux = crop_volume_mul(self.flux[pos[0]], vol_size, pos[1:]).astype(np.float32, copy=True)
 
-            if self.weight[pos[0]]:
+
+            if self.weight and self.weight[pos[0]]:
                 pre_weight = crop_volume(self.weight[pos[0]], vol_size, pos[1:]).astype(np.float32, copy=True)
+            else:
+                pre_weight = None
 
             # Augmentations
             if self.augmentor is not None:
                 data = {'image': out_input, 'flux': out_flux,
                         'skeleton': out_skeleton, 'context': out_label}
-                if self.weight[pos[0]]:
+                if pre_weight:
                     data['weight'] = pre_weight
 
                 augmented = self.augmentor(data, random_state=None)
                 out_input, out_flux = augmented['image'].copy(), augmented['flux'].copy()
                 out_skeleton, out_label = augmented['skeleton'].copy(), augmented['context'].copy()
-                if self.weight[pos[0]]:
+                if pre_weight:
                     pre_weight = augmented['weight'].copy()
 
             out_label_mask = out_label > 0
@@ -103,7 +106,7 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
             skeleton_distance_tx = edt.edt(~edt_mask, anisotropy=self.dataset_resolution[::-1], black_border=False, order='C', parallel=1)
             distance_th = 1.50 * self.dataset_resolution[0]
             out_skeleton = skeleton_distance_tx.copy()
-            out_skeleton[(~out_label_mask) | (skeleton_distance_tx > distance_th)] = 0
+            out_skeleton[skeleton_distance_tx > distance_th] = 0
             out_skeleton /= distance_th
             out_skeleton[out_skeleton>0] = 1 - out_skeleton[out_skeleton>0]
             out_skeleton[edt_mask] = 1
@@ -116,7 +119,7 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
             out_weight = 0.10 * np.ones_like(skeleton_distance_tx)
             out_weight[skeleton_distance_tx <= weight_distance_th] = 0.90
 
-            if self.weight[pos[0]]:
+            if pre_weight:
                 out_weight[pre_weight>0] *= 4
 
             out_input = torch.from_numpy(out_input).unsqueeze(0)
