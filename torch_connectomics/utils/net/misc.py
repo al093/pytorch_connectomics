@@ -1,12 +1,9 @@
-import os,sys
+import os, glob, re
 import numpy as np
-import h5py, time, argparse, itertools, datetime
-from scipy import ndimage
+import datetime
 
 import torch
-import torch.nn as nn
 import torch.utils.data
-import torchvision.utils as vutils
 
 from torch_connectomics.model.model_zoo import *
 from torch_connectomics.libs.sync import DataParallelWithCallback
@@ -65,7 +62,7 @@ def get_logger(args):
     writer = SummaryWriter(args.output + '/runs/' + date + '_' + time + '_' + str(args.local_rank))
     return logger, writer
 
-def setup_model(args, device, model_io_size, exact=True, non_linearity=None):
+def setup_model(args, device, model_io_size):
 
     MODEL_MAP = {'unetv0': unetv0,
                  'unetv1': unetv1,
@@ -96,13 +93,6 @@ def setup_model(args, device, model_io_size, exact=True, non_linearity=None):
 
             if hasattr(args, 'use_dropblock') and args.use_dropblock:
                 model.init_dropblock(0.01, 0.15, 10, 24)
-
-        elif args.architecture == 'fluxToSkeletonHead':
-            model = MODEL_MAP[args.architecture](xy_z_factor=args.aspp_dilation_ratio)
-        else:
-            model = MODEL_MAP[args.architecture](in_channel=args.in_channel, out_channel=args.out_channel,
-                                                 input_sz=model_io_size, batch_sz=args.batch_size,
-                                                 non_linearity=non_linearity)
     print('model: ', model.__class__.__name__)
 
     if args.local_rank is not None:
@@ -114,24 +104,25 @@ def setup_model(args, device, model_io_size, exact=True, non_linearity=None):
         model = DataParallelWithCallback(model, device_ids=range(args.num_gpu))
         model = model.to(device)
 
-    if args.load_model:
+    latest_checkpoint_file = get_latest_checkpoint_path(args.output)
+
+    if latest_checkpoint_file or args.load_model:
         print(f'Loading pretrained model: {args.pre_model}')
-        if exact:
-            checkpoint = torch.load(args.pre_model, map_location=device)
-            if checkpoint.get(model.module.__class__.__name__ + '_state_dict'):
-                model.load_state_dict(checkpoint[model.module.__class__.__name__ + '_state_dict'], strict=True)
-            else:
-                print(f"Did not find {model.module.__class__.__name__ + '_state_dict'} model dict in the checkpoint file.")
+        checkpoint = torch.load(latest_checkpoint_file or args.pre_model, map_location=device)
+        if checkpoint.get(model.module.__class__.__name__ + '_state_dict'):
+            model.load_state_dict(checkpoint[model.module.__class__.__name__ + '_state_dict'], strict=True)
         else:
-            raise NotImplementedError("Only exact loading possible")
+            print(f"Did not find {model.module.__class__.__name__ + '_state_dict'} model dict in the checkpoint file.")
     return model
 
 def restore_state(optimizer, scheduler: torch.optim.lr_scheduler.LambdaLR, args, device):
-    if bool(args.load_model) and args.warm_start:
+    latest_checkpoint_file = get_latest_checkpoint_path(args.output)
+
+    if latest_checkpoint_file or args.warm_start:
         if args.local_rank in [None, 0]:
             print('Trying to load optimizer and scheduler state from checkpoint.')
 
-        checkpoint = torch.load(args.pre_model, map_location=device)
+        checkpoint = torch.load(latest_checkpoint_file or args.pre_model, map_location=device)
         iteration = checkpoint.get('iteration', 0)
 
         if checkpoint.get('scheduler_state_dict', None):
@@ -147,6 +138,16 @@ def restore_state(optimizer, scheduler: torch.optim.lr_scheduler.LambdaLR, args,
         return iteration, loss
     else:
         return 0, 0.0
+
+def get_latest_checkpoint_path(exp_dir):
+    latest_checkpoint_file = None
+    training_files = glob.glob(exp_dir + '*.pth')
+    latest_itr = -1
+    for f in training_files:
+        itr = int(re.split(r'_|\.|/', os.path.basename(f))[-2])
+        if itr > latest_itr:
+            latest_checkpoint_file, latest_itr = f, itr
+    return latest_checkpoint_file
 
 def setup_lstm_model(args, device, model_io_size):
     model = LSTMHead(input_sz=model_io_size)
