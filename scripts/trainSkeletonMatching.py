@@ -1,8 +1,4 @@
-import os, sys
-import h5py, time, itertools, datetime
-import numpy as np
-
-import torch
+import time, copy
 
 from torch_connectomics.model.loss import *
 from torch_connectomics.utils.net import *
@@ -25,7 +21,7 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
                 print('time taken for itr: ', time.time() - start)
                 start = time.time()
 
-            sample, volume, out_skeleton_1, out_skeleton_2, out_flux, out_skeleton_p, out_weight, match = data
+            _, volume, out_skeleton_1, out_skeleton_2, out_flux, out_skeleton_p, out_weight, match = data
             volume_gpu = volume.to(device)
             out_skeleton_1_gpu, out_skeleton_2_gpu = out_skeleton_1.to(device), out_skeleton_2.to(device)
             match = match.to(device)
@@ -39,7 +35,7 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
                 model_output = models[0](volume_gpu, get_penultimate_layer=True)
                 if args.use_skeleton_head and not args.use_flux_head:
                     output_key = 'skeleton'
-                elif args.use_flux_head  and not args.use_skeleton_head:
+                elif args.use_flux_head and not args.use_skeleton_head:
                     output_key = 'flux'
                 else:
                     raise NotImplementedError("Matching implemented only with one head for now.")
@@ -90,20 +86,20 @@ def train(args, train_loader, models, device, loss_fns, optimizer, scheduler, lo
                 if writer:
                     visualize(volume, out_skeleton_1, out_skeleton_2, iteration, writer, title=title)
 
+            # Termination condition
+            training_completed = iteration >= args.iteration_total
+
             # Save model
-            if iteration % args.iteration_save == 0 or iteration >= args.iteration_total:
+            if (iteration % args.iteration_save) == 0 or training_completed:
                 save_dict = {models[0].module.__class__.__name__ + '_state_dict': models[0].state_dict(),
                              models[1].module.__class__.__name__ + '_state_dict': models[1].state_dict(),
                              'optimizer_state_dict': optimizer.state_dict(),
                              'scheduler_state_dict': scheduler.state_dict(),
                              'loss': loss,
                              'iteration': iteration}
-                torch.save(save_dict, args.output + (args.exp_name + '_%d.pth' % iteration))
+                torch.save(save_dict, args.output + '%d.pth' % iteration)
 
-            # Termination condition
-            training_completed = iteration >= args.iteration_total
         last_iteration_num = iteration
-
 
 
 def main():
@@ -121,29 +117,16 @@ def main():
         logger, writer = None, None
         print('No log file would be created.')
 
-    classification_model = setup_model(args, device, model_io_size, non_linearity=(torch.sigmoid,))
+    classification_model = setup_model(args, device, model_io_size)
 
-    print('Setting up Second model')
+    print('Setting up flux/skeleton model')
+    args_2 = copy.deepcopy(args)
+    args_2.task = 4
+    args_2.architecture = 'fluxNet'
+    args_2.in_channel = 1
+    args_2.out_channel = 3
+    flux_model = setup_model(args_2, device, model_io_size)
 
-    class ModelArgs(object):
-        pass
-
-    args2 = ModelArgs()
-    args2.task = 4
-    args2.architecture = 'fluxNet'
-    args2.in_channel = 1
-    args2.out_channel = 3
-    args2.num_gpu = args.num_gpu
-    args2.pre_model = args.pre_model
-    args2.load_model = args.load_model
-    args2.use_skeleton_head = args.use_skeleton_head
-    args2.use_flux_head = args.use_flux_head
-    args2.aspp_dilation_ratio = args.aspp_dilation_ratio
-    args2.resolution = args.resolution
-    args2.symmetric = args.symmetric
-    args2.batch_size = args.batch_size
-    args2.local_rank = args.local_rank
-    flux_model = setup_model(args2, device, model_io_size, non_linearity=(torch.tanh,))
     models = [flux_model, classification_model]
 
     print('Setup data')

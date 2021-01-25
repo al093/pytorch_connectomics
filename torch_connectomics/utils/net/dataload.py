@@ -35,7 +35,6 @@ def get_input(args, model_io_size, mode='train', model=None):
     weight =                [None] * len(weight_files)                  if weight_files else None
     skeleton_probability =  [None] * len(skeleton_probability_files)    if skeleton_probability_files else None
 
-
     if mode is 'train' and args.data_aug:
         elastic_augmentor = Elastic(alpha=6.0, p=0.75)
         augmentation_methods = [Rotate(p=0.5), Flip(p=0.5), elastic_augmentor, Grayscale(p=0.75),

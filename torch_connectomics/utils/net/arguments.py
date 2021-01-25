@@ -45,20 +45,15 @@ def get_args(mode='train', input_args=None):
     parser.add_argument('--num-gpu', type=int,  default=-1, help='Number of gpu')
     parser.add_argument('-c', '--num-cpu', type=int,  default=1, help='Number of cpu')
     parser.add_argument('-b', '--batch-size', type=int,  default=1, help='Batch size')
-
-    parser.add_argument("--local_rank", type=int, default=None)
+    parser.add_argument("--local_rank", type=int, default=None, help='Specified when using DDP')
 
     if mode == 'train':
 
         parser.add_argument('-ft','--finetune', type=bool, default=False, help='Fine-tune on previous model [Default: False]')
-
         parser.add_argument('--data-aug', type=my_bool, default=False, help='Augment data')
-
         parser.add_argument('--pad-input', type=my_bool, default=False,
                             help='Pad all input volumes with half of the augmentor sample size.')
-
         parser.add_argument('--use-dropblock', type=my_bool, default=False, help='Use Dropblock for augmentation.')
-
         parser.add_argument('--sample-whole-volume', type=my_bool, default=False,
                             help='If True, it ignore the seed points files and samples '
                                  'training blocks from the whole volume instead.')

@@ -80,7 +80,6 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
             out_skeleton = crop_volume(self.skeleton[pos[0]], vol_size, pos[1:]).astype(np.float32, copy=True)
             out_flux = crop_volume_mul(self.flux[pos[0]], vol_size, pos[1:]).astype(np.float32, copy=True)
 
-
             if self.weight and self.weight[pos[0]]:
                 pre_weight = crop_volume(self.weight[pos[0]], vol_size, pos[1:]).astype(np.float32, copy=True)
             else:

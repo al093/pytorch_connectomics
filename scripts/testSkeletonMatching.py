@@ -1,9 +1,6 @@
-import os,sys
-import h5py, time, itertools, datetime
-import numpy as np
-from tqdm import tqdm
+import copy
 from sklearn.metrics import roc_curve, precision_recall_curve
-import torch
+from tqdm import tqdm
 import tensorboardX as tfx
 
 from torch_connectomics.utils.net import *
@@ -48,19 +45,28 @@ def eval(args, val_loader, models, metrics, device, writer, save_output, itr=0):
     for iteration, data in enumerate(tqdm(val_loader), start=1):
         sys.stdout.flush()
 
-        sample, volume, out_skeleton_1, out_skeleton_2, out_flux, match = data
+        sample, volume, out_skeleton_1, out_skeleton_2, out_flux, out_skeleton_p, match = data
 
         volume_gpu, match_gpu = volume.to(device), match.to(device)
         out_skeleton_1_gpu, out_skeleton_2_gpu = out_skeleton_1.to(device), out_skeleton_2.to(device)
 
         with torch.no_grad():
             if not (args.train_end_to_end or args.use_penultimate):
-                pred_flux = out_flux.to(device)
+                if args.use_skeleton_head:
+                    pred = out_skeleton_p.to(device)
+                elif args.use_flux_head:
+                    pred = out_flux.to(device)
             else:
                 model_output = models[0](volume_gpu, get_penultimate_layer=True)
-                pred_flux = model_output['flux']
+                if args.use_skeleton_head and not args.use_flux_head:
+                    output_key = 'skeleton'
+                elif args.use_flux_head and not args.use_skeleton_head:
+                    output_key = 'flux'
+                else:
+                    raise NotImplementedError("Matching implemented only with one head for now.")
+                pred = model_output[output_key]
 
-            next_model_input = [volume_gpu, out_skeleton_1_gpu, out_skeleton_2_gpu, pred_flux]
+            next_model_input = [volume_gpu, out_skeleton_1_gpu, out_skeleton_2_gpu, pred]
 
             if args.use_penultimate:
                 last_layer = model_output['penultimate_layer']
@@ -90,26 +96,16 @@ def _run(args, save_output):
         logger, writer = None, None
         print('No log file would be created.')
 
-    classification_model = setup_model(args, device, model_io_size, non_linearity=(torch.sigmoid,))
+    classification_model = setup_model(args, device, model_io_size)
 
-    class ModelArgs(object):
-        pass
-    args2 = ModelArgs()
-    args2.task = 4
-    args2.architecture = 'fluxNet'
-    args2.in_channel = 1
-    args2.out_channel = 3
-    args2.num_gpu = args.num_gpu
-    args2.pre_model = args.pre_model
-    args2.load_model = args.load_model
-    args2.use_skeleton_head = args.use_skeleton_head
-    args2.use_flux_head = args.use_flux_head
-    args2.aspp_dilation_ratio = args.aspp_dilation_ratio
-    args2.resolution = args.resolution
-    args2.symmetric = args.symmetric
-    args2.batch_size = args.batch_size
-    args2.local_rank = args.local_rank
-    flux_model = setup_model(args2, device, model_io_size, non_linearity=(torch.tanh,))
+    print('Setting up flux/skeleton model')
+    args_2 = copy.deepcopy(args)
+    args_2.task = 4
+    args_2.architecture = 'fluxNet'
+    args_2.in_channel = 1
+    args_2.out_channel = 3
+    flux_model = setup_model(args_2, device, model_io_size)
+
     models = [flux_model, classification_model]
 
     val_loader, _, _ = get_input(args, model_io_size, 'test', model=None)
