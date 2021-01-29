@@ -15,7 +15,6 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
     def __init__(self,
                  volume, label=None, skeleton=None, flux=None, weight=None,
                  sample_input_size=(8, 64, 64),
-                 sample_label_size=None,
                  dataset_resolution=None,
                  augmentor=None,
                  mode='train',
@@ -47,8 +46,7 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
 
         self.augmentor = augmentor  # data augmentation
 
-        self.sample_input_size = np.array(sample_input_size)  # model input size
-        self.sample_label_size = np.array(sample_label_size)  # model label size
+        self.sample_aug_input_size = np.array(sample_input_size)  # input size needed for augmentation
         self.dataset_resolution = dataset_resolution
 
         self.seed_points = seed_points
@@ -60,7 +58,6 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
         self.sample_num_c = np.cumsum([0] + list(self.sample_num))
 
         self.dilation_sel = scipy.ndimage.generate_binary_structure(3, 1)
-        self.minimum_seg_size = np.prod(self.sample_input_size) // 500
         self.sample_whole_vol = sample_whole_vol
 
         self.pad_size_tuple = ((pad_size[0], pad_size[0]), (pad_size[1], pad_size[1]), (pad_size[2], pad_size[2]))
@@ -71,7 +68,7 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         self.open_files_to_read()
 
-        vol_size = self.sample_input_size
+        vol_size = self.sample_aug_input_size
 
         if self.mode == 'train':
             pos = self.get_pos_seed()
@@ -138,23 +135,19 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
     def get_pos_dataset(self, index):
         return np.argmax(index < self.sample_num_c) - 1  # which dataset
 
-    def get_pos_seed(self, offset=None):
+    def get_pos_seed(self):
         pos = [0, 0, 0, 0]
-        # pick a dataset
         did = np.random.choice(len(self.seed_points))  # sample from all datasets equally
         pos[0] = did
-
         if self.sample_whole_vol:
             for i in range(3):
-                pos[1+i] = np.random.randint(self.half_input_sz[i]+1, self.input_size[did][i]-self.half_input_sz[i]-1, dtype=int)
+                pos[1+i] = np.random.randint(0, self.input_size[did][i] - self.sample_aug_input_size[i] + 1, dtype=int)
         else:
-            # pick a index
+            # pick index
             size_bin = np.random.choice(len(self.seed_points[did]))
-            # pick a position
+            # pick position
             idx = np.random.randint(self.seed_points[did][size_bin].shape[0])
-            pos[1:] = self.seed_points[did][size_bin][idx]
-
-        pos[1:] = pos[1:] + (offset if offset else self.seed_points_offset)
+            pos[1:] = self.seed_points[did][size_bin][idx] + self.seed_points_offset
         return pos
 
     def get_pos_test(self, index):
@@ -165,11 +158,10 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
         return np.concatenate(([did], pos))
 
     def get_vol(self, pos):
-        out_input = crop_volume(self.input[pos[0]], self.sample_input_size, pos[1:])
+        out_input = crop_volume(self.input[pos[0]], self.sample_aug_input_size, pos[1:])
         out_input = torch.from_numpy(out_input.copy())
         out_input = out_input.unsqueeze(0)
         return out_input
-
 
     def compute_flux(self, segment, skeleton):
         skeleton_points = np.transpose(np.nonzero(skeleton))
@@ -240,19 +232,6 @@ class FluxAndSkeletonDataset(torch.utils.data.Dataset):
                     old_seg_ref[max_seg_id] = seg_id  # reference to the old seg_id
                     max_seg_id += 1
         return label_new, old_seg_ref, True
-
-    def remove_small_seg(self, label):
-        seg_ids = np.unique(label)
-        seg_ids = seg_ids[seg_ids>0]
-        for seg_id in seg_ids:
-            mask = (label == seg_id)
-            if mask.sum() < self.minimum_seg_size:
-                label[mask] = 0
-
-        if np.all(label == 0):
-            return False
-        else:
-            return True
 
     def open_files_to_read(self):
         if not self.h5_files_opened:

@@ -38,8 +38,7 @@ def get_input(args, model_io_size, mode='train', model=None):
     if mode is 'train' and args.data_aug:
         elastic_augmentor = Elastic(alpha=6.0, p=0.75)
         augmentation_methods = [Rotate(p=0.5), Flip(p=0.5), elastic_augmentor, Grayscale(p=0.75),
-                                Blur(min_sigma=1, max_sigma=2, min_slices=model_io_size[0]//6,
-                                     max_slices=model_io_size[0]//4, p=0.4),
+                                Blur(min_sigma=1, max_sigma=2, min_slices=model_io_size[0]//6, max_slices=model_io_size[0]//4, p=0.4),
                                 CutNoise(), CutBlur(), MotionBlur(), MissingParts(p=0.5)]
 
         # if the input is symmetric, and more importantly if the resolution is isometric
@@ -136,13 +135,11 @@ def get_input(args, model_io_size, mode='train', model=None):
                 weight[i] = np.array((h5py.File(weight_files[i], 'r')['main']))
                 weight[i] = np.pad(weight[i], pad_size_tuple, 'reflect')
 
-
         if mode=='train': assert img[i].shape == label[i].shape, 'Image size and label size are different'
 
     if mode=='train':
         if args.task == 4:  # skeleton/flux prediction
             dataset = partial(FluxAndSkeletonDataset, sample_input_size=sample_input_size,
-                                             sample_label_size=sample_input_size,
                                              augmentor=augmentor, mode='train', seed_points=seed_points,
                                              pad_size=pad_size.astype(np.int32), dataset_resolution=args.resolution,
                                              sample_whole_vol=args.sample_whole_volume)
